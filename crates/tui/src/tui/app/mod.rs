@@ -11,6 +11,7 @@ mod login;
 mod menu;
 mod nav;
 mod playback;
+mod queue;
 mod search;
 mod tracks;
 
@@ -33,6 +34,7 @@ use crate::item::{Item, Kind};
 use crate::search::Fuzzy;
 
 pub use playback::{active_download, build_option_rows};
+pub use queue::{LYRICS_HOLD, active_line, playing_lines, up_next};
 
 pub const PLAYLISTS: &str = "/playlists";
 
@@ -93,6 +95,8 @@ pub enum Msg {
     },
     EditItem(Result<Box<Item>, String>),
     TracksLoaded(String, Result<(), String>),
+    /// Lyrics of a track (by rating key); `None` when it has none.
+    Lyrics(String, Result<Option<patina_core::lyrics::Lyrics>, String>),
     TracksProgress(usize, usize),
     TracksApplied(Result<(), String>),
     /// A plex.tv link code to show on the sign-in screen, or why there is none.
@@ -184,6 +188,11 @@ pub struct App {
     pub notice: Option<Notice>,
     pub pending: usize,
     pub now_playing: Option<NowPlaying>,
+    /// When `now_playing` last changed, to interpolate the position between ticks.
+    np_at: Instant,
+    pub queue: Option<QueueView>,
+    /// Lyrics by track rating key; `None` while loading.
+    lyrics: Option<queue::LyricsSlot>,
     /// Tracks to append once the play queue of `.0` (a rating key) is running.
     queue_after: Option<(String, Vec<Metadata>)>,
     pub downloads: Vec<Download>,
@@ -244,6 +253,9 @@ impl App {
             notice: None,
             pending: 0,
             now_playing: None,
+            np_at: Instant::now(),
+            queue: None,
+            lyrics: None,
             queue_after: None,
             downloads: downloads::list(),
             inspector_scroll: 0,
@@ -558,6 +570,7 @@ impl App {
             },
             Msg::Watchlisted(guids) => self.watchlist = guids,
             Msg::TracksLoaded(show, result) => self.on_tracks_loaded(show, result),
+            Msg::Lyrics(key, result) => self.on_lyrics(key, result),
             Msg::TracksProgress(done, total) => self.on_tracks_progress(done, total),
             Msg::TracksApplied(result) => self.on_tracks_applied(result),
             Msg::CollectionRows(result) => {
@@ -653,7 +666,15 @@ impl App {
                     self.load_counts();
                 }
             }
-            CoreEvent::NowPlaying(np) => self.now_playing = np.map(|b| *b),
+            CoreEvent::NowPlaying(np) => {
+                self.now_playing = np.map(|b| *b);
+                self.np_at = Instant::now();
+                match (&self.now_playing, &self.modal) {
+                    (None, Some(Modal::Queue { .. } | Modal::Lyrics { .. })) => self.modal = None,
+                    (Some(_), Some(Modal::Lyrics { .. })) => self.load_lyrics(),
+                    _ => {}
+                }
+            }
             CoreEvent::Queue(q) => self.on_queue(q),
             CoreEvent::Activities(list) => self.activities = list,
             CoreEvent::Revision(_) => {
@@ -692,6 +713,7 @@ impl App {
 
     /// Once playback of a track is running, queue the rest of its column.
     fn on_queue(&mut self, q: Option<QueueView>) {
+        self.queue = q.clone();
         let Some(q) = q else { return };
         let current = q.items.iter().find(|i| Some(i.uid) == q.current).map(|i| i.item.rating_key().to_string());
         if self.queue_after.as_ref().is_some_and(|(first, _)| current.as_deref() == Some(first.as_str()))

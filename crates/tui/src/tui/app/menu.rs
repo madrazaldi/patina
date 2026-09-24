@@ -17,6 +17,13 @@ impl App {
             rows.push((PlayAll, "Play all", "a"));
             rows.push((Shuffle, "Shuffle", "z"));
         }
+        if super::queue::queueable(&item) {
+            rows.push((PlayNext, "Play next", "n"));
+            rows.push((AddToQueue, "Add to queue", "N"));
+        }
+        if item.rating_key.is_some() && matches!(kind, Kind::Artist | Kind::Album | Kind::Track) {
+            rows.push((Radio, "Start radio", ""));
+        }
         if item.is_watchable() {
             rows.push((MarkWatched, "Mark watched", "w"));
             rows.push((MarkUnwatched, "Mark unwatched", "u"));
@@ -144,6 +151,9 @@ impl App {
                 }
             }
             PlayOptions => self.open_play_options(),
+            PlayNext => self.enqueue(true),
+            AddToQueue => self.enqueue(false),
+            Radio => self.start_radio(),
             MarkWatched => self.set_watched(true),
             MarkUnwatched => self.set_watched(false),
             ClearProgress => self.clear_progress(),

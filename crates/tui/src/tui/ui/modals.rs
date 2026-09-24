@@ -35,6 +35,11 @@ pub const HELP: &[(&str, &str)] = &[
     ("< / >", "previous / next in the queue"),
     ("- / =", "seek back / forward 10 s"),
     ("X", "stop the player"),
+    ("n / N", "play next / add to the end of the queue"),
+    ("Q", "play queue: jump, remove, J/K reorder, z shuffle"),
+    ("E", "stop after this (when Up next shows: > plays it now)"),
+    ("Y", "lyrics of the playing track (enter seeks to a line)"),
+    ("m → radio", "start radio from an artist, album or track"),
     ("", "Library"),
     ("w / u", "mark watched / unwatched"),
     ("*", "rate 0–10"),
@@ -135,6 +140,8 @@ pub(super) fn draw_modal(f: &mut Frame, app: &App, theme: &Theme) {
         }
         Modal::Filter(p) => draw_filters(f, app, p, theme),
         Modal::Tracks(m) => draw_tracks(f, app, m, theme),
+        Modal::Queue { sel } => super::player::draw_queue(f, app, *sel, theme),
+        Modal::Lyrics { manual } => super::player::draw_lyrics(f, app, *manual, theme),
         Modal::Menu(m) => {
             let width = 46u16;
             let area = centered(screen, width, m.rows.len() as u16 + 2);

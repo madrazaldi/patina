@@ -1,6 +1,5 @@
 use super::*;
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use patina_core::player::Control;
 use patina_core::session;
 
 use crate::tui::column::SortKey;
@@ -121,12 +120,14 @@ impl App {
                 }
             }
             KeyCode::Char('o') => self.open_play_options(),
-            KeyCode::Char('P') => self.control(Control::TogglePause),
-            KeyCode::Char('>') => self.control(Control::Next),
-            KeyCode::Char('<') => self.control(Control::Previous),
-            KeyCode::Char('=') => self.control(Control::SeekRelative(SEEK_SECONDS)),
-            KeyCode::Char('-') => self.control(Control::SeekRelative(-SEEK_SECONDS)),
-            KeyCode::Char('X') => self.control(Control::Stop),
+            KeyCode::Char('P' | '>' | '<' | '=' | '-' | 'X') => {
+                self.transport_key(key);
+            }
+            KeyCode::Char('n') => self.enqueue(true),
+            KeyCode::Char('N') => self.enqueue(false),
+            KeyCode::Char('Q') => self.open_queue(),
+            KeyCode::Char('Y') => self.open_lyrics(),
+            KeyCode::Char('E') => self.toggle_stop_after(),
             KeyCode::Char('w') => self.set_watched(true),
             KeyCode::Char('u') => self.set_watched(false),
             KeyCode::Char('*') => self.open_rate(),
@@ -257,6 +258,8 @@ impl App {
             }
             Modal::Filter(p) => self.filter_modal_key(p, key),
             Modal::Tracks(m) => self.tracks_key(m, key),
+            Modal::Queue { sel } => self.queue_key(sel, key),
+            Modal::Lyrics { manual } => self.lyrics_key(manual, key),
             Modal::Menu(mut m) => {
                 if down {
                     m.cursor = (m.cursor + 1).min(m.rows.len().saturating_sub(1));

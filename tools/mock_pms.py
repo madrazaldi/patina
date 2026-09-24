@@ -143,6 +143,45 @@ def episode(show_i, s, e):
     return m
 
 
+# A small music library: one artist, one album of four tracks, each with synced (LRC) lyrics.
+TRACK_TITLES = ["Dial Tone", "Undersea Cable", "Relay Station", "Last Transmission"]
+
+
+def artist():
+    return {"ratingKey": "3000", "key": "/library/metadata/3000/children", "type": "artist", "title": "The Copper Lines",
+            "summary": "A band that only exists on the mock server.", "thumb": img("thumb", 6), "art": img("art", 6),
+            "librarySectionID": 3, "childCount": 1, "Genre": [{"id": 40, "tag": "Ambient", "filter": "genre=40"}]}
+
+
+def album():
+    return {"ratingKey": "3100", "key": "/library/metadata/3100/children", "type": "album", "title": "Low Tide Radio",
+            "parentRatingKey": "3000", "parentTitle": "The Copper Lines", "year": 2021, "thumb": img("thumb", 7),
+            "librarySectionID": 3, "leafCount": len(TRACK_TITLES), "studio": "Mock Records"}
+
+
+def track(i):
+    rk = str(3101 + i)
+    part_id = int(rk)
+    return {"ratingKey": rk, "key": f"/library/metadata/{rk}", "type": "track", "title": TRACK_TITLES[i], "index": i + 1,
+            "parentIndex": 1, "parentRatingKey": "3100", "parentTitle": "Low Tide Radio", "grandparentRatingKey": "3000",
+            "grandparentTitle": "The Copper Lines", "thumb": img("thumb", 7), "librarySectionID": 3, "duration": 180000,
+            "Media": [{"id": part_id, "duration": 180000, "container": "mkv", "audioCodec": "aac", "audioChannels": 2,
+                       "Part": [{"id": part_id, "key": f"/library/parts/{part_id}/1700000000/file.mkv", "duration": 180000,
+                                 "file": f"/media/music/{rk}.mkv", "container": "mkv",
+                                 "Stream": [{"id": part_id * 10 + 2, "streamType": 2, "codec": "aac", "channels": 2, "selected": True,
+                                             "displayTitle": "AAC Stereo"},
+                                            {"id": part_id * 10 + 5, "streamType": 4, "codec": "lrc", "format": "lrc",
+                                             "key": f"/library/streams/{part_id * 10 + 5}"}]}]}]}
+
+
+def lyrics(stream_id):
+    title = TRACK_TITLES[(stream_id // 10 - 3101) % len(TRACK_TITLES)]
+    words = ["The line goes quiet", "then a voice comes through", "static on the water", "someone calling you",
+             "copper under harbour", "carrying the tide", "every signal leaves a trace", "and none of them have died"]
+    lines = [f"[ti:{title}]"] + [f"[{(5 * n) // 60:02}:{(5 * n) % 60:02}.00]{words[n % len(words)]}" for n in range(36)]
+    return "\n".join(lines)
+
+
 STATE = {}
 # Rating keys removed from Continue Watching.
 HIDDEN = set()
@@ -295,6 +334,12 @@ def find(rk):
         return episode((n - 1000) // 100, (n % 100) // 10, n % 10)
     if n == 900 and not COLLECTION["gone"]:
         return collection()
+    if n == 3000:
+        return artist()
+    if n == 3100:
+        return album()
+    if 3101 <= n < 3101 + len(TRACK_TITLES):
+        return track(n - 3101)
     return None
 
 
@@ -304,8 +349,10 @@ def leaves(rk):
         return []
     if item["type"] == "show":
         return [e for s in children(rk) for e in children(s["ratingKey"])]
-    if item["type"] == "season":
+    if item["type"] in ("season", "album"):
         return children(rk)
+    if item["type"] == "artist":
+        return children("3100")
     return [item]
 
 
@@ -315,6 +362,10 @@ def children(rk):
         return [season(n - 500, s) for s in (1, 2)]
     if 600 <= n < 700:
         return [episode((n - 600) // 10, n % 10, e) for e in (1, 2, 3)]
+    if n == 3000:
+        return [album()]
+    if n == 3100:
+        return [track(i) for i in range(len(TRACK_TITLES))]
     return []
 
 
@@ -480,6 +531,14 @@ class Handler(BaseHTTPRequestHandler):
                 if param in q:
                     sel[kind] = int(q[param][0])
             return self.send_json(mc())
+        m = re.fullmatch(r"/library/streams/(\d+)", p)
+        if m:
+            body = lyrics(int(m.group(1))).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            return self.wfile.write(body)
         # --- media -----------------------------------------------------------------
         if re.fullmatch(r"/library/parts/\d+/\d+/file\.mkv", p):
             return self.send_file(os.path.join(MEDIA, "movie.mkv"), "video/x-matroska")
@@ -509,6 +568,8 @@ class Handler(BaseHTTPRequestHandler):
                  "Location": [{"id": 1, "path": "/media/movies"}], "scannedAt": int(time.time()) - 3600},
                 {"key": "2", "title": "TV Shows", "type": "show", "agent": "tv.plex.agents.series", "scanner": "Plex TV Series",
                  "Location": [{"id": 2, "path": "/media/tv"}], "scannedAt": int(time.time()) - 7200},
+                {"key": "3", "title": "Music", "type": "artist", "agent": "tv.plex.agents.music", "scanner": "Plex Music",
+                 "Location": [{"id": 3, "path": "/media/music"}], "scannedAt": int(time.time()) - 7200},
             ]))
         if p == "/hubs":
             movies = all_movies()
@@ -541,7 +602,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(mc(Directory=[{"key": str(10 + i), "title": g} for i, g in enumerate(GENRES)]))
             if what == "collections":
                 return self.send_json(mc(Metadata=[]))
-            items = all_movies() if sid == "1" else all_shows()
+            items = all_movies() if sid == "1" else [artist()] if sid == "3" else all_shows()
+            if sid == "3" and q.get("type") in (["9"], ["10"]):
+                items = [album()] if q["type"] == ["9"] else children("3100")
             if sid == "2" and q.get("type") in (["3"], ["4"]):
                 seasons = [s for sh in items for s in children(sh["ratingKey"])]
                 items = seasons if q["type"] == ["3"] else [e for s in seasons for e in children(s["ratingKey"])]
@@ -589,6 +652,10 @@ class Handler(BaseHTTPRequestHandler):
             if item and item["type"] == "episode" and q.get("continuous") == ["1"]:
                 n = int(rk)
                 items = [episode((n - 1000) // 100, (n % 100) // 10, e) for e in range(n % 10, 4)]
+            elif item and item["type"] in ("artist", "album"):
+                items = leaves(rk)
+                if q.get("shuffle") == ["1"]:
+                    items = items[1:] + items[:1]
             elif item and item["type"] in ("show", "season"):
                 eps = []
                 for s in (children(rk) if item["type"] == "show" else [item]):

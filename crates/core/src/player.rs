@@ -331,6 +331,8 @@ struct Current {
     /// In the closing credits or last seconds, with something queued after.
     ending: bool,
     last_ui: Instant,
+    /// mpv's playlist entry id for this item, to match its `end-file`.
+    mpv_id: Option<i64>,
 }
 
 impl Current {
@@ -632,8 +634,11 @@ impl Player {
                     apply_plex_streams(&self.server, &self.mpv, c).await;
                 }
             }
-            Event::EndFile { reason, .. } => {
-                if let Some(mut c) = self.cur.take() {
+            Event::EndFile { reason, playlist_entry_id, .. } => {
+                // Jumping or skipping moves `playlist-pos` before the old file's
+                // end-file arrives; that one ended already, not the new item.
+                let other = matches!((playlist_entry_id, self.cur.as_ref().and_then(|c| c.mpv_id)), (Some(e), Some(c)) if e != c);
+                if !other && let Some(mut c) = self.cur.take() {
                     let completed = reason == "eof";
                     c.reached_end |= completed;
                     self.finish(c, completed).await;
@@ -664,7 +669,9 @@ impl Player {
         }
         let Some(index) = uid.and_then(|u| self.index_of(u)) else { return };
         let e = &self.entries[index];
-        self.cur = Some(begin(&self.server, &e.item, e.uid, e.media_index, e.transcode_session.clone()).await);
+        let mut c = begin(&self.server, &e.item, e.uid, e.media_index, e.transcode_session.clone()).await;
+        c.mpv_id = self.mpv.get_property(&format!("playlist/{pos}/id")).await.ok().and_then(|v| v.as_i64());
+        self.cur = Some(c);
         self.publish();
         self.emit_queue();
         if self.reports()
@@ -967,6 +974,7 @@ async fn begin(server: &PlexServer, item: &Metadata, uid: u64, media_index: usiz
         prompted_marker: None,
         ending: false,
         last_ui: Instant::now() - Duration::from_secs(5),
+        mpv_id: None,
     }
 }
 

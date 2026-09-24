@@ -37,6 +37,15 @@ pub enum Modal {
     Pick(Picker),
     /// Audio and subtitle tracks for a whole show or season.
     Tracks(Box<TracksModal>),
+    /// The running play queue; `sel` is the uid of the selected entry.
+    Queue {
+        sel: Option<u64>,
+    },
+    /// Lyrics of the playing track. `manual` holds a line picked with j/k,
+    /// and when, pausing the follow of synced lyrics for a while.
+    Lyrics {
+        manual: Option<(usize, std::time::Instant)>,
+    },
 }
 
 // ---- action menu ---------------------------------------------------------
@@ -45,6 +54,9 @@ pub enum Modal {
 pub enum MenuAction {
     Play,
     PlayFromStart,
+    PlayNext,
+    AddToQueue,
+    Radio,
     PlayAll,
     Shuffle,
     PlayOptions,

@@ -4,6 +4,7 @@
 mod columns;
 mod inspector;
 mod modals;
+mod player;
 mod search;
 mod stage;
 
@@ -19,6 +20,7 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use patina_core::config::ACCENTS;
 use patina_core::state::NowPlaying;
+use patina_plex::Metadata;
 use patina_core::state::Stage;
 use patina_plex::stream_type::{AUDIO as STREAM_AUDIO, SUBTITLE as STREAM_SUBTITLE};
 
@@ -68,9 +70,10 @@ fn parse_hex(s: &str) -> Option<Color> {
 }
 
 pub fn draw(f: &mut Frame, app: &mut App, theme: &Theme) {
-    let [header, body, footer] = Layout::vertical([
+    let [header, body, bar, footer] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Min(3),
+        Constraint::Length(player::bar_height(app)),
         Constraint::Length(1),
     ])
     .areas(f.area());
@@ -102,6 +105,7 @@ pub fn draw(f: &mut Frame, app: &mut App, theme: &Theme) {
     if let Some(area) = insp_area {
         draw_inspector(f, app, theme, area);
     }
+    player::draw_now_playing(f, app, theme, bar);
     draw_footer(f, app, theme, footer);
 
     if app.search.is_some() {
@@ -223,11 +227,8 @@ fn draw_header(f: &mut Frame, app: &App, theme: &Theme, area: Rect) {
     f.render_widget(Paragraph::new(Line::from(spans)), area);
 
     let mut right = Vec::new();
-    if let Some(np) = &app.now_playing {
+    if let Some(np) = app.now_playing.as_ref().filter(|_| !app.ready()) {
         right.push(Span::styled(format!("{} ", now_playing(np)), Style::default().fg(theme.accent)));
-        if np.ending && np.queue_pos + 1 < np.queue_len {
-            right.push(Span::styled("Up next ", Style::default().fg(theme.dim)));
-        }
     }
     if let Some(name) = app.username() {
         right.push(Span::styled(format!("{name} "), Style::default().fg(theme.dim)));
