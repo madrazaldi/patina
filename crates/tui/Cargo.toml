@@ -1,0 +1,30 @@
+[package]
+name = "patina-tui"
+description = "Patina's terminal client: a ratatui browser with Miller columns and a scriptable CLI"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "patina-tui"
+path = "src/main.rs"
+
+[dependencies]
+patina-core.workspace = true
+patina-plex.workspace = true
+anyhow.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+base64 = "0.23"
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+clap = { version = "4.6", features = ["derive", "env"] }
+crossterm = { version = "0.29", features = ["event-stream"] }
+nucleo-matcher = "0.3.1"
+open = "5"
+ratatui = { version = "0.30", features = ["unstable-rendered-line-info"] }
+tracing-appender = "0.2.5"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+unicode-width = "0.2.2"

@@ -201,6 +201,19 @@ impl PlexServer {
         }
     }
 
+    /// Lock or unlock fields (`title`, `summary`, `label`, ...) without changing
+    /// their values; locked fields are kept when agents refresh the item.
+    pub async fn lock_fields(&self, rating_key: &str, section_id: Option<i64>, kind: u32, fields: &[(&str, bool)]) -> Result<()> {
+        let mut p = Params::new().set("type", kind).set("id", rating_key);
+        for (field, locked) in fields {
+            p.push(format!("{field}.locked"), *locked as u8);
+        }
+        match section_id {
+            Some(section) => self.put(&format!("/library/sections/{section}/all"), &p).await,
+            None => self.put(&format!("/library/metadata/{rating_key}"), &p).await,
+        }
+    }
+
     /// Add or remove tags (genre, collection, label, ...).
     pub async fn edit_tags(&self, rating_key: &str, kind: u32, tag: &str, add: &[&str], remove: &[&str]) -> Result<()> {
         let mut p = Params::new().set("type", kind).set("id", rating_key);
