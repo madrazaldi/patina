@@ -8,6 +8,10 @@ impl App {
 
     pub(super) fn editable(&mut self) -> Option<Item> {
         let item = self.selected_detail().cloned()?;
+        if !self.owned() {
+            self.info("Only the server owner can edit");
+            return None;
+        }
         if item.rating_key.is_none() || item.type_number().is_none() || !detail_kind(&item) {
             self.info("Select a library item");
             return None;
@@ -30,28 +34,51 @@ impl App {
         });
     }
 
-    pub(super) fn submit_edit(&mut self, item: Item, field: &'static str, value: String) {
-        let key = item.rating_key.clone().unwrap_or_default();
-        if field != "labels" {
-            self.patch(&key, &mut |i| set_field_value(i, field, &value));
+    /// Ask for a new value of `field`, starting from `value` (the current one by default).
+    pub(super) fn edit_field(&mut self, m: EditModal, field: &'static str, value: Option<String>) {
+        let label = m.fields.iter().find(|f| f.0 == field).map_or(field, |f| f.1);
+        self.modal = Some(Modal::Input(Input {
+            title: format!("{label} · {}", m.item.title()),
+            hint: match field {
+                "genre" | "label" => "Comma-separated".into(),
+                "originallyAvailableAt" => "YYYY-MM-DD".into(),
+                _ => label.into(),
+            },
+            value: value.unwrap_or_else(|| field_value(&m.item, field)),
+            purpose: InputPurpose::EditField { edit: Box::new(m), field },
+        }));
+    }
+
+    /// Save one field (only if changed), then return to the edit dialog.
+    pub(super) fn submit_edit(&mut self, mut m: EditModal, field: &'static str, value: String) {
+        if let Some(why) = invalid_value(field, &value) {
+            self.error(why);
+            return self.edit_field(m, field, Some(value));
         }
+        let before = field_value(&m.item, field);
+        let key = m.item.rating_key.clone().unwrap_or_default();
         let core = self.core.clone();
-        self.spawn_op(Refresh::Item(key.clone()), async move {
-            if field == "labels" {
-                let labels: Vec<String> = value.split(',').map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect();
-                let current: Vec<String> = item.labels.iter().map(|t| t.name().to_string()).filter(|l| !l.is_empty()).collect();
-                let tag = TagEdit {
-                    tag: "label".into(),
-                    add: labels.iter().filter(|l| !current.contains(l)).cloned().collect(),
-                    remove: current.iter().filter(|l| !labels.contains(l)).cloned().collect(),
-                };
-                edit::edit_metadata(&core, &key, &[], &[tag]).await
-            } else {
-                edit::edit_metadata(&core, &key, &[(field.to_string(), value)], &[]).await
+        if is_tag_field(field) {
+            let (add, remove) = tag_diff(&split_tags(&before), &split_tags(&value));
+            if !add.is_empty() || !remove.is_empty() {
+                let tag = TagEdit { tag: field.into(), add, remove };
+                self.spawn_op(Refresh::Item(key.clone()), async move {
+                    edit::edit_metadata(&core, &key, &[], &[tag]).await.map_err(err)?;
+                    Ok(Some("Saved".into()))
+                });
+                let tags: Vec<patina_plex::Tag> = split_tags(&value).into_iter().map(|t| patina_plex::Tag { tag: Some(t), ..Default::default() }).collect();
+                if field == "genre" { m.item.genres = tags } else { m.item.labels = tags }
             }
-            .map_err(err)?;
-            Ok(Some("Saved (field locked against agent updates)".into()))
-        });
+        } else if value != before {
+            self.patch(&key, &mut |i| set_field_value(i, field, &value));
+            set_field_value(&mut m.item, field, &value);
+            let v = value.clone();
+            self.spawn_op(Refresh::Item(key.clone()), async move {
+                edit::edit_metadata(&core, &key, &[(field.to_string(), v)], &[]).await.map_err(err)?;
+                Ok(Some("Saved (field locked against agent updates)".into()))
+            });
+        }
+        self.modal = Some(Modal::Edit(m));
     }
 
     pub(super) fn toggle_field_lock(&mut self, item: &Item, field: &'static str) {
@@ -60,6 +87,13 @@ impl App {
         let (section, kind) = (item.library_section_id, item.type_number().unwrap_or(1));
         let done = if lock { "Field locked" } else { "Field unlocked" };
         self.server_op(Refresh::Item(key.clone()), done, move |s| async move { s.lock_fields(&key, section, kind, &[(field, lock)]).await });
+    }
+
+    pub(super) fn set_artwork(&mut self, rating_key: String, art: bool, url: String) {
+        let done = if art { "Background updated" } else { "Poster updated" };
+        self.server_op(Refresh::Item(rating_key.clone()), done, move |s| async move {
+            if art { s.set_art(&rating_key, &url).await } else { s.set_poster(&rating_key, &url).await }
+        });
     }
 
     /// Open a picker whose rows load in the background.
@@ -74,43 +108,67 @@ impl App {
         });
     }
 
-    pub(super) fn open_posters(&mut self) {
+    /// Posters, or backgrounds when `art`, to choose from (or an image URL).
+    pub(super) fn open_artwork(&mut self, art: bool) {
         let Some(item) = self.editable() else { return };
         let key = item.rating_key.clone().unwrap_or_default();
         let server = self.server();
         let k = key.clone();
-        self.open_picker(format!("Poster · {}", item.title()), PickKind::Posters { rating_key: key }, " enter use · v view · esc close ", async move {
-            let posters = server?.posters(&k).await.map_err(err)?;
-            let mut rows = vec![(PickEntry::PosterFromUrl, "+ Use an image URL…".to_string())];
-            for (i, p) in posters.into_iter().enumerate() {
+        let what = if art { "Background" } else { "Poster" };
+        self.open_picker(format!("{what} · {}", item.title()), PickKind::Artwork { rating_key: key, art }, " enter use · v view · esc close ", async move {
+            let server = server?;
+            let list = if art { server.arts(&k).await } else { server.posters(&k).await }.map_err(err)?;
+            let mut rows = vec![(PickEntry::ArtworkFromUrl, "+ Use an image URL…".to_string())];
+            for (i, p) in list.into_iter().enumerate() {
                 let selected = p.extra.get("selected").is_some_and(|v| v.as_bool().unwrap_or(v.as_i64() == Some(1)));
                 let provider = p.extra.get("provider").and_then(|v| v.as_str()).unwrap_or("uploaded").to_string();
-                let label = format!("{} {provider} #{}", if selected { "●" } else { " " }, i + 1);
-                rows.push((PickEntry::Poster(Box::new(Item::from(p))), label));
+                let label = if selected { format!("● Current · {provider} #{}", i + 1) } else { format!("  {provider} #{}", i + 1) };
+                rows.push((PickEntry::Artwork(Box::new(Item::from(p))), label));
             }
             Ok(rows)
         });
     }
 
-    pub(super) fn search_matches(&mut self, rating_key: String, query: String, year: Option<i64>) {
+    /// A collection's display mode (`sort` false) or sort order.
+    pub(super) fn open_collection_setting(&mut self, sort: bool) {
+        let Some(item) = self.editable().filter(|i| i.kind() == Kind::Collection) else { return };
+        let rating_key = item.rating_key.clone().unwrap_or_default();
+        let (title, current, choices, kind) = if sort {
+            ("Sort", item.collection_sort().unwrap_or(0), COLLECTION_SORTS, PickKind::CollectionSort { rating_key })
+        } else {
+            ("Show in library", item.collection_mode.unwrap_or(-1) as i32, COLLECTION_MODES, PickKind::CollectionMode { rating_key })
+        };
+        let rows: Vec<(PickEntry, String)> =
+            choices.iter().map(|(v, l)| (PickEntry::Value(*v), format!("{} {l}", if *v == current { "●" } else { " " }))).collect();
+        self.open_picker(format!("{title} · {}", item.title()), kind, " enter choose · esc close ", async move { Ok(rows) });
+    }
+
+    /// Match candidates: the agent's own guesses, or a search by `query` (title
+    /// and year). As on the GUI, the dialog also searches again or unmatches.
+    pub(super) fn search_matches(&mut self, rating_key: String, title: String, year: Option<i64>, query: Option<String>) {
         let server = self.server();
         let k = rating_key.clone();
-        self.open_picker(format!("Match · {query}"), PickKind::Matches { rating_key }, " enter apply · esc close ", async move {
-            let title = Some(query.as_str()).filter(|q| !q.is_empty());
-            let results = server?.matches(&k, title, year, None).await.map_err(err)?;
-            Ok(results
-                .into_iter()
-                .map(|m| {
-                    let mut label = m.name.clone().unwrap_or_default();
-                    if let Some(y) = m.year {
-                        label.push_str(&format!(" ({y})"));
-                    }
-                    if let Some(sc) = m.score {
-                        label.push_str(&format!(" · {sc}%"));
-                    }
-                    (PickEntry::Match(Box::new(m)), label)
-                })
-                .collect())
+        let heading = format!("Match · {}", query.as_deref().unwrap_or(&title));
+        let kind = PickKind::Matches { rating_key, title, year };
+        self.open_picker(heading, kind, " enter apply · esc close ", async move {
+            let q = query.as_deref().filter(|q| !q.is_empty());
+            let results = server?.matches(&k, q, q.and(year), None).await.map_err(err)?;
+            let mut rows = vec![(PickEntry::MatchSearch, "+ Search by title…".to_string())];
+            rows.extend(results.into_iter().map(|m| {
+                let mut label = m.name.clone().unwrap_or_default();
+                if let Some(y) = m.year {
+                    label.push_str(&format!(" ({y})"));
+                }
+                if let Some(sc) = m.score {
+                    label.push_str(&format!(" · {sc}%"));
+                }
+                if m.matched {
+                    label.push_str(" · current");
+                }
+                (PickEntry::Match(Box::new(m)), label)
+            }));
+            rows.push((PickEntry::Unmatch, "  Unmatch…".to_string()));
+            Ok(rows)
         });
     }
 
@@ -180,22 +238,47 @@ impl App {
         match (p.kind, entry) {
             (PickKind::Sort, PickEntry::Sort(d)) => self.choose_sort(*d),
             (PickKind::Letters, PickEntry::Letter(l, at)) => self.jump_to_letter(&l, at),
-            (PickKind::Posters { rating_key }, PickEntry::PosterFromUrl) => {
+            (PickKind::Artwork { rating_key, art }, PickEntry::ArtworkFromUrl) => {
                 self.modal = Some(Modal::Input(Input {
-                    title: "Poster from URL".into(),
+                    title: format!("{} from URL", if art { "Background" } else { "Poster" }),
                     hint: "Image URL (https://…)".into(),
                     value: String::new(),
-                    purpose: InputPurpose::PosterUrl { rating_key },
+                    purpose: InputPurpose::ArtworkUrl { rating_key, art },
                 }));
             }
-            (PickKind::Posters { rating_key }, PickEntry::Poster(poster)) => {
-                let Some(url) = poster.rating_key.clone().or_else(|| poster.key.clone()) else { return };
-                self.server_op(Refresh::Item(rating_key.clone()), "Poster changed", move |s| async move { s.set_poster(&rating_key, &url).await });
+            (PickKind::Artwork { rating_key, art }, PickEntry::Artwork(a)) => {
+                let Some(url) = a.key.clone().or_else(|| a.rating_key.clone()) else { return };
+                self.set_artwork(rating_key, art, url);
             }
-            (PickKind::Matches { rating_key }, PickEntry::Match(m)) => {
+            (PickKind::CollectionMode { rating_key }, PickEntry::Value(mode)) => {
+                self.patch(&rating_key, &mut |i| i.collection_mode = Some(mode as i64));
+                self.server_op(Refresh::Item(rating_key.clone()), "Collection updated", move |s| async move { s.set_collection_mode(&rating_key, mode).await });
+            }
+            (PickKind::CollectionSort { rating_key }, PickEntry::Value(sort)) => {
+                let path = format!("/library/collections/{rating_key}/children");
+                self.patch(&rating_key, &mut |i| {
+                    i.meta.extra.insert("collectionSort".into(), sort.to_string().into());
+                });
+                self.server_op(Refresh::Paths(vec![path]), "Collection updated", move |s| async move { s.set_collection_sort(&rating_key, sort).await });
+            }
+            (PickKind::Matches { rating_key, .. }, PickEntry::Match(m)) => {
                 let Some(guid) = m.guid.clone() else { return };
                 let done = format!("Matched to {}; refreshing metadata", m.name.as_deref().unwrap_or("the result"));
                 self.server_op(Refresh::Item(rating_key.clone()), done, move |s| async move { s.apply_match(&rating_key, &guid, m.name.as_deref()).await });
+            }
+            (PickKind::Matches { rating_key, title, year }, PickEntry::MatchSearch) => {
+                self.modal = Some(Modal::Input(Input {
+                    title: format!("Fix match · {title}"),
+                    hint: "Search title".into(),
+                    value: title.clone(),
+                    purpose: InputPurpose::MatchQuery { rating_key, title, year },
+                }));
+            }
+            (PickKind::Matches { rating_key, title, .. }, PickEntry::Unmatch) => {
+                self.modal = Some(Modal::Confirm(Confirm {
+                    message: format!("Unmatch {title}? Its metadata and artwork are cleared until it's matched again."),
+                    action: ConfirmAction::Unmatch { rating_key },
+                }));
             }
             (PickKind::Subtitles { rating_key }, PickEntry::Subtitle(st)) => {
                 let Some(key) = st.key.clone() else { return };

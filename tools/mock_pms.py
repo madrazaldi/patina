@@ -150,6 +150,130 @@ HIDDEN = set()
 SELECTED = {}
 
 
+# One collection (custom sort) and one playlist, editable through their endpoints.
+COLLECTION = {"items": ["100", "101", "102", "103"], "collectionSort": "2", "collectionMode": "-1", "title": "Heist Nights", "gone": False}
+PLAYLIST = {"items": ["104", "105", "1012"], "title": "Evening Mix", "summary": "", "gone": False}
+
+
+def collection():
+    return {"ratingKey": "900", "key": "/library/collections/900/children", "type": "collection", "subtype": "movie",
+            "title": COLLECTION["title"], "librarySectionID": 1, "childCount": len(COLLECTION["items"]),
+            "collectionSort": COLLECTION["collectionSort"], "collectionMode": COLLECTION["collectionMode"], "thumb": img("thumb", 5)}
+
+
+def playlist():
+    return {"ratingKey": "950", "key": "/playlists/950/items", "type": "playlist", "playlistType": "video", "smart": False,
+            "title": PLAYLIST["title"], "summary": PLAYLIST["summary"], "leafCount": len(PLAYLIST["items"]), "duration": 180000 * len(PLAYLIST["items"])}
+
+
+def artwork(rk, kind):
+    return [{"key": f"/library/metadata/{rk}/{kind}/{1700000000 + i}", "ratingKey": f"upload://{kind}/{i}",
+             "thumb": img(kind if kind == "art" else "thumb", i), "provider": ["local", "tmdb", "fanart"][i % 3], "selected": i == 0}
+            for i in range(3)]
+
+
+def edit_lists(self, p, q):
+    """Collection, playlist and artwork endpoints; None when `p` isn't one."""
+    if p == "/library/sections/1/collections":
+        return mc(Metadata=[] if COLLECTION["gone"] else [collection()])
+    if p == "/library/collections" and self.command == "POST":
+        self.record("create_collection", q)
+        return mc(Metadata=[dict(collection(), ratingKey="901", title=q.get("title", [""])[0])])
+    m = re.fullmatch(r"/library/collections/900(/children|/items(?:/(\d+)(/move)?)?)?", p)
+    if m:
+        sub, rk, move = m.groups()
+        items = COLLECTION["items"]
+        if sub == "/children":
+            return mc(Metadata=[find(k) for k in items])
+        if self.command == "DELETE" and not sub:
+            COLLECTION["gone"] = True
+        elif move:
+            items.remove(rk)
+            after = q.get("after", [None])[0]
+            items.insert(items.index(after) + 1 if after in items else 0, rk)
+        elif rk and self.command == "DELETE":
+            items.remove(rk)
+        elif sub == "/items" and self.command == "PUT":
+            items.append(q["uri"][0].rsplit("/", 1)[-1])
+        self.record(f"collection {self.command} {p}", q)
+        return mc()
+    if p == "/library/metadata/900/prefs":
+        self.record("collection prefs", q)
+        for k in ("collectionSort", "collectionMode"):
+            if k in q:
+                COLLECTION[k] = q[k][0]
+        return mc()
+    if p == "/playlists" and self.command == "GET":
+        kind = q.get("playlistType", ["video"])[0]
+        return mc(Metadata=[] if PLAYLIST["gone"] or kind != "video" else [playlist()])
+    if p == "/playlists" and self.command == "POST":
+        self.record("create_playlist", q)
+        return mc(Metadata=[dict(playlist(), ratingKey="951", title=q.get("title", [""])[0])])
+    m = re.fullmatch(r"/playlists/950(/items(?:/(\d+)(/move)?)?)?", p)
+    if m:
+        sub, entry, move = m.groups()
+        items = PLAYLIST["items"]
+        if not sub and self.command == "GET":
+            return mc(Metadata=[playlist()])
+        if sub == "/items" and not entry and self.command == "GET":
+            out = [dict(find(k), playlistItemID=7000 + int(k)) for k in items]
+            return page(out, q)
+        if not sub and self.command == "PUT":
+            for k in ("title", "summary"):
+                if k in q:
+                    PLAYLIST[k] = q[k][0]
+        elif not sub and self.command == "DELETE":
+            PLAYLIST["gone"] = True
+        elif sub == "/items" and not entry and self.command == "DELETE":
+            items.clear()
+        elif sub == "/items" and not entry and self.command == "PUT":
+            items.append(q["uri"][0].rsplit("/", 1)[-1])
+        elif move:
+            rk = str(int(entry) - 7000)
+            items.remove(rk)
+            after = str(int(q["after"][0]) - 7000) if "after" in q else None
+            items.insert(items.index(after) + 1 if after in items else 0, rk)
+        elif entry and self.command == "DELETE":
+            items.remove(str(int(entry) - 7000))
+        self.record(f"playlist {self.command} {p}", q)
+        return mc()
+    if self.command == "PUT" and "id" in q and (re.fullmatch(r"/library/sections/\d+/all", p) or re.fullmatch(r"/library/metadata/\d+", p)):
+        rk = q["id"][0]
+        item, st = find(rk) or {}, STATE.setdefault(rk, {})
+        fields = {f["name"]: f for f in st.get("Field", [])}
+        for k, v in q.items():
+            if k.endswith(".value"):
+                st[k[:-6]] = int(v[0]) if k == "year.value" and v[0].isdigit() else v[0]
+            elif k.endswith(".locked"):
+                fields[k[:-7]] = {"name": k[:-7], "locked": v[0] == "1"}
+            m = re.fullmatch(r"(\w+)\[(\d*)\]\.tag\.tag(-?)", k)
+            if m:
+                key = m.group(1).capitalize()
+                tags = st.setdefault(key, list(item.get(key, [])))
+                gone = v[0].lower().split(",") if m.group(3) else []
+                tags[:] = [t for t in tags if t["tag"].lower() not in gone] + ([] if m.group(3) else [{"tag": v[0]}])
+        st["Field"] = list(fields.values())
+        self.record("edit " + p, q)
+        return mc()
+    m = re.fullmatch(r"/library/metadata/(\d+)/(matches|match|unmatch)", p)
+    if m:
+        rk, what = m.groups()
+        if what == "matches":
+            title = q.get("title", [(find(rk) or {}).get("title", "")])[0]
+            return mc(SearchResult=[{"guid": f"plex://movie/{i}", "name": title if i == 0 else f"{title} {i + 1}", "year": 2014 + i,
+                                     "score": 100 - 10 * i, "matched": i == 0} for i in range(3)])
+        self.record(what, q)
+        return mc()
+    m = re.fullmatch(r"/library/metadata/(\d+)/(posters|arts|poster|art)", p)
+    if m:
+        rk, what = m.groups()
+        if what in ("posters", "arts"):
+            return mc(Metadata=artwork(rk, "art" if what == "arts" else "thumb"))
+        self.record(f"set {what}", q)
+        return mc()
+    return None
+
+
 def all_movies():
     return [movie(i) for i in range(20)]
 
@@ -169,6 +293,8 @@ def find(rk):
         return season((n - 600) // 10, n % 10)
     if 1000 <= n < 2000:
         return episode((n - 1000) // 100, (n % 100) // 10, n % 10)
+    if n == 900 and not COLLECTION["gone"]:
+        return collection()
     return None
 
 
@@ -295,6 +421,9 @@ class Handler(BaseHTTPRequestHandler):
         if re.fullmatch(r"/playQueues/\d+(/items(/\d+(/move)?)?|/shuffle|/unshuffle)?", p) and self.command != "GET":
             self.record("playqueue " + self.command + " " + p, q)
             return self.send_json(mc(playQueueID=77))
+        out = edit_lists(self, p, q)
+        if out is not None:
+            return self.send_json(out)
         # --- browsing extras -------------------------------------------------------
         m = re.fullmatch(r"/library/sections/(\d+)/(firstCharacter|folder)", p)
         if m:

@@ -76,8 +76,12 @@ pub enum MenuAction {
     Extras,
     EditDetails,
     ChangePoster,
+    ChangeArt,
+    CollectionMode,
+    CollectionSort,
+    ClearPlaylist,
+    EditPlaylistSummary,
     FixMatch,
-    Unmatch,
     DeleteMedia,
     SearchSubtitles,
     SwitchUser,
@@ -109,15 +113,21 @@ pub enum InputPurpose {
         kind: &'static str,
         filter_path: String,
     },
+    /// A field of the item in the edit dialog, which reopens afterwards.
     EditField {
-        item: Box<Item>,
+        edit: Box<EditModal>,
         field: &'static str,
     },
-    PosterUrl {
+    ArtworkUrl {
         rating_key: String,
+        art: bool,
+    },
+    PlaylistSummary {
+        playlist_id: String,
     },
     MatchQuery {
         rating_key: String,
+        title: String,
         year: Option<i64>,
     },
     SubtitleLanguage {
@@ -166,6 +176,13 @@ pub enum ConfirmAction {
     DeleteMedia {
         rating_key: String,
         title: String,
+    },
+    DeleteCollection {
+        rating_key: String,
+        title: String,
+    },
+    ClearPlaylist {
+        playlist_id: String,
     },
     Logout,
 }
@@ -280,41 +297,104 @@ pub struct CollectionPicker {
 
 // ---- metadata editing ----------------------------------------------------
 
-/// Editable fields: Plex field name and label. `labels` is a tag list.
-pub const EDIT_FIELDS: &[(&str, &str)] = &[
-    ("title", "Title"),
-    ("titleSort", "Sort title"),
-    ("originalTitle", "Original title"),
-    ("originallyAvailableAt", "Release date"),
-    ("year", "Year"),
-    ("studio", "Studio"),
-    ("contentRating", "Content rating"),
-    ("tagline", "Tagline"),
-    ("summary", "Summary"),
-    ("labels", "Labels"),
-];
+/// Fields the GUI's editor offers for a kind, as (Plex field, label):
+/// short fields, then the `genre`/`label` tag lists, then the summary.
+pub fn edit_fields(kind: &str) -> Vec<(&'static str, &'static str)> {
+    let fields: &[&str] = match kind {
+        "movie" => &["title", "titleSort", "originalTitle", "editionTitle", "year", "originallyAvailableAt", "contentRating", "studio", "tagline", "summary"],
+        "show" => &["title", "titleSort", "originalTitle", "year", "originallyAvailableAt", "contentRating", "studio", "tagline", "summary"],
+        "season" => &["title", "summary"],
+        "episode" => &["title", "titleSort", "originallyAvailableAt", "summary"],
+        "artist" => &["title", "titleSort", "summary"],
+        "album" => &["title", "titleSort", "year", "originallyAvailableAt", "studio", "summary"],
+        "track" => &["title", "titleSort", "originalTitle"],
+        "collection" => &["title", "titleSort", "contentRating", "summary"],
+        _ => &["title", "titleSort", "summary"],
+    };
+    let tags: &[&str] = match kind {
+        "movie" | "show" | "artist" | "album" => &["genre", "label"],
+        "collection" => &["label"],
+        _ => &[],
+    };
+    let label = |f: &'static str| match (kind, f) {
+        ("album", "studio") => "Record label",
+        ("track", "originalTitle") => "Track artist",
+        (_, "title") => "Title",
+        (_, "titleSort") => "Sort title",
+        (_, "originalTitle") => "Original title",
+        (_, "editionTitle") => "Edition",
+        (_, "year") => "Year",
+        (_, "originallyAvailableAt") => "Release date",
+        (_, "contentRating") => "Content rating",
+        (_, "studio") => "Studio",
+        (_, "tagline") => "Tagline",
+        (_, "summary") => "Summary",
+        (_, "genre") => "Genres",
+        (_, "label") => "Labels",
+        _ => f,
+    };
+    let short = fields.iter().copied().filter(|f| *f != "summary");
+    let summary = fields.iter().copied().filter(|f| *f == "summary");
+    short.chain(tags.iter().copied()).chain(summary).map(|f| (f, label(f))).collect()
+}
+
+/// Whether an edit field is a tag list rather than a value.
+pub fn is_tag_field(field: &str) -> bool {
+    matches!(field, "genre" | "label")
+}
 
 /// Current value of an editable field.
 pub fn field_value(item: &Item, field: &str) -> String {
     let s = |o: &Option<String>| o.clone().unwrap_or_default();
+    let tags = |list: &[patina_plex::Tag]| list.iter().map(|t| t.name()).filter(|n| !n.is_empty()).collect::<Vec<_>>().join(", ");
     match field {
         "title" => item.title().to_string(),
         "titleSort" => s(&item.title_sort),
         "originalTitle" => s(&item.original_title),
+        "editionTitle" => s(&item.edition_title),
         "originallyAvailableAt" => s(&item.originally_available_at),
         "year" => item.year.map(|y| y.to_string()).unwrap_or_default(),
         "studio" => s(&item.studio),
         "contentRating" => s(&item.content_rating),
         "tagline" => s(&item.tagline),
         "summary" => s(&item.summary),
-        "labels" => item
-            .labels
-            .iter()
-            .map(|t| t.name())
-            .collect::<Vec<_>>()
-            .join(", "),
+        "genre" => tags(&item.genres),
+        "label" => tags(&item.labels),
         _ => String::new(),
     }
+}
+
+/// Why a value can't be saved, as the GUI's editor checks it.
+pub fn invalid_value(field: &str, value: &str) -> Option<&'static str> {
+    let v = value.trim();
+    let digits = |s: &str, n: usize| s.len() == n && s.bytes().all(|b| b.is_ascii_digit());
+    match field {
+        "year" if !v.is_empty() && !digits(v, 4) => Some("Year should be four digits."),
+        "originallyAvailableAt" if !v.is_empty() => {
+            let p: Vec<&str> = v.split('-').collect();
+            (p.len() != 3 || !digits(p[0], 4) || !digits(p[1], 2) || !digits(p[2], 2)).then_some("Release date should be YYYY-MM-DD.")
+        }
+        _ => None,
+    }
+}
+
+/// Split a comma-separated tag list, dropping blanks and duplicates.
+pub fn split_tags(s: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for t in s.split(',').map(str::trim).filter(|t| !t.is_empty()) {
+        if !out.iter().any(|x| x == t) {
+            out.push(t.to_string());
+        }
+    }
+    out
+}
+
+/// Tags to add and remove to go from `before` to `after`, ignoring case.
+pub fn tag_diff(before: &[String], after: &[String]) -> (Vec<String>, Vec<String>) {
+    let has = |list: &[String], t: &str| list.iter().any(|x| x.eq_ignore_ascii_case(t));
+    let add = after.iter().filter(|t| !has(before, t)).cloned().collect();
+    let remove = before.iter().filter(|t| !has(after, t)).cloned().collect();
+    (add, remove)
 }
 
 /// Apply an edit locally so the UI reflects it before the server confirms.
@@ -324,6 +404,7 @@ pub fn set_field_value(item: &mut Item, field: &str, value: &str) {
         "title" => item.title = Some(value.to_string()),
         "titleSort" => item.title_sort = opt(),
         "originalTitle" => item.original_title = opt(),
+        "editionTitle" => item.edition_title = opt(),
         "originallyAvailableAt" => item.originally_available_at = opt(),
         "year" => item.year = value.parse().ok(),
         "studio" => item.studio = opt(),
@@ -336,6 +417,7 @@ pub fn set_field_value(item: &mut Item, field: &str, value: &str) {
 
 pub struct EditModal {
     pub item: Item,
+    pub fields: Vec<(&'static str, &'static str)>,
     pub cursor: usize,
 }
 
@@ -346,8 +428,11 @@ pub enum PickKind {
     Sort,
     /// A–Z jump in the library listing in the last column.
     Letters,
-    Posters { rating_key: String },
-    Matches { rating_key: String },
+    /// Posters, or backgrounds when `art`.
+    Artwork { rating_key: String, art: bool },
+    CollectionMode { rating_key: String },
+    CollectionSort { rating_key: String },
+    Matches { rating_key: String, title: String, year: Option<i64> },
     Subtitles { rating_key: String },
     Users,
 }
@@ -356,9 +441,13 @@ pub enum PickEntry {
     Sort(Box<Directory>),
     /// A letter and the row it starts at.
     Letter(String, usize),
-    Poster(Box<Item>),
-    PosterFromUrl,
+    Artwork(Box<Item>),
+    ArtworkFromUrl,
+    /// A numeric setting (collection mode or sort).
+    Value(i32),
     Match(Box<MatchResult>),
+    MatchSearch,
+    Unmatch,
     Subtitle(Box<Stream>),
     User(Box<HomeUser>),
 }
@@ -372,6 +461,10 @@ pub struct Picker {
     pub error: Option<String>,
     pub hint: &'static str,
 }
+
+/// A collection's "show in library" modes and sorts, as the GUI offers them.
+pub const COLLECTION_MODES: &[(i32, &str)] = &[(-1, "Library default"), (0, "Hide collection"), (1, "Hide items"), (2, "Show both")];
+pub const COLLECTION_SORTS: &[(i32, &str)] = &[(0, "Release date"), (1, "Title"), (2, "Custom")];
 
 pub fn sort_rows() -> &'static [SortKey] {
     &SortKey::ALL
@@ -421,3 +514,35 @@ pub const BROWSE_VIEWS: &[(&str, &str)] = &[
     ("By content rating", "contentRating"),
     ("By resolution", "resolution"),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn edit_fields_follow_the_gui() {
+        let movie: Vec<&str> = edit_fields("movie").into_iter().map(|f| f.0).collect();
+        assert_eq!(movie.first(), Some(&"title"));
+        assert_eq!(&movie[movie.len() - 3..], &["genre", "label", "summary"]);
+        assert!(edit_fields("episode").iter().all(|f| !is_tag_field(f.0)));
+        assert_eq!(edit_fields("album").iter().find(|f| f.0 == "studio").map(|f| f.1), Some("Record label"));
+        assert_eq!(edit_fields("collection").iter().filter(|f| is_tag_field(f.0)).count(), 1);
+    }
+
+    #[test]
+    fn tags_split_and_diff() {
+        assert_eq!(split_tags(" Drama, ,Thriller,Drama "), vec!["Drama", "Thriller"]);
+        let (add, remove) = tag_diff(&split_tags("Drama, Mystery"), &split_tags("drama, Thriller"));
+        assert_eq!(add, vec!["Thriller"]);
+        assert_eq!(remove, vec!["Mystery"]);
+    }
+
+    #[test]
+    fn validates_like_the_gui() {
+        assert!(invalid_value("year", "99").is_some());
+        assert!(invalid_value("year", "").is_none());
+        assert!(invalid_value("originallyAvailableAt", "2014-5-3").is_some());
+        assert!(invalid_value("originallyAvailableAt", "2014-05-03").is_none());
+        assert!(invalid_value("title", "x").is_none());
+    }
+}

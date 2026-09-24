@@ -305,6 +305,12 @@ impl Item {
         patina_plex::MediaType::from_name(self.meta.kind.as_deref()?).map(patina_plex::MediaType::id)
     }
 
+    /// A collection's sort: 0 release date, 1 title, 2 custom.
+    pub fn collection_sort(&self) -> Option<i32> {
+        let v = self.extra.get("collectionSort")?;
+        v.as_i64().or_else(|| v.as_str()?.parse().ok()).map(|n| n as i32)
+    }
+
     /// The playlist type that can hold this item.
     pub fn playlist_kind(&self) -> &'static str {
         match self.kind() {

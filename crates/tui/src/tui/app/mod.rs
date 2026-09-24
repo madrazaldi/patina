@@ -265,6 +265,11 @@ impl App {
         self.session.as_ref()?.user.as_ref().map(|u| u.name.as_str())
     }
 
+    /// Whether the signed-in account owns the server (editing is for owners, as on the GUI).
+    pub fn owned(&self) -> bool {
+        self.session.as_ref().is_some_and(|s| s.owned)
+    }
+
     fn server(&self) -> Result<PlexServer, String> {
         self.core.server().map_err(err)
     }
@@ -618,7 +623,8 @@ impl App {
                     if let Some(k) = item.rating_key.clone() {
                         self.details.insert(k, (*item).clone());
                     }
-                    self.modal = Some(Modal::Edit(EditModal { item: *item, cursor: 0 }));
+                    let fields = edit_fields(item.meta.kind.as_deref().unwrap_or(""));
+                    self.modal = Some(Modal::Edit(EditModal { item: *item, fields, cursor: 0 }));
                 }
                 Err(e) => self.error(e),
             },

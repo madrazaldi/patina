@@ -1,5 +1,5 @@
 use super::*;
-use super::actions::smart_playlist_path;
+use super::actions::{delete_collection_confirm, smart_playlist_path};
 
 impl App {
     pub(super) fn open_menu(&mut self) {
@@ -40,7 +40,8 @@ impl App {
         if item.rating_key.is_some() && (item.is_playable() || matches!(kind, Kind::Show | Kind::Season | Kind::Album | Kind::Artist)) {
             rows.push((AddToPlaylist, "Playlists…", "space"));
         }
-        if item.rating_key.is_some() && matches!(kind, Kind::Movie | Kind::Show | Kind::Artist | Kind::Album) {
+        let owned = self.owned();
+        if owned && item.rating_key.is_some() && matches!(kind, Kind::Movie | Kind::Show | Kind::Artist | Kind::Album) {
             rows.push((Collections, "Collections…", "C"));
         }
         let detail = self.selected_detail();
@@ -60,20 +61,26 @@ impl App {
         if matches!(kind, Kind::Movie | Kind::Episode) {
             rows.push((SearchSubtitles, "Search subtitles online…", ""));
         }
-        if detail_kind(&item) && item.type_number().is_some() {
+        if owned && detail_kind(&item) && item.type_number().is_some() {
             rows.push((EditDetails, "Edit details…", "e"));
-            rows.push((ChangePoster, "Change poster…", ""));
+            if kind != Kind::Track {
+                rows.push((ChangePoster, "Choose poster…", ""));
+            }
+            if matches!(kind, Kind::Movie | Kind::Show | Kind::Artist | Kind::Album | Kind::Collection) {
+                rows.push((ChangeArt, "Choose background…", ""));
+            }
         }
-        if matches!(kind, Kind::Movie | Kind::Show | Kind::Artist | Kind::Album) {
+        if owned && kind == Kind::Collection && item.rating_key.is_some() {
+            rows.push((CollectionMode, "Show in library…", ""));
+            rows.push((CollectionSort, "Collection sort…", ""));
+        }
+        if owned && matches!(kind, Kind::Movie | Kind::Show | Kind::Artist | Kind::Album) {
             rows.push((FixMatch, "Fix match…", ""));
-            rows.push((Unmatch, "Unmatch", ""));
         }
-        if detail_kind(&item) {
+        if owned && detail_kind(&item) {
             rows.push((RefreshMetadata, "Refresh metadata", ""));
             rows.push((Analyze, "Analyze media", ""));
-        }
-        if detail_kind(&item) && kind != Kind::Collection {
-            rows.push((DeleteMedia, "Delete from disk…", ""));
+            rows.push((DeleteMedia, if kind == Kind::Collection { "Delete collection…" } else { "Delete from disk…" }, if kind == Kind::Collection { "x" } else { "" }));
         }
         if smart_playlist_path(col, &self.sections).is_some() {
             rows.push((SmartPlaylist, "Save view as smart playlist…", ""));
@@ -96,12 +103,16 @@ impl App {
         }
         if kind == Kind::Playlist {
             rows.push((RenamePlaylist, "Rename playlist…", "e"));
+            rows.push((EditPlaylistSummary, "Edit description…", ""));
+            if !item.smart && item.leaf_count.unwrap_or(0) > 0 {
+                rows.push((ClearPlaylist, "Clear playlist…", ""));
+            }
             rows.push((DeletePlaylist, "Delete playlist", "x"));
         }
         if col.is_playlist().is_some() && item.playlist_item_id.is_some() {
             rows.push((RemoveFromPlaylist, "Remove from playlist", "x"));
         }
-        if col.is_collection().is_some() {
+        if owned && col.is_collection().is_some() {
             rows.push((RemoveFromCollection, "Remove from collection", "x"));
         }
         if col.is_sessions() && item.session.is_some() {
@@ -188,31 +199,45 @@ impl App {
                 }
             }
             EditDetails => self.open_edit(),
-            ChangePoster => self.open_posters(),
-            FixMatch => {
-                if let Some(i) = self.editable() {
-                    self.modal = Some(Modal::Input(Input {
-                        title: format!("Fix match · {}", i.title()),
-                        hint: "Search title".into(),
-                        value: i.title().to_string(),
-                        purpose: InputPurpose::MatchQuery { rating_key: i.rating_key.clone().unwrap_or_default(), year: i.year },
+            ChangePoster => self.open_artwork(false),
+            ChangeArt => self.open_artwork(true),
+            CollectionMode => self.open_collection_setting(false),
+            CollectionSort => self.open_collection_setting(true),
+            ClearPlaylist => {
+                if let Some(i) = item.filter(|i| i.kind() == Kind::Playlist) {
+                    self.modal = Some(Modal::Confirm(Confirm {
+                        message: format!("Clear {}? Every item is removed; the playlist itself stays.", i.title()),
+                        action: ConfirmAction::ClearPlaylist { playlist_id: i.rating_key.clone().unwrap_or_default() },
                     }));
                 }
             }
-            Unmatch => {
-                if let Some(i) = self.editable() {
-                    self.modal = Some(Modal::Confirm(Confirm {
-                        message: format!("Unmatch {}? Its metadata will be cleared.", i.title()),
-                        action: ConfirmAction::Unmatch { rating_key: i.rating_key.clone().unwrap_or_default() },
+            EditPlaylistSummary => {
+                if let Some(i) = item.filter(|i| i.kind() == Kind::Playlist) {
+                    self.modal = Some(Modal::Input(Input {
+                        title: format!("Description · {}", i.title()),
+                        hint: "Description".into(),
+                        value: i.summary.clone().unwrap_or_default(),
+                        purpose: InputPurpose::PlaylistSummary { playlist_id: i.rating_key.clone().unwrap_or_default() },
                     }));
+                }
+            }
+            FixMatch => {
+                if let Some(i) = self.editable() {
+                    self.search_matches(i.rating_key.clone().unwrap_or_default(), i.title().to_string(), i.year, None);
                 }
             }
             DeleteMedia => {
                 if let Some(i) = self.editable() {
-                    self.modal = Some(Modal::Confirm(Confirm {
-                        message: format!("Delete {} and its files from disk? This can't be undone.", i.full_title()),
-                        action: ConfirmAction::DeleteMedia { rating_key: i.rating_key.clone().unwrap_or_default(), title: i.full_title() },
-                    }));
+                    let rating_key = i.rating_key.clone().unwrap_or_default();
+                    let confirm = if i.kind() == Kind::Collection {
+                        delete_collection_confirm(rating_key, i.title())
+                    } else {
+                        Confirm {
+                            message: format!("Delete {} and its files from disk? This can't be undone.", i.full_title()),
+                            action: ConfirmAction::DeleteMedia { rating_key, title: i.full_title() },
+                        }
+                    };
+                    self.modal = Some(Modal::Confirm(confirm));
                 }
             }
             SearchSubtitles => {

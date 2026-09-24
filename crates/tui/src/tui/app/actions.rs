@@ -208,15 +208,18 @@ impl App {
                     Ok(Some(format!("Created smart playlist {value}")))
                 });
             }
-            InputPurpose::EditField { item, field } => self.submit_edit(*item, field, value),
-            InputPurpose::PosterUrl { rating_key } => {
+            InputPurpose::EditField { edit, field } => self.submit_edit(*edit, field, value),
+            InputPurpose::ArtworkUrl { rating_key, art } => {
                 if !value.starts_with("http") {
                     self.error("Enter an http(s) image URL");
                     return;
                 }
-                self.server_op(Refresh::Item(rating_key.clone()), "Poster changed", move |s| async move { s.set_poster(&rating_key, &value).await });
+                self.set_artwork(rating_key, art, value);
             }
-            InputPurpose::MatchQuery { rating_key, year } => self.search_matches(rating_key, value, year),
+            InputPurpose::PlaylistSummary { playlist_id } => {
+                self.server_op(Refresh::Playlists, "Playlist updated", move |s| async move { s.update_playlist(&playlist_id, None, Some(&value)).await });
+            }
+            InputPurpose::MatchQuery { rating_key, title, year } => self.search_matches(rating_key, title, year, Some(value)),
             InputPurpose::SubtitleLanguage { rating_key } => {
                 let lang = if value.is_empty() { "en".to_string() } else { value };
                 self.search_subtitles(rating_key, lang);
@@ -263,6 +266,13 @@ impl App {
                     Ok(Some(format!("Deleted {title}")))
                 });
             }
+            ConfirmAction::DeleteCollection { rating_key, title } => {
+                self.server_op(Refresh::Removed(rating_key.clone()), format!("Deleted {title}"), move |s| async move { s.delete_collection(&rating_key).await })
+            }
+            ConfirmAction::ClearPlaylist { playlist_id } => {
+                let path = format!("/playlists/{playlist_id}/items");
+                self.server_op(Refresh::Paths(vec![path, PLAYLISTS.into()]), "Playlist cleared", move |s| async move { s.clear_playlist(&playlist_id).await })
+            }
             ConfirmAction::EmptyTrash { section_id } => {
                 self.server_op(Refresh::Nothing, "Trash emptied", move |s| async move { s.empty_trash(&section_id).await })
             }
@@ -287,7 +297,7 @@ impl App {
                 message: format!("Remove {} from {}?", item.full_title(), col.title),
                 action: ConfirmAction::RemoveFromPlaylist { playlist_id: pid.to_string(), playlist_item_id: entry },
             })
-        } else if let Some(cid) = col.is_collection() {
+        } else if let Some(cid) = col.is_collection().filter(|_| self.owned()) {
             item.rating_key.clone().map(|rk| Confirm {
                 message: format!("Remove {} from the {} collection?", item.title(), col.title),
                 action: ConfirmAction::RemoveFromCollection { collection_id: cid.to_string(), rating_key: rk },
@@ -297,6 +307,8 @@ impl App {
                 message: format!("Delete playlist {}?", item.title()),
                 action: ConfirmAction::DeletePlaylist { playlist_id: id },
             })
+        } else if item.kind() == Kind::Collection && self.owned() {
+            item.rating_key.clone().map(|rating_key| delete_collection_confirm(rating_key, item.title()))
         } else {
             None
         };
@@ -306,12 +318,32 @@ impl App {
         }
     }
 
-    pub(super) fn move_in_playlist(&mut self, down: bool) {
+    /// `J`/`K`: move an entry of a playlist, or of a custom-sorted collection.
+    pub(super) fn move_entry(&mut self, down: bool) {
+        let owned = self.owned();
+        let Some(col) = self.columns.last() else { return };
+        let (playlist, collection) = (col.is_playlist().map(str::to_string), col.is_collection().map(str::to_string));
+        if playlist.is_none() && collection.is_none() {
+            return self.info("Reordering works inside a playlist or collection");
+        }
+        if let Some(pid) = &playlist
+            && self.columns.iter().rev().nth(1).and_then(|c| c.items.iter().find(|i| i.rating_key.as_deref() == Some(pid.as_str()))).is_some_and(|p| p.smart)
+        {
+            return self.info("Smart playlists can't be reordered");
+        }
+        if let Some(cid) = &collection {
+            let sort = self.details.get(cid).and_then(Item::collection_sort).or_else(|| {
+                let parent = self.columns.iter().rev().nth(1)?;
+                parent.items.iter().find(|i| i.rating_key.as_deref() == Some(cid.as_str()))?.collection_sort()
+            });
+            if !owned {
+                return self.info("Only the server owner can reorder collections");
+            }
+            if sort != Some(2) {
+                return self.info("Set the collection's sort to Custom to reorder it (menu → Collection sort)");
+            }
+        }
         let Some(col) = self.columns.last_mut() else { return };
-        let Some(pid) = col.is_playlist().map(str::to_string) else {
-            self.info("Reordering works inside a playlist");
-            return;
-        };
         if !col.filter.is_empty() || col.sort != SortKey::Default || col.hide_watched {
             self.info("Clear the filter, sort and hide-watched to reorder");
             return;
@@ -324,18 +356,27 @@ impl App {
         col.items.swap(cur, target);
         col.rebuild(&mut self.fuzzy);
         col.cursor = target;
-        let entry = col.items[target].playlist_item_id;
-        let after = target.checked_sub(1).and_then(|i| col.items[i].playlist_item_id);
-        let Some(entry) = entry else { return };
         let path = col.path.clone().unwrap_or_default();
+        let before = target.checked_sub(1).map(|i| col.items[i].meta.clone());
+        let moved = col.items[target].meta.clone();
         let server = self.server();
         self.pending += 1;
         let tx = self.tx.clone();
         tokio::spawn(async move {
-            let result = match server {
-                Ok(s) => s.move_playlist_item(&pid, entry, after).await.map(|_| None).map_err(|e| format!("Reorder failed: {e}")),
-                Err(e) => Err(e),
-            };
+            let result = async {
+                let s = server?;
+                match (playlist, collection) {
+                    (Some(pid), _) => {
+                        let entry = moved.playlist_item_id.ok_or("Not a playlist entry")?;
+                        s.move_playlist_item(&pid, entry, before.and_then(|b| b.playlist_item_id)).await
+                    }
+                    (_, Some(cid)) => s.move_collection_item(&cid, moved.rating_key(), before.as_ref().map(|b| b.rating_key())).await,
+                    _ => Ok(()),
+                }
+                .map(|_| None)
+                .map_err(|e| format!("Reorder failed: {e}"))
+            }
+            .await;
             let refresh = if result.is_err() { Refresh::Paths(vec![path]) } else { Refresh::Nothing };
             let _ = tx.send(Msg::OpDone { result, refresh });
         });
@@ -373,6 +414,9 @@ impl App {
     // ---- collections -------------------------------------------------------
 
     pub(super) fn open_collections(&mut self) {
+        if !self.owned() {
+            return self.info("Only the server owner can manage collections");
+        }
         let Some(item) = self.selected_detail().cloned() else { return };
         let section_id = item.section_id().or_else(|| self.columns.last()?.section_id().map(str::to_string));
         let (Some(key), Some(section_id)) = (item.rating_key.clone(), section_id) else {
@@ -492,6 +536,13 @@ impl App {
             value: item.title().to_string(),
             purpose: InputPurpose::RenamePlaylist { playlist_id: item.rating_key.clone().unwrap_or_default() },
         }));
+    }
+}
+
+pub(super) fn delete_collection_confirm(rating_key: String, title: &str) -> Confirm {
+    Confirm {
+        message: format!("Delete the {title} collection? Its items stay in the library."),
+        action: ConfirmAction::DeleteCollection { rating_key, title: title.to_string() },
     }
 }
 

@@ -143,8 +143,8 @@ impl App {
             KeyCode::Char('C') => self.open_collections(),
             KeyCode::Char('c') => self.open_related(),
             KeyCode::Char('U') => self.open_users(),
-            KeyCode::Char('J') => self.move_in_playlist(true),
-            KeyCode::Char('K') => self.move_in_playlist(false),
+            KeyCode::Char('J') => self.move_entry(true),
+            KeyCode::Char('K') => self.move_entry(false),
             KeyCode::Char('f') => self.open_search(),
             KeyCode::Char('/') => col.filtering = true,
             KeyCode::Char('s') if col.library().is_some() => self.open_sort(),
@@ -259,6 +259,12 @@ impl App {
                 if down {
                     m.cursor = (m.cursor + 1).min(m.rows.len().saturating_sub(1));
                     Some(Modal::Menu(m))
+                } else if matches!(key.code, KeyCode::Char('g') | KeyCode::Home) {
+                    m.cursor = 0;
+                    Some(Modal::Menu(m))
+                } else if matches!(key.code, KeyCode::Char('G') | KeyCode::End) {
+                    m.cursor = m.rows.len().saturating_sub(1);
+                    Some(Modal::Menu(m))
                 } else if up {
                     m.cursor = m.cursor.saturating_sub(1);
                     Some(Modal::Menu(m))
@@ -274,7 +280,10 @@ impl App {
                 }
             }
             Modal::Input(mut i) => match key.code {
-                KeyCode::Esc => None,
+                KeyCode::Esc => match i.purpose {
+                    InputPurpose::EditField { edit, .. } => Some(Modal::Edit(*edit)),
+                    _ => None,
+                },
                 KeyCode::Enter => {
                     self.submit_input(i);
                     return;
@@ -407,30 +416,19 @@ impl App {
                 }
             }
             Modal::Edit(mut m) => {
-                let n = EDIT_FIELDS.len();
+                let n = m.fields.len();
                 if down {
-                    m.cursor = (m.cursor + 1).min(n - 1);
+                    m.cursor = (m.cursor + 1).min(n.saturating_sub(1));
                     Some(Modal::Edit(m))
                 } else if up {
                     m.cursor = m.cursor.saturating_sub(1);
                     Some(Modal::Edit(m))
-                } else if enter {
-                    let (field, label) = EDIT_FIELDS[m.cursor];
-                    self.modal = Some(Modal::Input(Input {
-                        title: format!("{label} · {}", m.item.title()),
-                        hint: match field {
-                            "labels" => "Comma-separated".into(),
-                            "originallyAvailableAt" => "YYYY-MM-DD".into(),
-                            _ => label.into(),
-                        },
-                        value: field_value(&m.item, field),
-                        purpose: InputPurpose::EditField { item: Box::new(m.item), field },
-                    }));
+                } else if enter && n > 0 {
+                    let (field, _) = m.fields[m.cursor];
+                    self.edit_field(m, field, None);
                     return;
-                } else if key.code == KeyCode::Char('l') {
-                    let (field, _) = EDIT_FIELDS[m.cursor];
-                    let field = if field == "labels" { "label" } else { field };
-                    self.toggle_field_lock(&m.item, field);
+                } else if key.code == KeyCode::Char('l') && n > 0 {
+                    self.toggle_field_lock(&m.item, m.fields[m.cursor].0);
                     None
                 } else if esc {
                     None
@@ -452,12 +450,18 @@ impl App {
                 if down {
                     p.cursor = (p.cursor + 1).min(p.rows.len().saturating_sub(1));
                     Some(Modal::Pick(p))
+                } else if matches!(key.code, KeyCode::Char('g') | KeyCode::Home) {
+                    p.cursor = 0;
+                    Some(Modal::Pick(p))
+                } else if matches!(key.code, KeyCode::Char('G') | KeyCode::End) {
+                    p.cursor = p.rows.len().saturating_sub(1);
+                    Some(Modal::Pick(p))
                 } else if up {
                     p.cursor = p.cursor.saturating_sub(1);
                     Some(Modal::Pick(p))
                 } else if key.code == KeyCode::Char('v') {
                     // Preview a poster candidate; the picker stays open.
-                    if let Some((PickEntry::Poster(poster), _)) = p.rows.get(p.cursor)
+                    if let Some((PickEntry::Artwork(poster), _)) = p.rows.get(p.cursor)
                         && let Some(k) = &poster.key
                         && let Ok(server) = self.core.server()
                         && let Ok(url) = server.authed_url(k, &Params::new())

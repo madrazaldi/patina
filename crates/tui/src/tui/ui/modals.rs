@@ -38,12 +38,12 @@ pub const HELP: &[(&str, &str)] = &[
     ("w / u", "mark watched / unwatched"),
     ("*", "rate 0–10"),
     ("space", "add to / remove from playlists"),
-    ("x", "delete playlist · remove entry · stop stream"),
-    ("J / K", "move playlist entry down / up"),
+    ("x", "delete playlist or collection · remove entry · stop stream"),
+    ("J / K", "move a playlist (or custom-sorted collection) entry down / up"),
     ("+", "add to / remove from watchlist"),
     ("C", "add to / remove from collections"),
     ("c", "related & similar, cast & crew, genres and tags"),
-    ("e", "edit details (renames a playlist)"),
+    ("e", "edit details, genres, labels (renames a playlist); menu: poster, background, match"),
     ("S", "scan library for new files"),
     ("m  .", "actions menu (more options)"),
     ("", "Finding things"),
@@ -320,18 +320,14 @@ pub(super) fn draw_modal(f: &mut Frame, app: &App, theme: &Theme) {
             f.render_widget(Paragraph::new(lines).block(block), area);
         }
         Modal::Edit(m) => {
-            let area = centered(screen, 70, EDIT_FIELDS.len() as u16 + 2);
+            let area = centered(screen, 70, m.fields.len() as u16 + 2);
             f.render_widget(Clear, area);
             let inner_w = area.width as usize - 2;
-            let rows: Vec<String> = EDIT_FIELDS
+            let rows: Vec<String> = m
+                .fields
                 .iter()
                 .map(|(field, label)| {
-                    let lock_name = if *field == "labels" { "label" } else { field };
-                    let lock = if m.item.is_field_locked(lock_name) {
-                        "🔒"
-                    } else {
-                        "  "
-                    };
+                    let lock = if m.item.is_field_locked(field) { "🔒" } else { "  " };
                     let value = field_value(&m.item, field).replace('\n', " ");
                     format!("{lock} {label:<15} {value}")
                 })
