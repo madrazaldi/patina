@@ -2,6 +2,7 @@
 
 use std::cmp::Ordering;
 
+use super::source::Source;
 use crate::item::{Item, Kind};
 use crate::search::Fuzzy;
 
@@ -84,7 +85,8 @@ fn unwatched_rank(i: &Item) -> u8 {
 pub struct Column {
     pub id: u64,
     pub title: String,
-    /// Listing path; `None` for the root and static (search result) columns.
+    pub source: Source,
+    /// The server path of `source`, if it has one.
     pub path: Option<String>,
     pub items: Vec<Item>,
     /// Visible item indices after hiding, filtering and sorting.
@@ -104,11 +106,12 @@ pub struct Column {
 }
 
 impl Column {
-    pub fn new(id: u64, title: impl Into<String>, path: Option<String>) -> Self {
+    pub fn new(id: u64, title: impl Into<String>, source: Source) -> Self {
         Self {
             id,
             title: title.into(),
-            path,
+            path: source.path(),
+            source,
             items: Vec::new(),
             view: Vec::new(),
             cursor: 0,
@@ -286,7 +289,7 @@ impl Column {
     }
 
     pub fn is_sessions(&self) -> bool {
-        self.path.as_deref() == Some(super::app::SESSIONS)
+        self.source == Source::Sessions
     }
 
     pub fn count_label(&self) -> String {
@@ -327,7 +330,7 @@ mod tests {
     }
 
     fn col() -> Column {
-        let mut c = Column::new(1, "Movies", Some("/library/sections/3/all?type=1".into()))
+        let mut c = Column::new(1, "Movies", Source::Path("/library/sections/3/all?type=1".into()))
             .with_items(vec![
                 it("1", "Heat", 1995, true),
                 it("2", "Alien", 1979, false),
@@ -379,9 +382,9 @@ mod tests {
     fn path_helpers() {
         let c = col();
         assert_eq!(c.section_id(), Some("3"));
-        let p = Column::new(2, "P", Some("/playlists/77/items".into()));
+        let p = Column::new(2, "P", Source::Path("/playlists/77/items".into()));
         assert_eq!(p.is_playlist(), Some("77"));
-        let k = Column::new(3, "C", Some("/library/collections/5/children".into()));
+        let k = Column::new(3, "C", Source::Path("/library/collections/5/children".into()));
         assert_eq!(k.is_collection(), Some("5"));
     }
 

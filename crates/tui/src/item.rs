@@ -10,6 +10,8 @@ use std::ops::{Deref, DerefMut};
 use patina_plex::{Directory, MediaContainer, Metadata, Part};
 use serde_json::Value;
 
+use crate::tui::source::{Link, Source};
+
 /// Where an item came from. Plex uses `type: "movie"` both for a movie and a
 /// movie *library section*, so origin disambiguates the two.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -53,6 +55,8 @@ pub struct Item {
     pub meta: Metadata,
     /// The directory entry the item was made from (sections, browse-by folders).
     pub dir: Option<Directory>,
+    /// Where a synthetic entry leads, instead of its `key`.
+    pub link: Option<Box<Link>>,
 }
 
 impl Deref for Item {
@@ -70,13 +74,13 @@ impl DerefMut for Item {
 
 impl From<Metadata> for Item {
     fn from(meta: Metadata) -> Self {
-        Self { origin: Origin::Metadata, meta, dir: None }
+        Self { origin: Origin::Metadata, meta, ..Default::default() }
     }
 }
 
 impl Item {
     pub fn discover(meta: Metadata) -> Self {
-        Self { origin: Origin::Discover, meta, dir: None }
+        Self { origin: Origin::Discover, meta, ..Default::default() }
     }
 
     pub fn directory(dir: Directory) -> Self {
@@ -93,17 +97,18 @@ impl Item {
         if meta.title.is_none() {
             meta.title = Some(dir.title().to_string());
         }
-        Self { origin, meta, dir: Some(dir) }
+        Self { origin, meta, dir: Some(dir), link: None }
     }
 
-    pub fn nav(title: &str, key: &str) -> Self {
-        let meta = Metadata {
-            title: Some(title.into()),
-            key: Some(key.into()),
-            kind: Some("nav".into()),
-            ..Default::default()
-        };
-        Self { origin: Origin::Nav, meta, dir: None }
+    /// A root navigation entry opening `source`.
+    pub fn nav(title: &str, source: Source) -> Self {
+        let meta = Metadata { title: Some(title.into()), kind: Some("nav".into()), ..Default::default() };
+        Self { origin: Origin::Nav, meta, dir: None, link: Some(Box::new(Link { source, items: Vec::new() })) }
+    }
+
+    /// The source a synthetic entry opens.
+    pub fn link_source(&self) -> Option<&Source> {
+        self.link.as_ref().map(|l| &l.source)
     }
 
     /// Every entry of a listing: metadata then directories, or the contents of its hubs.
@@ -162,7 +167,7 @@ impl Item {
 
     /// Items with children that can be browsed.
     pub fn is_container(&self) -> bool {
-        !self.is_playable() && self.children_key().is_some()
+        self.link.is_some() || (!self.is_playable() && self.children_key().is_some())
     }
 
     /// Items whose watch state can be toggled with scrobble/unscrobble.

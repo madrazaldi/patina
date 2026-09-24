@@ -3,6 +3,7 @@
 mod app;
 mod column;
 mod modal;
+pub mod source;
 mod ui;
 
 use std::sync::Arc;
