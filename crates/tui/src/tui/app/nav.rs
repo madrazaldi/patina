@@ -58,8 +58,12 @@ impl App {
             self.info(format!("{} isn't on this server", item.title()));
             return;
         }
-        if let Some(link) = item.link {
-            return self.open_source(item.meta.title.clone().unwrap_or_default(), link.source, link.items);
+        if let Some(link) = item.link.clone() {
+            self.open_source(item.title().to_string(), link.source, link.items);
+            if let Some(col) = self.columns.last_mut() {
+                col.from = Some(Column::identity(&item));
+            }
+            return;
         }
         let Some(key) = item.children_key() else { return };
         if item.is_playable() {
@@ -103,6 +107,13 @@ impl App {
             col.loading = false;
             col.total = None;
             col.error = None;
+            // A static column opened from here (a hub's items) follows the reload.
+            let items = &self.columns[idx].items;
+            if let Some(next) = self.columns.get(idx + 1).filter(|n| n.source == Source::Static && n.from.is_some()) {
+                let entry = items.iter().find(|i| Some(Column::identity(i)) == next.from);
+                let fresh = entry.and_then(|i| i.link.as_ref()).map_or(Vec::new(), |l| l.items.clone());
+                self.columns[idx + 1].set_items(fresh, &mut self.fuzzy);
+            }
         }
         if idx + 1 == self.columns.len() {
             self.after_selection_change();

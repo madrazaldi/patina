@@ -41,6 +41,8 @@ pub enum MenuAction {
     PlayOptions,
     MarkWatched,
     MarkUnwatched,
+    ClearProgress,
+    RemoveFromContinue,
     Rate,
     AddToPlaylist,
     Related,

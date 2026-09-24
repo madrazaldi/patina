@@ -21,6 +21,15 @@ impl App {
             rows.push((MarkWatched, "Mark watched", "w"));
             rows.push((MarkUnwatched, "Mark unwatched", "u"));
         }
+        // As on the GUI: progress is clearable when there is some, and
+        // episodes (next up) or started movies can leave Continue Watching.
+        let resume = item.progress().is_some() && item.rating_key.is_some();
+        if resume {
+            rows.push((ClearProgress, "Clear progress", ""));
+        }
+        if item.rating_key.is_some() && (kind == Kind::Episode || (kind == Kind::Movie && resume)) {
+            rows.push((RemoveFromContinue, "Remove from Continue Watching", ""));
+        }
         if detail_kind(&item) {
             rows.push((Rate, "Rate…", "*"));
         }
@@ -113,6 +122,13 @@ impl App {
             PlayOptions => self.open_play_options(),
             MarkWatched => self.set_watched(true),
             MarkUnwatched => self.set_watched(false),
+            ClearProgress => self.clear_progress(),
+            RemoveFromContinue => {
+                let Some((k, title)) = item.and_then(|i| Some((i.rating_key.clone()?, i.full_title()))) else { return };
+                self.server_op(Refresh::WatchState, format!("Removed {title} from Continue Watching"), move |s| async move {
+                    s.remove_from_continue_watching(&k).await
+                });
+            }
             Rate => self.open_rate(),
             AddToPlaylist => self.open_playlist_picker(),
             Related => {

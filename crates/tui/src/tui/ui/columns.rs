@@ -3,8 +3,7 @@ use super::*;
 /// The glyph of a root entry, by what it opens.
 fn nav_icon(source: Option<&Source>) -> &'static str {
     match source {
-        Some(Source::Continue) => "▶",
-        Some(Source::Recent) => "✦",
+        Some(Source::Home) => "⌂",
         Some(Source::Watchlist) => "☆",
         Some(Source::Path(p)) if p == PLAYLISTS => "≡",
         Some(Source::Sessions) => "◉",
@@ -21,6 +20,12 @@ fn section_icon(kind: Option<&str>) -> &'static str {
         Some("photo") => "◩",
         _ => "▢",
     }
+}
+
+/// Continue Watching and On Deck style hubs.
+pub(super) fn hub_continues(item: &Item) -> bool {
+    let id = item.key.as_deref().unwrap_or("").to_ascii_lowercase();
+    ["continue", "ondeck", "inprogress"].iter().any(|s| id.contains(s))
 }
 
 /// Columns whose items appear outside their natural parent need full titles.
@@ -60,6 +65,9 @@ fn status_glyph(item: &Item, ctx: &RowCtx) -> Span<'static> {
         Kind::Album => Span::styled("◎", dim),
         Kind::PhotoAlbum => Span::styled("▢", dim),
         Kind::Remote => Span::styled("☆", dim),
+        Kind::Hub => Span::styled(if hub_continues(item) { "▶" } else { "▦" }, accent),
+        Kind::Person => Span::styled("☺", dim),
+        Kind::Tag => Span::styled("#", dim),
         _ if ctx.sessions => match item.player.as_ref().and_then(|p| p.state.as_deref()) {
             Some("paused") => Span::styled("‖", accent),
             Some("buffering") => Span::styled("…", accent),
@@ -123,15 +131,17 @@ fn meta(item: &Item, ctx: &RowCtx) -> (String, Style) {
                 ),
             }
         }
-        Kind::Movie | Kind::Show | Kind::Remote => {
-            (item.year.map(|y| y.to_string()).unwrap_or_default(), dim)
-        }
-        Kind::Episode | Kind::Clip if item.in_progress() && !item.is_watched() => (
+        Kind::Hub => (item.child_count.map(|n| n.to_string()).unwrap_or_default(), dim),
+        Kind::Person | Kind::Tag => (item.summary.clone().unwrap_or_default(), dim),
+        Kind::Movie | Kind::Episode | Kind::Clip if item.in_progress() && !item.is_watched() => (
             item.progress()
                 .map(|p| format!("{:.0}%", p * 100.0))
                 .unwrap_or_default(),
             accent,
         ),
+        Kind::Movie | Kind::Show | Kind::Remote => {
+            (item.year.map(|y| y.to_string()).unwrap_or_default(), dim)
+        }
         Kind::Episode | Kind::Clip => (
             item.duration.map(format::duration_ms).unwrap_or_default(),
             dim,

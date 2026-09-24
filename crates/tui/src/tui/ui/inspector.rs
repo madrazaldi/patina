@@ -515,8 +515,7 @@ fn inspector_lines(app: &App, item: &Item, theme: &Theme, width: usize) -> Vec<L
     if item.kind() == Kind::Nav {
         lines.push(Line::raw(""));
         let text = match item.link_source() {
-            Some(Source::Continue) => "Movies and episodes in progress, plus the next episode of shows you're watching.",
-            Some(Source::Recent) => "The newest additions across every library.",
+            Some(Source::Home) => "The server's home hubs: Continue Watching, Recently Added and more. Open one to see its items.",
             Some(Source::Watchlist) => {
                 "Your plex.tv watchlist. Titles on this server are playable; ☆ marks ones that aren't. + adds or removes the selection."
             }
@@ -526,6 +525,27 @@ fn inspector_lines(app: &App, item: &Item, theme: &Theme, width: usize) -> Vec<L
             _ => "",
         };
         lines.push(Line::from(Span::styled(text, dim)));
+    }
+
+    if let Some(link) = item.link.as_ref().filter(|_| matches!(item.kind(), Kind::Hub | Kind::Person | Kind::Tag)) {
+        if !link.items.is_empty() {
+            heading(&mut lines, "Items", width, theme);
+            const MAX: usize = 12;
+            for i in link.items.iter().take(MAX) {
+                let mut t = i.full_title();
+                if let Some(y) = i.year.filter(|_| matches!(i.kind(), Kind::Movie | Kind::Show)) {
+                    t.push_str(&format!(" ({y})"));
+                }
+                lines.push(Line::raw(t));
+            }
+            let total = item.child_count.map_or(link.items.len(), |n| n as usize);
+            if total > MAX {
+                lines.push(Line::from(Span::styled(format!("+{} more", total - MAX), dim)));
+            }
+        }
+        lines.push(Line::raw(""));
+        let what = if item.kind() == Kind::Hub { "open" } else { "list their titles" };
+        lines.push(key_hints(&[("l", what)], theme));
     }
 
     if item.kind() == Kind::Playlist {

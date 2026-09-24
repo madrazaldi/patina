@@ -144,6 +144,8 @@ def episode(show_i, s, e):
 
 
 STATE = {}
+# Rating keys removed from Continue Watching.
+HIDDEN = set()
 # part id -> {"audio": stream id, "subtitle": stream id or 0}, set through PUT /library/parts/<id>.
 SELECTED = {}
 
@@ -330,6 +332,14 @@ class Handler(BaseHTTPRequestHandler):
             st["viewCount"] = 1 if p == "/:/scrobble" else 0
             st["viewOffset"] = 0
             return self.send_json(mc())
+        if p == "/:/progress":
+            self.record("progress", q)
+            STATE.setdefault(q["key"][0], {})["viewOffset"] = int(q["time"][0])
+            return self.send_json(mc())
+        if p == "/actions/removeFromContinueWatching":
+            self.record("removeFromContinueWatching", q)
+            HIDDEN.add(q["ratingKey"][0])
+            return self.send_json(mc())
         if p == "/:/rate":
             self.record("rate", q)
             STATE.setdefault(q["key"][0], {})["userRating"] = float(q["rating"][0])
@@ -373,7 +383,7 @@ class Handler(BaseHTTPRequestHandler):
             ]))
         if p == "/hubs":
             movies = all_movies()
-            cont = [m for m in movies if m.get("viewOffset")] + [episode(0, 1, 2)]
+            cont = [m for m in movies + [episode(0, 1, 2)] if (m.get("viewOffset") or m["type"] == "episode") and m["ratingKey"] not in HIDDEN]
             return self.send_json(mc(Hub=[
                 {"hubIdentifier": "home.continue", "title": "Continue Watching", "type": "mixed", "size": len(cont), "Metadata": cont},
                 {"hubIdentifier": "movie.recentlyadded.1", "title": "Recently Added Movies", "type": "movie", "more": True,

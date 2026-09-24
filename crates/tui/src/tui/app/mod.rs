@@ -279,6 +279,8 @@ impl App {
         root.loaded = true;
         root.rebuild(&mut self.fuzzy);
         self.columns.push(root);
+        // Land on Home, like the GUI.
+        self.drill();
         self.load_counts();
         self.load_watchlist_guids();
         self.after_selection_change();
@@ -320,15 +322,14 @@ impl App {
     }
 
     fn root_items(&self) -> Vec<Item> {
-        let mut items = vec![
-            Item::nav("Continue Watching", Source::Continue),
-            Item::nav("Recently Added", Source::Recent),
-            Item::nav("Watchlist", Source::Watchlist),
+        let mut items = vec![Item::nav("Home", Source::Home)];
+        items.extend(self.sections.iter().cloned());
+        items.extend([
             Item::nav("Playlists", Source::Path(PLAYLISTS.into())),
+            Item::nav("Watchlist", Source::Watchlist),
             Item::nav("Now Playing", Source::Sessions),
             Item::nav("History", Source::History),
-        ];
-        items.extend(self.sections.iter().cloned());
+        ]);
         items
     }
 

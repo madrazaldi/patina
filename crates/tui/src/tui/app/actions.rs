@@ -21,6 +21,15 @@ impl App {
         });
     }
 
+    /// Forget the resume position without changing the watched state.
+    pub(super) fn clear_progress(&mut self) {
+        let Some(item) = self.selected().cloned() else { return };
+        let Some(key) = item.rating_key.clone().filter(|_| item.progress().is_some()) else { return };
+        self.patch(&key, &mut |i| i.view_offset = None);
+        let done = format!("Progress cleared for {}", item.full_title());
+        self.server_op(Refresh::WatchState, done, move |s| async move { s.set_progress(&key, 0, "stopped").await });
+    }
+
     pub(super) fn submit_rating(&mut self, key: String, value: &str) {
         let rating = if value.trim().is_empty() {
             None

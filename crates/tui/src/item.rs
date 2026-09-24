@@ -7,7 +7,7 @@
 
 use std::ops::{Deref, DerefMut};
 
-use patina_plex::{Directory, MediaContainer, Metadata, Part};
+use patina_plex::{Directory, Hub, MediaContainer, Metadata, Part};
 use serde_json::Value;
 
 use crate::tui::source::{Link, Source};
@@ -24,6 +24,8 @@ pub enum Origin {
     Nav,
     /// A plex.tv Discover entry (watchlist) that isn't in any local library.
     Discover,
+    /// A synthetic entry leading somewhere through its `link` (a hub, a person, a tag).
+    Link,
 }
 
 /// Coarse classification used for presentation and behaviour.
@@ -46,6 +48,12 @@ pub enum Kind {
     Folder,
     /// A Discover (watchlist) title with no copy on this server.
     Remote,
+    /// A group of items (a server hub, search results of one type).
+    Hub,
+    /// A person (cast or crew) whose titles can be listed.
+    Person,
+    /// A genre, label, collection or other tag whose titles can be listed.
+    Tag,
     Other,
 }
 
@@ -106,6 +114,29 @@ impl Item {
         Self { origin: Origin::Nav, meta, dir: None, link: Some(Box::new(Link { source, items: Vec::new() })) }
     }
 
+    /// A synthetic entry of `kind` (`hub`, `person` or `tag`) opening `source`.
+    pub fn link(title: &str, kind: &str, source: Source, items: Vec<Item>) -> Self {
+        let meta = Metadata { title: Some(title.into()), kind: Some(kind.into()), ..Default::default() };
+        Self { origin: Origin::Link, meta, dir: None, link: Some(Box::new(Link { source, items })) }
+    }
+
+    /// A server hub: its items, paged from its key when the hub has more.
+    pub fn hub(hub: Hub) -> Self {
+        let source = match hub.key.clone().filter(|_| hub.more) {
+            Some(key) => Source::Hub(key),
+            None => Source::Static,
+        };
+        let size = hub.size.filter(|n| *n > 0).unwrap_or((hub.metadata.len() + hub.directory.len()) as i64);
+        let title = hub.title.clone().unwrap_or_default();
+        let ident = hub.hub_identifier.clone();
+        let items = Item::listing(MediaContainer { metadata: hub.metadata, directory: hub.directory, ..Default::default() });
+        let mut item = Item::link(&title, "hub", source, items);
+        item.child_count = Some(size);
+        // Keeps the selection on the same hub across reloads.
+        item.key = ident;
+        item
+    }
+
     /// The source a synthetic entry opens.
     pub fn link_source(&self) -> Option<&Source> {
         self.link.as_ref().map(|l| &l.source)
@@ -140,6 +171,13 @@ impl Item {
             Origin::Nav => return Kind::Nav,
             Origin::Discover => return Kind::Remote,
             Origin::Section => return Kind::Section,
+            Origin::Link => {
+                return match self.meta.kind.as_deref() {
+                    Some("hub") => Kind::Hub,
+                    Some("person") => Kind::Person,
+                    _ => Kind::Tag,
+                };
+            }
             _ => {}
         }
         match self.meta.kind.as_deref() {

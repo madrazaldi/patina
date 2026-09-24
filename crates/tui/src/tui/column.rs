@@ -86,6 +86,8 @@ pub struct Column {
     pub id: u64,
     pub title: String,
     pub source: Source,
+    /// Identity of the entry this column was opened from.
+    pub from: Option<String>,
     /// The server path of `source`, if it has one.
     pub path: Option<String>,
     pub items: Vec<Item>,
@@ -112,6 +114,7 @@ impl Column {
             title: title.into(),
             path: source.path(),
             source,
+            from: None,
             items: Vec::new(),
             view: Vec::new(),
             cursor: 0,
