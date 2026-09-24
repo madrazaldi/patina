@@ -3,8 +3,12 @@ use super::*;
 const LABEL_W: usize = 10;
 
 fn kv<'a>(k: &str, v: impl Into<String>, theme: &Theme) -> Line<'a> {
+    kv_w(k, v, LABEL_W, theme)
+}
+
+fn kv_w<'a>(k: &str, v: impl Into<String>, w: usize, theme: &Theme) -> Line<'a> {
     Line::from(vec![
-        Span::styled(format!("{k:<LABEL_W$}"), Style::default().fg(theme.dim)),
+        Span::styled(format!("{k:<w$}"), Style::default().fg(theme.dim)),
         Span::raw(v.into()),
     ])
 }
@@ -71,6 +75,19 @@ fn track_list(
             ),
             Style::default().fg(theme.dim),
         )));
+    }
+}
+
+/// "Transcode HEVC → H264 (HW)", "Audio transcode", "Direct stream" or "Direct play", as the GUI labels a stream.
+fn stream_decision(item: &Item) -> String {
+    let up = |s: &Option<String>| s.as_deref().unwrap_or("").to_uppercase();
+    match &item.transcode_session {
+        None => "Direct play".into(),
+        Some(t) if t.video_decision.as_deref() == Some("transcode") => {
+            format!("Transcode {} → {}{}", up(&t.source_video_codec), up(&t.video_codec), if t.transcode_hw_requested { " (HW)" } else { "" })
+        }
+        Some(t) if t.audio_decision.as_deref() == Some("transcode") => "Audio transcode".into(),
+        Some(_) => "Direct stream".into(),
     }
 }
 
@@ -256,9 +273,10 @@ fn inspector_lines(app: &App, item: &Item, theme: &Theme, width: usize) -> Vec<L
                 theme,
             ));
         }
-        match &item.transcode_session {
-            Some(t) => lines.push(kv(
-                "Stream",
+        lines.push(kv("Stream", stream_decision(item), theme));
+        if let Some(t) = &item.transcode_session {
+            lines.push(kv(
+                "Transcode",
                 format!(
                     "video {} · audio {}{}",
                     t.video_decision.as_deref().unwrap_or("copy"),
@@ -266,8 +284,10 @@ fn inspector_lines(app: &App, item: &Item, theme: &Theme, width: usize) -> Vec<L
                     t.speed.map(|s| format!(" · {s:.1}x")).unwrap_or_default()
                 ),
                 theme,
-            )),
-            None => lines.push(kv("Stream", "direct play", theme)),
+            ));
+        }
+        if let Some(l) = item.session.as_ref().and_then(|s| s.location.clone()) {
+            lines.push(kv("Network", l.to_uppercase(), theme));
         }
         if let Some(b) = item.session.as_ref().and_then(|s| s.bandwidth) {
             lines.push(kv("Bandwidth", format::bitrate_kbps(b), theme));
@@ -525,10 +545,51 @@ fn inspector_lines(app: &App, item: &Item, theme: &Theme, width: usize) -> Vec<L
             Some(Source::Path(p)) if p == PLAYLISTS => "Your playlists. Space adds the selected item to one; x deletes; e renames.",
             Some(Source::Search) => "Search every library: titles, episodes, music, people and genres, grouped by type. f searches from anywhere.",
             Some(Source::Sessions) => "Who is streaming from this server right now. Refreshes every few seconds; x stops a stream.",
-            Some(Source::History) => "Everything played on this server, newest first.",
+            Some(Source::History(_)) => "Everything played on this server, newest first. x deletes an entry (owners).",
+            Some(Source::Downloads) => {
+                "Movies, episodes and music saved for offline playback, with live progress. Enter plays (or retries), a plays the group, x removes; works without a server."
+            }
+            Some(Source::Group(Group::LiveTv)) => "The server's tuner: what's on now and next per channel, recordings and their rules.",
+            Some(Source::Group(Group::Activity)) => "What's playing on the server, watch history, and background work.",
+            Some(Source::Group(Group::Server)) => "Manage the server: overview and updates, statistics, libraries, maintenance, settings and users.",
+            Some(Source::Settings) => "Player settings shared with the desktop app, this client's own, and your account.",
+            Some(Source::Tasks) => "Scans and other background work, and transcoder sessions. x cancels or stops one.",
+            Some(Source::Guide) => "Channels with what's on now. Enter watches, l lists later programs, Enter on a program records it.",
+            Some(Source::Upcoming) => "Recordings the server has scheduled.",
+            Some(Source::Rules) => "What the server records. x deletes a rule; existing recordings are kept.",
+            Some(Source::Overview) => "Version, platform, CPU and memory, and server updates.",
+            Some(Source::Stats(_)) => "Data streamed per hour or day, plays, and the top users and devices.",
+            Some(Source::Maintenance) => "Database maintenance, diagnostics to download, and the butler's scheduled tasks.",
+            Some(Source::ServerLibraries) => "Scan, refresh, edit or delete libraries, change their settings, or add one.",
+            Some(Source::Prefs) => "Every server setting; / searches them, Enter changes one.",
+            Some(Source::People) => "Accounts, friends and shared users, players on the network and devices.",
             _ => "",
         };
         lines.push(Line::from(Span::styled(text, dim)));
+    }
+
+    if let Some(r) = &item.row {
+        let w = r.detail.iter().map(|(k, _)| k.width() + 2).max().unwrap_or(0).max(LABEL_W);
+        for (k, v) in &r.detail {
+            lines.push(kv_w(k, v.clone(), w, theme));
+        }
+        if let Some(t) = &r.text {
+            lines.push(Line::raw(""));
+            lines.push(Line::from(Span::styled(t.clone(), dim)));
+        }
+        if let Some(link) = &item.link
+            && !link.items.is_empty()
+        {
+            heading(&mut lines, "Later", width, theme);
+            for i in link.items.iter().take(12) {
+                lines.push(Line::raw(i.title().to_string()));
+            }
+        }
+        let hints = super::row_hints(item);
+        if !hints.is_empty() {
+            lines.push(Line::raw(""));
+            lines.push(key_hints(&hints, theme));
+        }
     }
 
     if let Some(link) = item.link.as_ref().filter(|_| matches!(item.kind(), Kind::Hub | Kind::Person | Kind::Tag)) {

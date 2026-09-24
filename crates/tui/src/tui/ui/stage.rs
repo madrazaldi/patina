@@ -14,10 +14,21 @@ pub(super) fn draw_stage(f: &mut Frame, app: &App, theme: &Theme, area: Rect) {
         Stage::Connecting { name } => {
             title = "Connecting";
             lines.push(Line::from(Span::styled(format!("{} Connecting to {name}…", spinner(app)), dim)));
+            if !app.downloads.is_empty() {
+                lines.push(Line::raw(""));
+                lines.push(hints(&[("d", "downloads offline"), ("q", "quit")]));
+            }
         }
         Stage::Login => {
             title = "Sign in";
             match &app.login.code {
+                Some((_, url)) if app.login.browser => {
+                    lines.push(Line::raw("Approve the sign-in in your browser."));
+                    lines.push(Line::raw(""));
+                    lines.push(Line::from(Span::styled(url.clone(), dim)));
+                    lines.push(Line::raw(""));
+                    lines.push(Line::from(Span::styled(format!("{} Waiting for plex.tv…", spinner(app)), dim)));
+                }
                 Some((code, _)) => {
                     lines.push(Line::from(vec![Span::raw("Go to "), Span::styled("plex.tv/link", accent.bold()), Span::raw(" and enter")]));
                     lines.push(Line::raw(""));
@@ -36,7 +47,8 @@ pub(super) fn draw_stage(f: &mut Frame, app: &App, theme: &Theme, area: Rect) {
                 lines.push(Line::from(Span::styled(e.clone(), Style::default().fg(theme.error))));
             }
             lines.push(Line::raw(""));
-            lines.push(hints(&[("o", "open browser"), ("r", "new code"), ("m", "server URL + token"), ("q", "quit")]));
+            lines.push(hints(&[("b", "browser sign-in"), ("p", "email & password"), ("r", "link code")]));
+            lines.push(hints(&[("o", "open plex.tv/link"), ("m", "server URL + token"), ("q", "quit")]));
         }
         Stage::PickServer { servers, user } => {
             title = "Choose a server";
@@ -64,7 +76,11 @@ pub(super) fn draw_stage(f: &mut Frame, app: &App, theme: &Theme, area: Rect) {
             title = "Couldn't connect";
             lines.push(Line::from(Span::styled(message.clone(), Style::default().fg(theme.error))));
             lines.push(Line::raw(""));
-            lines.push(hints(&[("r", "retry"), ("L", "sign out"), ("q", "quit")]));
+            let mut h = vec![("r", "retry"), ("L", "sign out"), ("q", "quit")];
+            if !app.downloads.is_empty() {
+                h.insert(1, ("d", "downloads offline"));
+            }
+            lines.push(hints(&h));
         }
     }
     let block = modal_block(Span::styled(format!(" {title} "), Style::default().fg(theme.accent).bold()), theme)

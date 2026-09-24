@@ -24,6 +24,18 @@ impl App {
         if item.rating_key.is_some() && matches!(kind, Kind::Artist | Kind::Album | Kind::Track) {
             rows.push((Radio, "Start radio", ""));
         }
+        if matches!(kind, Kind::Episode | Kind::Track) && item.grandparent_rating_key.is_some() {
+            rows.push((GoToGrandparent, if kind == Kind::Track { "Go to artist" } else { "Go to show" }, "B"));
+        }
+        if matches!(kind, Kind::Episode | Kind::Track | Kind::Season | Kind::Album) && item.parent_rating_key.is_some() {
+            let label = match kind {
+                Kind::Track => "Go to album",
+                Kind::Season => "Go to show",
+                Kind::Album => "Go to artist",
+                _ => "Go to season",
+            };
+            rows.push((GoToParent, label, "b"));
+        }
         if item.is_watchable() {
             rows.push((MarkWatched, "Mark watched", "w"));
             rows.push((MarkUnwatched, "Mark unwatched", "u"));
@@ -63,7 +75,18 @@ impl App {
             rows.push((CopyUrl, "Copy stream URL", "y"));
         }
         if item.rating_key.is_some() && (item.is_playable() || matches!(kind, Kind::Show | Kind::Season | Kind::Album | Kind::Artist)) {
-            rows.push((Download, "Download for offline", "D"));
+            let id = self.session.as_ref().zip(item.rating_key.as_ref()).map(|(s, k)| format!("{}:{k}", s.server_id));
+            let saved = self.downloads.iter().find(|d| Some(&d.id) == id.as_ref()).map(|d| d.state);
+            use patina_core::downloads::State;
+            rows.push((
+                Download,
+                match saved {
+                    Some(State::Done) => "Downloaded ✓",
+                    Some(State::Queued | State::Downloading) => "Downloading…",
+                    _ => "Download for offline",
+                },
+                "D",
+            ));
         }
         if matches!(kind, Kind::Show | Kind::Season | Kind::Episode) {
             rows.push((Tracks, "Audio & subtitles for the show…", "T"));
@@ -124,6 +147,9 @@ impl App {
         }
         if owned && col.is_collection().is_some() {
             rows.push((RemoveFromCollection, "Remove from collection", "x"));
+        }
+        if owned && matches!(col.source, Source::History(_)) && item.history_key.is_some() {
+            rows.push((DeleteHistory, "Delete from history…", "x"));
         }
         if col.is_sessions() && item.session.is_some() {
             rows.push((TerminateSession, "Stop this stream", "x"));
@@ -265,7 +291,10 @@ impl App {
             }
             Tracks => self.open_tracks(),
             SwitchUser => self.open_users(),
-            DeletePlaylist | RemoveFromPlaylist | RemoveFromCollection | TerminateSession => self.delete_action(),
+            DeletePlaylist | RemoveFromPlaylist | RemoveFromCollection | TerminateSession | DeleteHistory => self.delete_action(),
+            GoToParent => self.go_to_parent(false),
+            GoToGrandparent => self.go_to_parent(true),
+            Row(op) => self.run_row(op),
         }
     }
 }

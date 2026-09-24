@@ -27,7 +27,8 @@ use patina_plex::stream_type::{AUDIO as STREAM_AUDIO, SUBTITLE as STREAM_SUBTITL
 use super::app::{App, Level, PLAYLISTS, active_download};
 use super::column::{Column, SortKey};
 use super::modal::*;
-use super::source::Source;
+use super::rows::{Act, Tone};
+use super::source::{Group, Source};
 use crate::format;
 use crate::item::{Item, Kind, extra_label};
 
@@ -257,6 +258,15 @@ fn draw_footer(f: &mut Frame, app: &App, theme: &Theme, area: Rect) {
             Span::styled("█", Style::default().fg(theme.accent)),
             Span::styled("   enter keep · esc clear", Style::default().fg(theme.dim)),
         ])
+    } else if let Some(item) = app.selected().filter(|i| i.row.is_some()) {
+        let mut hints = row_hints(item);
+        if item.link.is_some() && !hints.iter().any(|h| h.0 == "l") {
+            hints.push(("l", "open"));
+        }
+        hints.extend([("h", "back"), ("/", "filter"), ("m", "menu"), ("?", "help")]);
+        let mut line = key_hints(&hints, theme);
+        line.spans.insert(0, Span::raw(" "));
+        line
     } else {
         let playable = app.selected().is_some_and(Item::is_playable);
         let mut hints = vec![("enter", if playable { "play" } else { "open" })];
@@ -339,6 +349,31 @@ fn now_playing(np: &NowPlaying) -> String {
         s.push_str(&format!(" ({}/{})", np.queue_pos + 1, np.queue_len));
     }
     s
+}
+
+/// What enter and the other keys do on a tool row.
+pub(super) fn row_hints(item: &Item) -> Vec<(&'static str, &'static str)> {
+    use patina_core::downloads::State;
+    let Some(r) = &item.row else { return Vec::new() };
+    match &r.act {
+        Act::Download(d) => match d.state {
+            State::Done => vec![("enter", "play"), ("a", "play group"), ("x", "delete")],
+            State::Failed => vec![("enter", "retry"), ("x", "remove")],
+            _ => vec![("x", "cancel")],
+        },
+        Act::Channel(_) => vec![("enter", "watch"), ("l", "later programs")],
+        Act::Program { program } if program.guid.is_some() => vec![("enter", "record")],
+        Act::Rule(_) => vec![("x", "delete rule")],
+        Act::Activity { cancellable: true, .. } => vec![("x", "cancel")],
+        Act::Transcode(_) => vec![("x", "stop")],
+        Act::MoreHistory => vec![("enter", "load older")],
+        Act::Butler(_) => vec![("enter", "start"), ("x", "stop")],
+        Act::Server(_) | Act::Account(_) => vec![("enter", "run")],
+        Act::OpenUrl(_) => vec![("enter", "open")],
+        Act::Library(_) => vec![("enter", "actions"), ("l", "settings")],
+        Act::Pref { .. } | Act::Setting(_) => vec![("enter", "change")],
+        _ => Vec::new(),
+    }
 }
 
 // ---- sign-in ---------------------------------------------------------------

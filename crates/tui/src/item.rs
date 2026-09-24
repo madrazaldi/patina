@@ -10,6 +10,7 @@ use std::ops::{Deref, DerefMut};
 use patina_plex::{Directory, Hub, MediaContainer, Metadata, Part};
 use serde_json::Value;
 
+use crate::tui::rows::Row;
 use crate::tui::source::{Link, Source};
 
 /// Where an item came from. Plex uses `type: "movie"` both for a movie and a
@@ -26,6 +27,8 @@ pub enum Origin {
     Discover,
     /// A synthetic entry leading somewhere through its `link` (a hub, a person, a tag).
     Link,
+    /// A row of a tool screen (downloads, guide, server tools, settings).
+    Row,
 }
 
 /// Coarse classification used for presentation and behaviour.
@@ -54,6 +57,8 @@ pub enum Kind {
     Person,
     /// A genre, label, collection or other tag whose titles can be listed.
     Tag,
+    /// A row of a tool screen; see [`Row`].
+    Row,
     Other,
 }
 
@@ -65,6 +70,7 @@ pub struct Item {
     pub dir: Option<Directory>,
     /// Where a synthetic entry leads, instead of its `key`.
     pub link: Option<Box<Link>>,
+    pub row: Option<Box<Row>>,
 }
 
 impl Deref for Item {
@@ -105,19 +111,34 @@ impl Item {
         if meta.title.is_none() {
             meta.title = Some(dir.title().to_string());
         }
-        Self { origin, meta, dir: Some(dir), link: None }
+        Self { origin, meta, dir: Some(dir), ..Default::default() }
     }
 
     /// A root navigation entry opening `source`.
     pub fn nav(title: &str, source: Source) -> Self {
         let meta = Metadata { title: Some(title.into()), kind: Some("nav".into()), ..Default::default() };
-        Self { origin: Origin::Nav, meta, dir: None, link: Some(Box::new(Link { source, items: Vec::new() })) }
+        Self { origin: Origin::Nav, meta, link: Some(Box::new(Link { source, items: Vec::new() })), ..Default::default() }
+    }
+
+    /// A root entry listing `items` (a group of screens).
+    pub fn group(title: &str, source: Source, items: Vec<Item>) -> Self {
+        let mut it = Self::nav(title, source);
+        if let Some(l) = it.link.as_mut() {
+            l.items = items;
+        }
+        it
+    }
+
+    /// A row of a tool screen.
+    pub fn row(title: &str, row: Row) -> Self {
+        let meta = Metadata { title: Some(title.into()), kind: Some("row".into()), ..Default::default() };
+        Self { origin: Origin::Row, meta, row: Some(Box::new(row)), ..Default::default() }
     }
 
     /// A synthetic entry of `kind` (`hub`, `person` or `tag`) opening `source`.
     pub fn link(title: &str, kind: &str, source: Source, items: Vec<Item>) -> Self {
         let meta = Metadata { title: Some(title.into()), kind: Some(kind.into()), ..Default::default() };
-        Self { origin: Origin::Link, meta, dir: None, link: Some(Box::new(Link { source, items })) }
+        Self { origin: Origin::Link, meta, link: Some(Box::new(Link { source, items })), ..Default::default() }
     }
 
     /// A server hub: its items, paged from its key when the hub has more.
@@ -171,6 +192,7 @@ impl Item {
             Origin::Nav => return Kind::Nav,
             Origin::Discover => return Kind::Remote,
             Origin::Section => return Kind::Section,
+            Origin::Row => return Kind::Row,
             Origin::Link => {
                 return match self.meta.kind.as_deref() {
                     Some("hub") => Kind::Hub,
@@ -224,7 +246,7 @@ impl Item {
         match self.origin {
             Origin::Section => return Some(format!("/library/sections/{}/all", self.key.as_deref()?)),
             Origin::Directory => return self.fast_key().or_else(|| self.key.clone()),
-            Origin::Discover => return None,
+            Origin::Discover | Origin::Row => return None,
             _ => {}
         }
         if self.kind() == Kind::Playlist {

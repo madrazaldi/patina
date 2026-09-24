@@ -8,8 +8,24 @@ fn nav_icon(source: Option<&Source>) -> &'static str {
         Some(Source::Watchlist) => "☆",
         Some(Source::Path(p)) if p == PLAYLISTS => "≡",
         Some(Source::Sessions) => "◉",
-        Some(Source::History) => "↺",
+        Some(Source::History(_)) => "↺",
+        Some(Source::Downloads) => "↓",
+        Some(Source::Group(Group::LiveTv)) => "▭",
+        Some(Source::Group(Group::Activity)) => "◉",
+        Some(Source::Group(Group::Server)) => "▣",
+        Some(Source::Settings) => "⚙",
+        Some(Source::Tasks) => "⟳",
         _ => "•",
+    }
+}
+
+pub(super) fn tone(t: Tone, theme: &Theme) -> Style {
+    match t {
+        Tone::Normal => Style::default(),
+        Tone::Accent => Style::default().fg(theme.accent),
+        Tone::Dim => Style::default().fg(theme.dim),
+        Tone::Error => Style::default().fg(theme.error),
+        Tone::Good => Style::default().fg(theme.success),
     }
 }
 
@@ -70,6 +86,10 @@ fn status_glyph(item: &Item, ctx: &RowCtx) -> Span<'static> {
         Kind::Hub => Span::styled(if hub_continues(item) { "▶" } else { "▦" }, accent),
         Kind::Person => Span::styled("☺", dim),
         Kind::Tag => Span::styled("#", dim),
+        Kind::Row => {
+            let r = item.row.as_deref();
+            Span::styled(r.map_or(" ", |r| r.glyph), tone(r.map_or(Tone::Dim, |r| r.tone), ctx.theme))
+        }
         _ if ctx.sessions => match item.player.as_ref().and_then(|p| p.state.as_deref()) {
             Some("paused") => Span::styled("‖", accent),
             Some("buffering") => Span::styled("…", accent),
@@ -107,11 +127,15 @@ fn meta(item: &Item, ctx: &RowCtx) -> (String, Style) {
             .unwrap_or_default();
         return (format!("{user}{pct}"), dim);
     }
+    if let Some(r) = &item.row {
+        return (truncate(&r.note, 32), dim);
+    }
     if ctx.history {
-        return (
-            item.viewed_at.map(format::relative).unwrap_or_default(),
-            dim,
-        );
+        let when = item.viewed_at.map(format::relative).unwrap_or_default();
+        return match item.extra.get("accountName").and_then(|v| v.as_str()) {
+            Some(who) => (format!("{who} · {when}"), dim),
+            None => (when, dim),
+        };
     }
     match item.kind() {
         Kind::Section => {
@@ -180,7 +204,10 @@ fn row_line(item: &Item, width: usize, ctx: &RowCtx) -> Line<'static> {
         && item.is_watched()
         && !ctx.sessions
         && !ctx.history;
-    let title_style = if watched_dim || item.kind() == Kind::Remote {
+    let heading = item.row.as_ref().is_some_and(|r| matches!(r.act, Act::Heading));
+    let title_style = if heading {
+        Style::default().fg(ctx.theme.accent).bold()
+    } else if watched_dim || item.kind() == Kind::Remote {
         Style::default().fg(ctx.theme.dim)
     } else {
         Style::default()
@@ -300,7 +327,7 @@ pub(super) fn draw_columns(f: &mut Frame, app: &mut App, theme: &Theme, area: Re
             theme,
             full_titles: context_free(col),
             sessions: col.is_sessions(),
-            history: col.source == Source::History,
+            history: matches!(col.source, Source::History(_)),
         };
 
         if col.view.is_empty() {
@@ -316,6 +343,8 @@ pub(super) fn draw_columns(f: &mut Frame, app: &mut App, theme: &Theme, area: Re
                 ))
             } else if !col.filter.is_empty() || col.hide_watched {
                 Line::from(Span::styled(" No matches", Style::default().fg(theme.dim)))
+            } else if col.source == Source::Downloads {
+                Line::from(Span::styled(" Nothing downloaded yet · D on a movie, episode, season, show, album or artist", Style::default().fg(theme.dim)))
             } else if col.is_sessions() {
                 Line::from(Span::styled(
                     " Nobody is streaming right now",

@@ -98,7 +98,9 @@ impl App {
                 }
             }
             KeyCode::Enter => {
-                if col.selected().is_some_and(Item::is_playable) {
+                if let Some(i) = col.selected().filter(|i| i.row.is_some()).cloned() {
+                    self.row_enter(i);
+                } else if col.selected().is_some_and(Item::is_playable) {
                     self.play_selected(false);
                 } else {
                     self.drill();
@@ -110,10 +112,14 @@ impl App {
                 }
             }
             KeyCode::Char('a') => {
-                if let Some(i) = col.selected().cloned() {
+                if col.selected().is_some_and(|i| i.row.is_some()) {
+                    self.run_row(RowOp::PlayGroup);
+                } else if let Some(i) = col.selected().cloned() {
                     self.play_container(i, false);
                 }
             }
+            KeyCode::Char('b') => self.go_to_parent(false),
+            KeyCode::Char('B') => self.go_to_parent(true),
             KeyCode::Char('z') => {
                 if let Some(i) = col.selected().cloned() {
                     self.play_container(i, true);
@@ -183,7 +189,10 @@ impl App {
             }
             KeyCode::Char('R') => self.refresh_all(),
             KeyCode::Char('S') => self.scan_library(false),
-            KeyCode::Char('m' | '.') => self.open_menu(),
+            KeyCode::Char('m' | '.') => match col.selected().filter(|i| i.row.is_some()).cloned() {
+                Some(i) => self.row_menu(i),
+                None => self.open_menu(),
+            },
             KeyCode::Char('O') => self.open_web(),
             KeyCode::Char('y') => self.copy_url(),
             KeyCode::Char('D') => self.download_selected(),

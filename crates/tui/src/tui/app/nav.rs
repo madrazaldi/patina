@@ -8,10 +8,19 @@ impl App {
 
     /// Start (or restart) loading a column's listing.
     pub(super) fn load(&mut self, idx: usize) {
-        let Some(col) = self.columns.get_mut(idx) else { return };
+        let Some(col) = self.columns.get(idx) else { return };
         if !col.source.loads() {
             return;
         }
+        if col.source.local() {
+            let items = self.local_items(&col.source);
+            let col = &mut self.columns[idx];
+            col.set_items(items, &mut self.fuzzy);
+            col.loaded = true;
+            col.loading = false;
+            return;
+        }
+        let col = &mut self.columns[idx];
         col.generation += 1;
         col.loading = true;
         col.error = None;
@@ -40,6 +49,9 @@ impl App {
 
     /// Push a column for `source`, showing `items` until it loads.
     pub(super) fn open_source(&mut self, title: String, source: Source, items: Vec<Item>) {
+        if source == Source::Settings {
+            self.probe_mpv();
+        }
         let mut col = self.new_column(title, source);
         if !items.is_empty() || !col.source.loads() {
             col.items = items;
@@ -62,7 +74,7 @@ impl App {
             return self.open_search();
         }
         if let Some(link) = item.link.clone() {
-            self.open_source(item.title().to_string(), link.source, link.items);
+            self.open_source(item.title().trim().to_string(), link.source, link.items);
             if let Some(col) = self.columns.last_mut() {
                 col.from = Some(Column::identity(&item));
             }
@@ -123,6 +135,11 @@ impl App {
         }
         col.total = total.or(col.total);
         col.loaded = true;
+        if let Some(k) = col.select_on_load.clone()
+            && col.select_identity(&k)
+        {
+            col.select_on_load = None;
+        }
         if done {
             col.loading = false;
             col.total = None;

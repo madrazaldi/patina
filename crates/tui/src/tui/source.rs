@@ -3,10 +3,11 @@
 //! A new screen is a [`Source`] variant plus its arm in [`fetch`]; a root
 //! entry for it is one line in `App::root_items` (via [`crate::item::Item::nav`]).
 
-use patina_core::AppState;
-use patina_core::ops::{library, lists};
+use patina_core::ops::{library, lists, server as admin};
+use patina_core::{AppState, livetv};
 use patina_plex::{Hub, Metadata, MetadataOptions, Params, Tag};
 
+use super::rows;
 use crate::fetch::watchlist_items;
 use crate::item::Item;
 
@@ -34,9 +35,37 @@ pub enum Source {
     Hub(String),
     Watchlist,
     Sessions,
-    History,
+    /// Watch history, this many pages of it.
+    History(u32),
     /// Opens the search overlay rather than a column.
     Search,
+    /// A root entry grouping screens; its items come with it.
+    Group(Group),
+    // Built from local state by the app, so they work offline.
+    Downloads,
+    Settings,
+    ServerLibraries,
+    // Live TV & DVR.
+    Guide,
+    Upcoming,
+    Rules,
+    /// Background activities and transcoder sessions.
+    Tasks,
+    // Server tools.
+    Overview,
+    /// Streaming statistics of the last 24 hours, or 30 days when `true`.
+    Stats(bool),
+    Maintenance,
+    Prefs,
+    LibraryPrefs(String),
+    People,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Group {
+    Activity,
+    LiveTv,
+    Server,
 }
 
 impl Source {
@@ -51,7 +80,17 @@ impl Source {
 
     /// Whether there is anything to (re)load.
     pub fn loads(&self) -> bool {
-        !matches!(self, Source::Root | Source::Static | Source::Search)
+        !matches!(self, Source::Root | Source::Static | Source::Search | Source::Group(_))
+    }
+
+    /// Listings the app builds from its own state rather than fetching.
+    pub fn local(&self) -> bool {
+        matches!(self, Source::Downloads | Source::Settings | Source::ServerLibraries)
+    }
+
+    /// Listings that go stale by themselves and are polled while shown.
+    pub fn polled(&self) -> bool {
+        matches!(self, Source::Sessions | Source::Tasks)
     }
 }
 
@@ -201,12 +240,26 @@ pub fn is_paged(path: &str) -> bool {
 /// append, total)` when `progressive`, before the full result is returned.
 pub async fn fetch(core: &AppState, source: &Source, progressive: bool, page: &mut (dyn FnMut(Vec<Item>, bool, Option<usize>) + Send)) -> anyhow::Result<Vec<Item>> {
     let server = core.server()?;
+    let now = chrono::Utc::now().timestamp();
     match source {
-        Source::Root | Source::Static | Source::Search => Ok(Vec::new()),
+        Source::Root | Source::Static | Source::Search | Source::Group(_) | Source::Downloads | Source::Settings | Source::ServerLibraries => Ok(Vec::new()),
         Source::Home => Ok(hubs(server.home_hubs(20).await?)),
         Source::Hub(key) => paged(&server, key, progressive, page).await,
         Source::Sessions => Ok(server.sessions().await?.into_iter().map(Item::from).collect()),
-        Source::History => Ok(lists::history(core, 0).await?.items.into_iter().map(Item::from).collect()),
+        Source::History(pages) => history(core, *pages).await,
+        Source::Guide => Ok(rows::guide(&livetv::guide(&server, 6).await?, now)),
+        Source::Upcoming => Ok(rows::upcoming(&livetv::recordings(&server).await?)),
+        Source::Rules => Ok(rows::rules(&livetv::recordings(&server).await?)),
+        Source::Tasks => Ok(rows::tasks(&core.snapshot().activities, &admin::tasks(core).await?)),
+        Source::Overview => Ok(rows::overview(&admin::server_overview(core).await?)),
+        Source::Stats(month) => {
+            let (timespan, since) = if *month { (4, now - 30 * 86400) } else { (6, now - 86400) };
+            Ok(rows::stats(&admin::server_stats(core, timespan, since).await?, *month))
+        }
+        Source::Maintenance => Ok(rows::maintenance(&server.butler_tasks().await?)),
+        Source::Prefs => Ok(rows::prefs(admin::prefs(core).await?, None)),
+        Source::LibraryPrefs(id) => Ok(rows::prefs(admin::library_prefs(core, id).await?, Some(id))),
+        Source::People => Ok(rows::people(&admin::users_devices(core).await?)),
         Source::Watchlist => watchlist_items(core, &server).await,
         Source::Library(v) => paged(&server, &v.path(), progressive, page).await,
         Source::SectionHubs(id) => Ok(hubs(server.section_hubs(id, 18).await?)),
@@ -229,6 +282,29 @@ pub async fn fetch(core: &AppState, source: &Source, progressive: bool, page: &m
         Source::Path(p) if is_paged(p) => paged(&server, p, progressive, page).await,
         Source::Path(p) => Ok(Item::listing(server.fetch(p, &Params::new()).await?)),
     }
+}
+
+/// `pages` pages of watch history, who watched noted on each entry, and
+/// a row loading older ones when there are more.
+async fn history(core: &AppState, pages: u32) -> anyhow::Result<Vec<Item>> {
+    let mut out = Vec::new();
+    for page in 0..pages.max(1) {
+        let h = lists::history(core, page).await?;
+        out.extend(h.items.into_iter().map(|m| {
+            let who = m.account_id.and_then(|id| h.accounts.get(&id).cloned());
+            let mut it = Item::from(m);
+            if let Some(who) = who {
+                it.meta.extra.insert("accountName".into(), who.into());
+            }
+            it
+        }));
+        if !h.has_more {
+            return Ok(out);
+        }
+    }
+    let row = rows::Row::new("more-history", rows::Act::MoreHistory).glyph("↓", rows::Tone::Accent).text("Enter loads the next page.");
+    out.push(row.item("Load older history…"));
+    Ok(out)
 }
 
 /// Hub entries, skipping empty hubs; in-progress hubs come first, as on the GUI's home.

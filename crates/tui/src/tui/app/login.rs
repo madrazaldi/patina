@@ -9,8 +9,9 @@ impl App {
         match &stage {
             Stage::Login => {
                 self.columns.clear();
+                self.offline = false;
                 self.login = Login::default();
-                self.request_pin();
+                self.request_pin(false);
             }
             Stage::PickServer { .. } => self.login.cursor = 0,
             Stage::Ready => {
@@ -23,14 +24,21 @@ impl App {
         self.stage = stage;
     }
 
-    /// Ask plex.tv for a link code and wait for it to be claimed.
-    pub(super) fn request_pin(&mut self) {
+    /// Ask plex.tv for a link code and wait for it to be claimed. A
+    /// `strong` one is approved in the browser, which opens right away.
+    pub(super) fn request_pin(&mut self, strong: bool) {
+        session::cancel_pin(&self.core);
         self.login.requesting = true;
+        self.login.browser = strong;
+        self.login.code = None;
         self.login.error = None;
         let (core, tx) = (self.core.clone(), self.tx.clone());
         tokio::spawn(async move {
-            match session::create_pin(&core, false).await {
+            match session::create_pin(&core, strong).await {
                 Ok(pin) => {
+                    if strong && let Err(e) = open::that_detached(&pin.url) {
+                        let _ = tx.send(Msg::Pin(Err(format!("Couldn't open a browser ({e}); open the link below"))));
+                    }
                     let _ = tx.send(Msg::Pin(Ok((pin.code.clone(), pin.url.clone()))));
                     if let Err(e) = session::complete_pin(&core, pin.id, pin.attempt).await {
                         let _ = tx.send(Msg::Pin(Err(err(e))));
@@ -57,13 +65,40 @@ impl App {
         });
     }
 
+    pub(super) fn password_sign_in(&mut self, login: String, password: String, code: String) {
+        session::cancel_pin(&self.core);
+        self.login.code = None;
+        self.login.error = None;
+        self.login.requesting = true;
+        let (core, tx) = (self.core.clone(), self.tx.clone());
+        tokio::spawn(async move {
+            let code = Some(code).filter(|c| !c.is_empty());
+            if let Err(e) = session::password_sign_in(&core, &login, &password, code.as_deref()).await {
+                let _ = tx.send(Msg::Pin(Err(err(e))));
+            }
+        });
+    }
+
     pub(super) fn stage_key(&mut self, key: KeyEvent) {
         let core = self.core.clone();
         match (&self.stage, key.code) {
             (_, KeyCode::Char('q')) => self.quit = true,
-            (Stage::Login, KeyCode::Char('r')) => {
-                session::cancel_pin(&core);
-                self.request_pin();
+            (Stage::Login, KeyCode::Char('r')) => self.request_pin(false),
+            (Stage::Login, KeyCode::Char('b')) => self.request_pin(true),
+            (Stage::Login, KeyCode::Char('p')) => {
+                self.modal = Some(Modal::Input(Input {
+                    title: "Sign in with Plex".into(),
+                    hint: "Email or username".into(),
+                    value: String::new(),
+                    purpose: InputPurpose::Login,
+                }))
+            }
+            (Stage::Failed { .. } | Stage::Connecting { .. }, KeyCode::Char('d')) => {
+                if self.downloads.is_empty() {
+                    self.info("Nothing is downloaded yet");
+                } else {
+                    self.start_offline();
+                }
             }
             (Stage::Login, KeyCode::Char('m')) => {
                 self.modal = Some(Modal::Input(Input {

@@ -3,6 +3,7 @@
 mod app;
 mod column;
 mod modal;
+pub mod rows;
 pub mod source;
 mod ui;
 
@@ -31,7 +32,8 @@ impl EventSink for TuiSink {
 pub async fn run() -> Result<()> {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let core = AppState::new(Arc::new(TuiSink(tx.clone())), tokio::runtime::Handle::current());
-    let theme = ui::Theme::new(&core.settings().tui.accent);
+    let mut accent = core.settings().tui.accent;
+    let mut theme = ui::Theme::new(&accent);
     let mut app = App::new(core.clone(), tx);
     tokio::spawn(session::restore(core));
 
@@ -40,6 +42,10 @@ pub async fn run() -> Result<()> {
     let mut events = EventStream::new();
     let mut tick = tokio::time::interval(Duration::from_millis(100));
     let result: Result<()> = loop {
+        if app.tui.accent != accent {
+            accent = app.tui.accent.clone();
+            theme = ui::Theme::new(&accent);
+        }
         if let Err(e) = terminal.draw(|f| ui::draw(f, &mut app, &theme)) {
             break Err(e.into());
         }

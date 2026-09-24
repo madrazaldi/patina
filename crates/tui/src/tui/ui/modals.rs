@@ -44,7 +44,7 @@ pub const HELP: &[(&str, &str)] = &[
     ("w / u", "mark watched / unwatched"),
     ("*", "rate 0–10"),
     ("space", "add to / remove from playlists"),
-    ("x", "delete playlist or collection · remove entry · stop stream"),
+    ("x", "delete playlist or collection · remove entry · stop stream · delete history entry"),
     ("J / K", "move a playlist (or custom-sorted collection) entry down / up"),
     ("+", "add to / remove from watchlist"),
     ("C", "add to / remove from collections"),
@@ -52,7 +52,14 @@ pub const HELP: &[(&str, &str)] = &[
     ("c", "related & similar, cast & crew, genres and tags"),
     ("e", "edit details, genres, labels (renames a playlist); menu: poster, background, match"),
     ("S", "scan library for new files"),
+    ("b / B", "go to the season or album / the show or artist"),
     ("m  .", "actions menu (more options)"),
+    ("", "Downloads, Live TV, Activity, Server, Settings"),
+    ("enter", "a row's main action: play, retry, watch, record, run, change"),
+    ("x", "remove a download · delete a rule · cancel a task · stop a transcode"),
+    ("a", "play a downloaded show, album or all movies"),
+    ("l", "a channel's later programs · a library's settings"),
+    ("/", "search server settings (or any list)"),
     ("", "Finding things"),
     ("f", "search the server, grouped by type (tab: next type)"),
     ("/", "filter this column"),
@@ -185,7 +192,7 @@ pub(super) fn draw_modal(f: &mut Frame, app: &App, theme: &Theme) {
                     Style::default().fg(theme.dim),
                 )),
                 Line::from(vec![
-                    Span::raw(if matches!(i.purpose, InputPurpose::UserPin { .. }) {
+                    Span::raw(if matches!(i.purpose, InputPurpose::UserPin { .. }) || i.purpose.secret() {
                         format!(" {}", "•".repeat(i.value.chars().count()))
                     } else {
                         // Keep the end (and the cursor) visible for long values.
@@ -197,7 +204,15 @@ pub(super) fn draw_modal(f: &mut Frame, app: &App, theme: &Theme) {
                     Span::styled("█", Style::default().fg(theme.accent)),
                 ]),
                 Line::from(Span::styled(
-                    " enter save · esc cancel",
+                    match i.purpose {
+                        InputPurpose::Password { .. } | InputPurpose::TwoFactor { .. } => " enter sign in · esc cancel",
+                        InputPurpose::Login
+                        | InputPurpose::LibraryName(_)
+                        | InputPurpose::LibraryFolders(_)
+                        | InputPurpose::EditLibraryName { .. } => " enter next · esc cancel",
+                        InputPurpose::LibraryLanguage(_) => " enter add library · esc cancel",
+                        _ => " enter save · esc cancel",
+                    },
                     Style::default().fg(theme.dim),
                 )),
             ];
@@ -208,13 +223,15 @@ pub(super) fn draw_modal(f: &mut Frame, app: &App, theme: &Theme) {
             );
         }
         Modal::Confirm(c) => {
-            let area = centered(screen, (c.message.width() as u16 + 6).clamp(30, 70), 5);
+            let width = (c.message.width() as u16 + 6).clamp(30, 70);
+            let wrapped = (c.message.width() as u16).div_ceil(width - 4).max(1);
+            let area = centered(screen, width, wrapped + 4 + u16::from(wrapped > 1));
             f.render_widget(Clear, area);
             let lines = vec![
-                Line::raw(format!(" {}", c.message)),
+                Line::raw(c.message.as_str()),
                 Line::raw(""),
                 Line::from(vec![
-                    Span::styled(" y", Style::default().fg(theme.accent).bold()),
+                    Span::styled("y", Style::default().fg(theme.accent).bold()),
                     Span::raw(" yes   "),
                     Span::styled("n", Style::default().fg(theme.accent).bold()),
                     Span::raw(" no"),
@@ -222,8 +239,8 @@ pub(super) fn draw_modal(f: &mut Frame, app: &App, theme: &Theme) {
             ];
             f.render_widget(
                 Paragraph::new(lines)
-                    .wrap(Wrap { trim: false })
-                    .block(modal_block(" Confirm ", theme)),
+                    .wrap(Wrap { trim: true })
+                    .block(modal_block(" Confirm ", theme).padding(ratatui::widgets::Padding::horizontal(1))),
                 area,
             );
         }

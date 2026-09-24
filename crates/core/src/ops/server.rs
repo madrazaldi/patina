@@ -80,7 +80,7 @@ pub async fn server_overview(app: &AppState) -> Result<Overview> {
 }
 
 /// A server or library setting.
-#[derive(Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Pref {
     pub id: String,

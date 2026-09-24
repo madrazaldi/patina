@@ -13,6 +13,7 @@ mod nav;
 mod playback;
 mod queue;
 mod search;
+mod tools;
 mod tracks;
 
 use std::collections::{HashMap, HashSet};
@@ -101,6 +102,10 @@ pub enum Msg {
     TracksApplied(Result<(), String>),
     /// A plex.tv link code to show on the sign-in screen, or why there is none.
     Pin(Result<(String, String), String>),
+    /// Whether the server has Live TV.
+    LiveTv(bool),
+    /// The mpv check for the Settings screen.
+    Probe(Result<String, String>),
     Core(CoreEvent),
 }
 
@@ -158,6 +163,8 @@ pub struct Login {
     /// plex.tv/link code and the page to enter it on.
     pub code: Option<(String, String)>,
     pub requesting: bool,
+    /// A browser sign-in (strong PIN) is waiting for approval.
+    pub browser: bool,
     pub error: Option<String>,
     /// Cursor on the server list.
     pub cursor: usize,
@@ -205,6 +212,10 @@ pub struct App {
     last_sessions_refresh: Instant,
     pub watchlist: HashSet<String>,
     pub activities: Vec<ServerActivity>,
+    /// Browsing downloads without a server.
+    pub offline: bool,
+    pub live_tv: bool,
+    pub mpv_probe: Option<Result<String, String>>,
     pub quit: bool,
 }
 
@@ -265,12 +276,15 @@ impl App {
             last_sessions_refresh: Instant::now(),
             watchlist: HashSet::new(),
             activities: Vec::new(),
+            offline: false,
+            live_tv: false,
+            mpv_probe: None,
             quit: false,
         }
     }
 
     pub fn ready(&self) -> bool {
-        matches!(self.stage, Stage::Ready) && !self.columns.is_empty()
+        (matches!(self.stage, Stage::Ready) || self.offline) && !self.columns.is_empty()
     }
 
     pub fn server_name(&self) -> &str {
@@ -293,13 +307,15 @@ impl App {
     fn new_column(&mut self, title: impl Into<String>, source: Source) -> Column {
         let id = self.next_id;
         self.next_id += 1;
+        let history = matches!(source, Source::History(_) | Source::Sessions);
         let mut c = Column::new(id, title, source);
-        c.hide_watched = self.tui.hide_watched;
+        c.hide_watched = self.tui.hide_watched && !history;
         c
     }
 
     /// (Re)build the browser for the connected server.
     fn start(&mut self) {
+        self.offline = false;
         self.columns.clear();
         self.details.clear();
         self.detail_inflight.clear();
@@ -315,6 +331,7 @@ impl App {
         self.drill();
         self.load_counts();
         self.load_watchlist_guids();
+        self.check_live_tv();
         self.after_selection_change();
     }
 
@@ -353,19 +370,6 @@ impl App {
         }
     }
 
-    fn root_items(&self) -> Vec<Item> {
-        let mut items = vec![Item::nav("Home", Source::Home)];
-        items.extend(self.sections.iter().cloned());
-        items.extend([
-            Item::nav("Playlists", Source::Path(PLAYLISTS.into())),
-            Item::nav("Watchlist", Source::Watchlist),
-            Item::nav("Search", Source::Search),
-            Item::nav("Now Playing", Source::Sessions),
-            Item::nav("History", Source::History),
-        ]);
-        items
-    }
-
     // ---- notices ---------------------------------------------------------
 
     pub fn info(&mut self, text: impl Into<String>) {
@@ -395,7 +399,7 @@ impl App {
         item.rating_key
             .as_ref()
             .and_then(|k| self.details.get(k))
-            .filter(|_| item.kind() != Kind::Playlist)
+            .filter(|_| item.kind() != Kind::Playlist && item.session.is_none())
             .or(Some(item))
     }
 
@@ -454,7 +458,7 @@ impl App {
         }
         self.search_tick(now);
         // Live notifications refresh Now Playing; poll too in case they are unavailable.
-        if self.last_sessions_refresh.elapsed() >= SESSIONS_REFRESH && self.columns.last().is_some_and(|c| c.is_sessions() && !c.loading) {
+        if self.last_sessions_refresh.elapsed() >= SESSIONS_REFRESH && self.columns.last().is_some_and(|c| c.source.polled() && !c.loading) {
             self.last_sessions_refresh = Instant::now();
             let idx = self.columns.len() - 1;
             self.load(idx);
@@ -479,6 +483,16 @@ impl App {
                         self.login.error = Some(e);
                     }
                 }
+            }
+            Msg::LiveTv(on) => {
+                if on != self.live_tv {
+                    self.live_tv = on;
+                    self.rebuild_root();
+                }
+            }
+            Msg::Probe(result) => {
+                self.mpv_probe = Some(result);
+                self.refresh_local(&Source::Settings);
             }
             Msg::Listing { id, generation, items, append, total, done } => self.on_listing(id, generation, items, append, total, done),
             Msg::ListingFailed { id, generation, error } => {
@@ -655,20 +669,30 @@ impl App {
         match ev {
             CoreEvent::Stage(stage) => self.on_stage(stage),
             CoreEvent::Session { session, sections } => {
+                let server_changed = self.session.as_ref().map(|s| &s.server_id) != session.as_ref().map(|s| &s.server_id);
                 self.session = session;
                 self.sections = sections.into_iter().map(Item::section).collect();
                 self.counts.retain(|k, _| self.sections.iter().any(|s| s.key.as_deref() == Some(k)));
+                if self.offline {
+                    return;
+                }
                 let root_items = self.root_items();
                 let name = self.server_name().to_string();
                 if let Some(root) = self.columns.first_mut() {
                     root.title = name;
                     root.set_items(root_items, &mut self.fuzzy);
                     self.load_counts();
+                    if server_changed {
+                        self.check_live_tv();
+                    }
                 }
+                self.refresh_local(&Source::ServerLibraries);
+                self.refresh_local(&Source::Settings);
             }
             CoreEvent::NowPlaying(np) => {
                 self.now_playing = np.map(|b| *b);
                 self.np_at = Instant::now();
+                patina_core::presence::update(self.now_playing.as_ref(), &self.core.settings().player);
                 match (&self.now_playing, &self.modal) {
                     (None, Some(Modal::Queue { .. } | Modal::Lyrics { .. })) => self.modal = None,
                     (Some(_), Some(Modal::Lyrics { .. })) => self.load_lyrics(),
@@ -676,13 +700,24 @@ impl App {
                 }
             }
             CoreEvent::Queue(q) => self.on_queue(q),
-            CoreEvent::Activities(list) => self.activities = list,
+            CoreEvent::Activities(list) => {
+                self.activities = list;
+                self.refresh_local(&Source::ServerLibraries);
+                for idx in 1..self.columns.len() {
+                    if self.columns[idx].source == Source::Tasks && !self.columns[idx].loading {
+                        self.load(idx);
+                    }
+                }
+            }
             CoreEvent::Revision(_) => {
                 self.revision_due.get_or_insert_with(|| Instant::now() + REVISION_DELAY);
             }
             CoreEvent::Toast(t) if t.error => self.error(t.text),
             CoreEvent::Toast(t) => self.info(t.text),
-            CoreEvent::Downloads(list) => self.downloads = list,
+            CoreEvent::Downloads(list) => {
+                self.downloads = list;
+                self.refresh_local(&Source::Downloads);
+            }
             CoreEvent::SessionsChanged => {
                 for idx in 1..self.columns.len() {
                     if self.columns[idx].is_sessions() && !self.columns[idx].loading {

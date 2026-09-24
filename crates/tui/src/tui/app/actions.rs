@@ -225,6 +225,56 @@ impl App {
                 self.search_subtitles(rating_key, lang);
             }
             InputPurpose::UserPin { user } => self.switch_user(*user, Some(value)),
+            InputPurpose::Login => {
+                if !value.is_empty() {
+                    self.modal = Some(Modal::Input(Input {
+                        title: "Sign in with Plex".into(),
+                        hint: "Password".into(),
+                        value: String::new(),
+                        purpose: InputPurpose::Password { login: value },
+                    }));
+                }
+            }
+            InputPurpose::Password { login } => {
+                if !input.value.is_empty() {
+                    self.modal = Some(Modal::Input(Input {
+                        title: "Sign in with Plex".into(),
+                        hint: "Two-factor code (if enabled; else enter)".into(),
+                        value: String::new(),
+                        purpose: InputPurpose::TwoFactor { login, password: input.value },
+                    }));
+                }
+            }
+            InputPurpose::TwoFactor { login, password } => self.password_sign_in(login, password, value),
+            InputPurpose::Setting(key) => self.save_setting(key, Some(value)),
+            InputPurpose::Pref { id, section } => self.save_pref(id, section, value),
+            InputPurpose::LibraryName(mut form) => {
+                form.name = value;
+                self.library_form_step(*form, "folders");
+            }
+            InputPurpose::LibraryFolders(mut form) => {
+                form.locations = value.split(';').map(|f| f.trim().to_string()).filter(|f| !f.is_empty()).collect();
+                if form.locations.is_empty() {
+                    return self.error("A library needs at least one folder");
+                }
+                self.library_form_step(*form, "agent");
+            }
+            InputPurpose::LibraryLanguage(mut form) => {
+                form.language = value;
+                self.library_form_step(*form, "create");
+            }
+            InputPurpose::EditLibraryName { id, folders } => {
+                if value.is_empty() {
+                    return;
+                }
+                self.modal = Some(Modal::Input(Input {
+                    title: format!("Edit {value} · folders"),
+                    hint: "Folders on the server, separated by ;".into(),
+                    value: folders,
+                    purpose: InputPurpose::EditLibraryFolders { id, name: value },
+                }));
+            }
+            InputPurpose::EditLibraryFolders { id, name } => self.edit_library(id, name, &value),
             InputPurpose::RenamePlaylist { playlist_id } => {
                 if value.is_empty() {
                     return;
@@ -273,6 +323,29 @@ impl App {
                 let path = format!("/playlists/{playlist_id}/items");
                 self.server_op(Refresh::Paths(vec![path, PLAYLISTS.into()]), "Playlist cleared", move |s| async move { s.clear_playlist(&playlist_id).await })
             }
+            ConfirmAction::RemoveDownload { id } => downloads::remove(&self.core, &id),
+            ConfirmAction::DeleteRule { id } => {
+                let server = self.server();
+                self.spawn_op(Refresh::Source(Source::Rules), async move {
+                    patina_core::livetv::delete_rule(&server?, &id).await.map_err(err)?;
+                    Ok(Some("Recording rule deleted".into()))
+                });
+            }
+            ConfirmAction::DeleteLibrary { id, title } => {
+                let core = self.core.clone();
+                self.spawn_op(Refresh::Nothing, async move {
+                    patina_core::ops::server::delete_library(&core, &id).await.map_err(err)?;
+                    Ok(Some(format!("Deleted {title}")))
+                });
+            }
+            ConfirmAction::DeleteHistory { key } => {
+                let core = self.core.clone();
+                let refresh = self.columns.last().map(|c| c.source.clone()).filter(|s| matches!(s, Source::History(_))).map_or(Refresh::Nothing, Refresh::Source);
+                self.spawn_op(refresh, async move {
+                    lists::delete_history(&core, &key).await.map_err(err)?;
+                    Ok(Some("Deleted from history".into()))
+                });
+            }
             ConfirmAction::EmptyTrash { section_id } => {
                 self.server_op(Refresh::Nothing, "Trash emptied", move |s| async move { s.empty_trash(&section_id).await })
             }
@@ -281,6 +354,11 @@ impl App {
 
     /// `x`: the contextual destructive action.
     pub(super) fn delete_action(&mut self) {
+        if let Some(item) = self.selected().cloned()
+            && self.row_delete(&item)
+        {
+            return;
+        }
         let Some(col) = self.columns.last() else { return };
         let Some(item) = col.selected().cloned() else { return };
         let action = if col.is_sessions() {
@@ -301,6 +379,11 @@ impl App {
             item.rating_key.clone().map(|rk| Confirm {
                 message: format!("Remove {} from the {} collection?", item.title(), col.title),
                 action: ConfirmAction::RemoveFromCollection { collection_id: cid.to_string(), rating_key: rk },
+            })
+        } else if matches!(col.source, Source::History(_)) {
+            item.history_key.clone().filter(|_| self.owned()).map(|key| Confirm {
+                message: format!("Delete {} from the watch history?", item.full_title()),
+                action: ConfirmAction::DeleteHistory { key },
             })
         } else if item.kind() == Kind::Playlist {
             item.rating_key.clone().map(|id| Confirm {

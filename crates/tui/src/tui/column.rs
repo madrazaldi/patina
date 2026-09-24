@@ -105,6 +105,8 @@ pub struct Column {
     pub loaded: bool,
     pub error: Option<String>,
     pub total: Option<usize>,
+    /// Entry to select once the listing arrives.
+    pub select_on_load: Option<String>,
 }
 
 impl Column {
@@ -129,6 +131,7 @@ impl Column {
             loaded: false,
             error: None,
             total: None,
+            select_on_load: None,
         }
     }
 
@@ -152,6 +155,9 @@ impl Column {
     }
 
     pub fn identity(item: &Item) -> String {
+        if let Some(r) = &item.row {
+            return r.id.clone();
+        }
         item.playlist_item_id
             .map(|id| id.to_string())
             .or_else(|| item.rating_key.clone())

@@ -284,6 +284,28 @@ impl App {
                 let Some(key) = st.key.clone() else { return };
                 self.server_op(Refresh::Item(rating_key.clone()), "Subtitle downloaded", move |s| async move { s.download_subtitle(&rating_key, &key).await });
             }
+            (PickKind::Setting(key), PickEntry::Text(v)) => self.save_setting(key, Some(v)),
+            (PickKind::Pref { id, section }, PickEntry::Text(v)) => self.save_pref(id, section, v),
+            (PickKind::Servers, PickEntry::Text(id)) => self.switch_server(id),
+            (PickKind::LibraryKind, PickEntry::Text(kind)) => {
+                let form = patina_core::ops::server::LibraryForm {
+                    name: String::new(),
+                    kind,
+                    agent: String::new(),
+                    scanner: String::new(),
+                    language: String::new(),
+                    locations: Vec::new(),
+                };
+                self.library_form_step(form, "name");
+            }
+            (PickKind::LibraryAgent(mut form), PickEntry::Text(agent)) => {
+                form.agent = agent;
+                self.library_form_step(*form, "scanner");
+            }
+            (PickKind::LibraryScanner(mut form), PickEntry::Text(scanner)) => {
+                form.scanner = scanner;
+                self.library_form_step(*form, "language");
+            }
             (PickKind::Users, PickEntry::User(u)) => {
                 if Some(u.name()) == self.username() {
                     self.info(format!("Already signed in as {}", u.name()));

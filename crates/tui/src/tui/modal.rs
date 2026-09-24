@@ -2,12 +2,14 @@
 
 use patina_core::config::QUALITIES;
 use patina_core::ops::library::FilterView;
+use patina_core::ops::server::LibraryForm;
 use patina_core::tracks;
 use patina_plex::{Directory, HomeUser, MatchResult, Stream, stream_type};
 
 use crate::item::Item;
 
 use super::column::SortKey;
+use super::rows::SettingKey;
 use super::source::Source;
 
 pub enum Modal {
@@ -101,6 +103,42 @@ pub enum MenuAction {
     SearchSubtitles,
     Tracks,
     SwitchUser,
+    GoToParent,
+    GoToGrandparent,
+    DeleteHistory,
+    /// An action of a tool row.
+    Row(RowOp),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RowOp {
+    Play,
+    PlayGroup,
+    Retry,
+    Remove,
+    OpenFolder,
+    GoToItem,
+    Watch,
+    Record,
+    Later,
+    DeleteRule,
+    Cancel,
+    Kill,
+    Start,
+    Stop,
+    StartAll,
+    StopAll,
+    Run,
+    Scan,
+    CancelScan,
+    RefreshLibrary,
+    AnalyzeLibrary,
+    EmptyTrash,
+    EditLibrary,
+    LibrarySettings,
+    BrowseLibrary,
+    DeleteLibrary,
+    Change,
 }
 
 pub struct Menu {
@@ -157,6 +195,40 @@ pub enum InputPurpose {
     ServerToken {
         url: String,
     },
+    /// Signing in with a plex.tv account: email, password, then a 2FA code.
+    Login,
+    Password {
+        login: String,
+    },
+    TwoFactor {
+        login: String,
+        password: String,
+    },
+    Setting(SettingKey),
+    Pref {
+        id: String,
+        section: Option<String>,
+    },
+    /// Adding a library: its name, folders and language.
+    LibraryName(Box<LibraryForm>),
+    LibraryFolders(Box<LibraryForm>),
+    LibraryLanguage(Box<LibraryForm>),
+    /// Editing a library: its name, then its folders.
+    EditLibraryName {
+        id: String,
+        folders: String,
+    },
+    EditLibraryFolders {
+        id: String,
+        name: String,
+    },
+}
+
+impl InputPurpose {
+    /// Typed text is hidden.
+    pub fn secret(&self) -> bool {
+        matches!(self, InputPurpose::TwoFactor { .. } | InputPurpose::Password { .. })
+    }
 }
 
 pub struct Input {
@@ -201,6 +273,19 @@ pub enum ConfirmAction {
         playlist_id: String,
     },
     Logout,
+    RemoveDownload {
+        id: String,
+    },
+    DeleteRule {
+        id: String,
+    },
+    DeleteLibrary {
+        id: String,
+        title: String,
+    },
+    DeleteHistory {
+        key: String,
+    },
 }
 
 pub struct Confirm {
@@ -451,6 +536,12 @@ pub enum PickKind {
     Matches { rating_key: String, title: String, year: Option<i64> },
     Subtitles { rating_key: String },
     Users,
+    Setting(SettingKey),
+    Pref { id: String, section: Option<String> },
+    Servers,
+    LibraryKind,
+    LibraryAgent(Box<LibraryForm>),
+    LibraryScanner(Box<LibraryForm>),
 }
 
 pub enum PickEntry {
@@ -466,6 +557,8 @@ pub enum PickEntry {
     Unmatch,
     Subtitle(Box<Stream>),
     User(Box<HomeUser>),
+    /// A value to store (a setting, a server id, a library type, agent or scanner).
+    Text(String),
 }
 
 pub struct Picker {
