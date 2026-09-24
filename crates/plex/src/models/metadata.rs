@@ -225,6 +225,9 @@ pub struct Metadata {
     pub on_deck: Option<Nested>,
     #[serde(rename = "Children", default)]
     pub children: Option<Nested>,
+    /// Radio stations (`includeStations=1`); each is a playlist-like item whose key feeds a play queue.
+    #[serde(rename = "Stations", default, deserialize_with = "crate::de::one_or_many")]
+    pub stations: Vec<Metadata>,
 
     #[serde(flatten)]
     pub extra: Map<String, Value>,

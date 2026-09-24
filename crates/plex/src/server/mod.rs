@@ -2,6 +2,7 @@ mod admin;
 mod collections;
 mod hubs;
 mod library;
+mod livetv;
 mod metadata;
 mod notifications;
 mod playback;
@@ -178,6 +179,15 @@ impl PlexServer {
     /// Streaming GET, for large downloads.
     pub async fn stream(&self, path: &str, params: &Params) -> Result<reqwest::Response> {
         let rb = self.http.request(Method::GET, self.url(path)?, Some(&self.token), params);
+        self.http.send(rb).await
+    }
+
+    /// Streaming GET without the usual request timeout, for whole media files.
+    pub async fn download(&self, path: &str, params: &Params) -> Result<reqwest::Response> {
+        let rb = self
+            .http
+            .request(Method::GET, self.url(path)?, Some(&self.token), params)
+            .timeout(std::time::Duration::from_secs(60 * 60 * 24));
         self.http.send(rb).await
     }
 

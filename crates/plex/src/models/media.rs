@@ -233,6 +233,16 @@ pub struct Stream {
     pub decision: Option<String>,
     #[serde(default, deserialize_with = "crate::de::opt_string")]
     pub location: Option<String>,
+
+    // Online subtitle search results.
+    #[serde(default, deserialize_with = "crate::de::opt_string")]
+    pub provider_title: Option<String>,
+    #[serde(default, deserialize_with = "crate::de::opt_i64")]
+    pub score: Option<i64>,
+    #[serde(default, deserialize_with = "crate::de::boolean")]
+    pub perfect_match: bool,
+    #[serde(default, deserialize_with = "crate::de::boolean")]
+    pub downloaded: bool,
 }
 
 impl Stream {

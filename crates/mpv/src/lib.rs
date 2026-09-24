@@ -233,6 +233,25 @@ impl Mpv {
         self.command(vec![json!("loadfile"), json!(url), json!(mode), json!(-1), json!(opts)]).await
     }
 
+    /// Insert a file into the playlist before entry `index` (mpv 0.38+).
+    pub async fn loadfile_at(&self, url: &str, index: usize, options: &[(&str, String)]) -> Result<Value> {
+        let opts = options
+            .iter()
+            .map(|(k, v)| format!("{k}={}", quote_option(v)))
+            .collect::<Vec<_>>()
+            .join(",");
+        self.command(vec![json!("loadfile"), json!(url), json!("insert-at"), json!(index), json!(opts)]).await
+    }
+
+    /// Move playlist entry `from` so it sits before entry `to` (`to` may be the playlist length).
+    pub async fn playlist_move(&self, from: usize, to: usize) -> Result<()> {
+        self.command(vec![json!("playlist-move"), json!(from), json!(to)]).await.map(|_| ())
+    }
+
+    pub async fn playlist_remove(&self, index: usize) -> Result<()> {
+        self.command(vec![json!("playlist-remove"), json!(index)]).await.map(|_| ())
+    }
+
     /// Add an external subtitle track. `flags`: `select`, `auto` or `cached`.
     pub async fn sub_add(&self, url: &str, flags: &str, title: &str, lang: &str) -> Result<()> {
         self.command(vec![json!("sub-add"), json!(url), json!(flags), json!(title), json!(lang)]).await.map(|_| ())

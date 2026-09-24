@@ -8,7 +8,7 @@
 //! * [`PlexServer`] talks to a single Plex Media Server: libraries, metadata,
 //!   hubs, search, playlists, collections, play queues, timeline reporting,
 //!   transcoding, sessions, history, butler tasks, preferences, statistics,
-//!   updates and the live notification stream.
+//!   updates, live TV & DVR and the live notification stream.
 //!
 //! Every endpoint has a typed wrapper; [`PlexServer::raw`] and
 //! [`PlexTv::raw`] remain available for anything exotic.

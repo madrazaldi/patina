@@ -183,6 +183,9 @@ pub struct Directory {
     pub composite: Option<String>,
     #[serde(default, deserialize_with = "crate::de::opt_i64")]
     pub count: Option<i64>,
+    /// Item count of a `firstCharacter` entry.
+    #[serde(default, deserialize_with = "crate::de::opt_i64")]
+    pub size: Option<i64>,
     #[serde(default, deserialize_with = "crate::de::opt_string")]
     pub tag: Option<String>,
     #[serde(default, deserialize_with = "crate::de::opt_string")]

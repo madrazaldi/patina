@@ -16,12 +16,14 @@ pub struct MetadataOptions {
     pub on_deck: bool,
     pub reviews: bool,
     pub concerts: bool,
+    /// Radio stations of an artist (or album / track).
+    pub stations: bool,
 }
 
 impl MetadataOptions {
     /// Everything a detail page needs.
     pub fn full() -> Self {
-        Self { children: false, extras: true, related: true, markers: true, chapters: true, on_deck: true, reviews: true, concerts: false }
+        Self { children: false, extras: true, related: true, markers: true, chapters: true, on_deck: true, reviews: true, concerts: false, stations: false }
     }
 
     /// What the player needs: markers and chapters.
@@ -39,6 +41,7 @@ impl MetadataOptions {
             .flag("includeOnDeck", self.on_deck)
             .flag("includeReviews", self.reviews)
             .flag("includeConcerts", self.concerts)
+            .flag("includeStations", self.stations)
             .set("includeGuids", 1)
             .set("asyncAugmentMetadata", 0)
     }
@@ -140,6 +143,17 @@ impl PlexServer {
     pub async fn rate(&self, rating_key: &str, rating: Option<f64>) -> Result<()> {
         let p = lib_key(rating_key).set("rating", rating.unwrap_or(-1.0));
         self.put("/:/rate", &p).await
+    }
+
+    /// Hide an item from Continue Watching / On Deck until it is played again.
+    pub async fn remove_from_continue_watching(&self, rating_key: &str) -> Result<()> {
+        self.put("/actions/removeFromContinueWatching", &Params::new().set("ratingKey", rating_key)).await
+    }
+
+    /// The first radio station of an artist, album or track (sonic analysis required).
+    pub async fn station(&self, rating_key: &str) -> Result<Option<Metadata>> {
+        let opts = MetadataOptions { stations: true, ..Default::default() };
+        Ok(self.metadata(rating_key, opts).await?.and_then(|m| m.stations.into_iter().next()))
     }
 
     /// Store a resume position without a playback session.
