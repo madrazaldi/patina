@@ -38,3 +38,16 @@ fn ranks_connections() {
     assert!(c.iter().any(|c| c.uri == "http://192.168.1.5:32400"));
     assert!(c.last().unwrap().relay);
 }
+
+#[test]
+fn accepts_single_object_where_a_list_is_expected() {
+    // Real servers send `OnDeck.Metadata` as an object, not an array.
+    let json = r#"{"MediaContainer":{"Metadata":[{"ratingKey":"2606","type":"show","title":"Show",
+      "OnDeck":{"Metadata":{"ratingKey":"2610","type":"episode","title":"Next"}},
+      "Related":{"Hub":[{"hubIdentifier":"similar","title":"Similar","Metadata":[]}]},
+      "Extras":{"size":0}}]}}"#;
+    let mc = serde_json::from_str::<Envelope>(json).unwrap().media_container;
+    let m = &mc.metadata[0];
+    assert_eq!(m.on_deck_item().map(|e| e.rating_key()), Some("2610"));
+    assert_eq!(m.related.as_ref().map(|r| r.hub.len()), Some(1));
+}

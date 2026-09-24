@@ -243,8 +243,7 @@
               <dd>
                 {#each list.slice(0, 8) as t, i (i)}
                   {@const r = tagRoute(item, t)}
-                  {#if i > 0},
-                  {/if}{#if r}<button class="link plain" onclick={() => nav.push(r)}>{t.tag}</button>{:else}{t.tag}{/if}
+                  {#if i > 0}{", "}{/if}{#if r}<button class="link plain" onclick={() => nav.push(r)}>{t.tag}</button>{:else}{t.tag}{/if}
                 {/each}
               </dd>
             {/each}

@@ -97,3 +97,18 @@ pub fn boolean<'de, D: Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
         Scalar::Null => false,
     })
 }
+
+/// A list that Plex sometimes sends as a single object (e.g. `OnDeck.Metadata`).
+pub fn one_or_many<'de, D, T>(d: D) -> Result<Vec<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: serde::de::DeserializeOwned,
+{
+    use serde_json::Value;
+    let parse = |v: Value| serde_json::from_value(v).map_err(de::Error::custom);
+    match <Value as serde::Deserialize>::deserialize(d)? {
+        Value::Null => Ok(Vec::new()),
+        Value::Array(items) => items.into_iter().map(parse).collect(),
+        one => Ok(vec![parse(one)?]),
+    }
+}

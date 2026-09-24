@@ -32,9 +32,14 @@
   let y = $derived(menu ? Math.max(8, Math.min(menu.y, window.innerHeight - height - 8)) : 0);
 
   const close = () => (app.menu = null);
+  // Run before closing: `item` and the template's {@const}s are read lazily,
+  // so they are gone once the menu closes.
   const run = (f: () => unknown) => () => {
-    close();
-    f();
+    try {
+      f();
+    } finally {
+      close();
+    }
   };
 </script>
 

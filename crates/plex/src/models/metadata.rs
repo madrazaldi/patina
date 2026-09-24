@@ -353,9 +353,9 @@ impl Metadata {
 pub struct Nested {
     #[serde(default, deserialize_with = "crate::de::opt_i64")]
     pub size: Option<i64>,
-    #[serde(rename = "Metadata", default)]
+    #[serde(rename = "Metadata", default, deserialize_with = "crate::de::one_or_many")]
     pub metadata: Vec<Metadata>,
-    #[serde(rename = "Hub", default)]
+    #[serde(rename = "Hub", default, deserialize_with = "crate::de::one_or_many")]
     pub hub: Vec<Hub>,
 }
 
