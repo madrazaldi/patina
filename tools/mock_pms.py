@@ -434,7 +434,7 @@ def admin(self, p, q):
     if p == "/updater/status":
         return mc(canInstall=True, Release=[{"version": "1.42.0.1000", "added": "Faster scans.", "state": "available"}])
     if p == "/statistics/bandwidth":
-        rows = [{"accountID": 1, "deviceID": 1 + h % 2, "at": now - h * 3600, "lan": h % 3 != 0, "bytes": (h + 1) * 40_000_000}
+        rows = [{"accountID": 1, "deviceID": 1 + h % 2, "at": now - h * 3600, "lan": h % 2 == 1, "bytes": (h + 1) * 40_000_000}
                 for h in range(0, 24, 3)]
         return mc(Account=[{"id": 1, "name": "tester"}], Device=[{"id": 1, "name": "Living room TV"}, {"id": 2, "name": "Patina"}],
                   StatisticsBandwidth=rows)

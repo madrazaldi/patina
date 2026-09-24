@@ -715,7 +715,11 @@ impl App {
             CoreEvent::Toast(t) if t.error => self.error(t.text),
             CoreEvent::Toast(t) => self.info(t.text),
             CoreEvent::Downloads(list) => {
+                let was_empty = self.downloads.is_empty();
                 self.downloads = list;
+                if was_empty != self.downloads.is_empty() {
+                    self.rebuild_root();
+                }
                 self.refresh_local(&Source::Downloads);
             }
             CoreEvent::SessionsChanged => {

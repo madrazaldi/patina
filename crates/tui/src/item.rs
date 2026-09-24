@@ -135,6 +135,11 @@ impl Item {
         Self { origin: Origin::Row, meta, row: Some(Box::new(row)), ..Default::default() }
     }
 
+    /// A section heading of a tool screen, which the cursor skips.
+    pub fn is_heading(&self) -> bool {
+        self.row.as_ref().is_some_and(|r| matches!(r.act, crate::tui::rows::Act::Heading))
+    }
+
     /// A synthetic entry of `kind` (`hub`, `person` or `tag`) opening `source`.
     pub fn link(title: &str, kind: &str, source: Source, items: Vec<Item>) -> Self {
         let meta = Metadata { title: Some(title.into()), kind: Some(kind.into()), ..Default::default() };

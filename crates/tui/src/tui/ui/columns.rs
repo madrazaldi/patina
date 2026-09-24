@@ -204,7 +204,7 @@ fn row_line(item: &Item, width: usize, ctx: &RowCtx) -> Line<'static> {
         && item.is_watched()
         && !ctx.sessions
         && !ctx.history;
-    let heading = item.row.as_ref().is_some_and(|r| matches!(r.act, Act::Heading));
+    let heading = item.is_heading();
     let title_style = if heading {
         Style::default().fg(ctx.theme.accent).bold()
     } else if watched_dim || item.kind() == Kind::Remote {

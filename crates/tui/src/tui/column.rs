@@ -190,6 +190,7 @@ impl Column {
         self.rebuild(fuzzy);
         if !keep.is_some_and(|k| self.select_identity(&k)) {
             self.cursor = old_cursor.min(self.view.len().saturating_sub(1));
+            self.settle(1);
         }
     }
 
@@ -230,12 +231,14 @@ impl Column {
                 .collect()
         };
         self.cursor = self.cursor.min(self.view.len().saturating_sub(1));
+        self.settle(1);
     }
 
     pub fn refilter(&mut self, fuzzy: &mut Fuzzy) {
         self.rebuild(fuzzy);
         self.cursor = 0;
         self.scroll = 0;
+        self.settle(1);
     }
 
     pub fn move_by(&mut self, delta: isize) {
@@ -244,10 +247,34 @@ impl Column {
         }
         let max = self.view.len() as isize - 1;
         self.cursor = (self.cursor as isize + delta).clamp(0, max) as usize;
+        self.settle(if delta < 0 { -1 } else { 1 });
     }
 
     pub fn move_to(&mut self, pos: usize) {
         self.cursor = pos.min(self.view.len().saturating_sub(1));
+        self.settle(if pos == usize::MAX { -1 } else { 1 });
+    }
+
+    fn heading_at(&self, pos: usize) -> bool {
+        self.view.get(pos).is_some_and(|&i| self.items[i].is_heading())
+    }
+
+    /// Move the cursor off a section heading: onward in `dir`, else back the
+    /// other way. A column of only headings leaves it where it is.
+    fn settle(&mut self, dir: isize) {
+        if !self.heading_at(self.cursor) {
+            return;
+        }
+        for d in [dir, -dir] {
+            let mut p = self.cursor as isize;
+            while p >= 0 && (p as usize) < self.view.len() {
+                if !self.heading_at(p as usize) {
+                    self.cursor = p as usize;
+                    return;
+                }
+                p += d;
+            }
+        }
     }
 
     /// Keep the cursor within the rendered window of `height` rows.
@@ -255,8 +282,10 @@ impl Column {
         if height == 0 {
             return;
         }
-        if self.cursor < self.scroll {
-            self.scroll = self.cursor;
+        // Keep a section's heading in view when moving up to its first row.
+        let top = if height > 1 && self.cursor > 0 && self.heading_at(self.cursor - 1) { self.cursor - 1 } else { self.cursor };
+        if top < self.scroll {
+            self.scroll = top;
         } else if self.cursor >= self.scroll + height {
             self.scroll = self.cursor + 1 - height;
         }
@@ -429,5 +458,31 @@ mod tests {
         c.move_to(0);
         c.clamp_scroll(2);
         assert_eq!(c.scroll, 0);
+    }
+
+    #[test]
+    fn cursor_skips_headings() {
+        use crate::tui::rows::heading;
+        let mut c = Column::new(1, "Tools", Source::Static).with_items(vec![
+            heading("One"),
+            it("1", "a", 2000, false),
+            heading("Two"),
+            it("2", "b", 2000, false),
+        ]);
+        c.rebuild(&mut Fuzzy::default());
+        assert_eq!(c.cursor, 1);
+        c.move_by(1);
+        assert_eq!(c.cursor, 3);
+        c.move_by(-1);
+        assert_eq!(c.cursor, 1);
+        c.move_by(-1);
+        assert_eq!(c.cursor, 1);
+        c.move_to(0);
+        assert_eq!(c.cursor, 1);
+        c.move_to(3);
+        c.clamp_scroll(2);
+        c.move_by(-1);
+        c.clamp_scroll(2);
+        assert_eq!((c.cursor, c.scroll), (1, 0));
     }
 }

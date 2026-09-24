@@ -488,18 +488,25 @@ pub fn stats(s: &Stats, month: bool) -> Vec<Item> {
         info("Hours played", hours(s.play_seconds)),
     ];
     if !s.bandwidth.is_empty() {
-        out.push(heading("Bandwidth · LAN / WAN"));
+        // Stacked like the GUI's chart: remote first, local network after it.
+        let (wan, lan): (i64, i64) = s.bandwidth.iter().fold((0, 0), |(w, l), b| (w + b.wan, l + b.lan));
+        out.push(heading("Bandwidth"));
+        for (glyph, label, v) in [("▇", "Remote", wan), ("░", "Local network", lan)] {
+            let row = Row::new(format!("info:{label}"), Act::Info).glyph(glyph, Tone::Dim).note(format::bytes(v)).kv(label, format::bytes(v));
+            out.push(row.item(label));
+        }
         let max = s.bandwidth.iter().map(|b| b.lan + b.wan).max().unwrap_or(1).max(1);
+        // Width in cells of a share of the widest bucket; anything non-zero gets at least one.
+        let cells = |v: i64| if v > 0 { ((v * 20 / max) as usize).max(1) } else { 0 };
         for b in &s.bandwidth {
             use chrono::{Local, TimeZone};
             let at = Local.timestamp_opt(b.at, 0).single();
             let label = at.map(|d| d.format(if month { "%b %-d" } else { "%H:%M" }).to_string()).unwrap_or_default();
-            let n = ((b.lan + b.wan) * 20 / max) as usize;
-            let bar = format!("{label:>6}  {}", "▇".repeat(n.max(usize::from(b.lan + b.wan > 0))));
+            let bar = format!("{label:>6}  {}{}", "▇".repeat(cells(b.wan)), "░".repeat(cells(b.lan)));
             let row = Row::new(format!("bw:{}", b.at), Act::Info)
                 .note(format::bytes(b.lan + b.wan))
-                .kv("LAN", format::bytes(b.lan))
-                .kv("WAN", format::bytes(b.wan));
+                .kv("Remote", format::bytes(b.wan))
+                .kv("Local network", format::bytes(b.lan));
             out.push(row.item(bar));
         }
     }

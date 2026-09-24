@@ -20,7 +20,10 @@ impl App {
         let mut items = vec![Item::nav("Home", Source::Home)];
         items.extend(self.sections.iter().cloned());
         items.extend([Item::nav("Playlists", Source::Path(PLAYLISTS.into())), Item::nav("Watchlist", Source::Watchlist), Item::nav("Search", Source::Search)]);
-        items.push(Item::nav("Downloads", Source::Downloads));
+        // Like the GUI's sidebar, Downloads only shows once there is one.
+        if !self.downloads.is_empty() {
+            items.push(Item::nav("Downloads", Source::Downloads));
+        }
         if self.live_tv {
             items.push(Item::group(
                 "Live TV",
