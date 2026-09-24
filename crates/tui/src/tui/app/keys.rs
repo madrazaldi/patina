@@ -141,6 +141,7 @@ impl App {
             }
             KeyCode::Char('+') => self.toggle_watchlist(),
             KeyCode::Char('C') => self.open_collections(),
+            KeyCode::Char('T') => self.open_tracks(),
             KeyCode::Char('c') => self.open_related(),
             KeyCode::Char('U') => self.open_users(),
             KeyCode::Char('J') => self.move_entry(true),
@@ -255,6 +256,7 @@ impl App {
                 }
             }
             Modal::Filter(p) => self.filter_modal_key(p, key),
+            Modal::Tracks(m) => self.tracks_key(m, key),
             Modal::Menu(mut m) => {
                 if down {
                     m.cursor = (m.cursor + 1).min(m.rows.len().saturating_sub(1));

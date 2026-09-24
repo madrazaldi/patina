@@ -41,12 +41,12 @@ pub struct PartChange {
 /// What applying a choice would do across the episodes in scope.
 #[derive(Debug, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct Plan {
-    changes: Vec<PartChange>,
+pub struct Plan {
+    pub changes: Vec<PartChange>,
     /// Episodes (with changes) that would be touched.
-    episodes: usize,
-    no_audio: Vec<String>,
-    no_subtitle: Vec<String>,
+    pub episodes: usize,
+    pub no_audio: Vec<String>,
+    pub no_subtitle: Vec<String>,
 }
 
 fn episode_label(ep: &Metadata) -> String {
@@ -115,37 +115,37 @@ pub async fn load(app: &AppState, show: &str) -> Result<()> {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Query {
-    show: String,
+    pub show: String,
     /// Season index; `None` means every season.
-    season: Option<i64>,
+    pub season: Option<i64>,
     /// Episode whose tracks are offered; defaults to the first in scope.
-    reference: Option<String>,
-    audio: Option<i64>,
+    pub reference: Option<String>,
+    pub audio: Option<i64>,
     /// "keep", "off" or a stream id.
-    subtitle: String,
+    pub subtitle: String,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct Season {
-    index: i64,
-    title: String,
-    count: usize,
+pub struct Season {
+    pub index: i64,
+    pub title: String,
+    pub count: usize,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct Episode {
-    rating_key: String,
-    label: String,
+pub struct Episode {
+    pub rating_key: String,
+    pub label: String,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct Track {
-    id: i64,
-    label: String,
-    external: bool,
+pub struct Track {
+    pub id: i64,
+    pub label: String,
+    pub external: bool,
 }
 
 impl From<&Stream> for Track {
@@ -158,16 +158,16 @@ impl From<&Stream> for Track {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct View {
-    total: usize,
-    seasons: Vec<Season>,
-    scope: Vec<Episode>,
-    reference: Option<String>,
-    audio: Vec<Track>,
-    subtitles: Vec<Track>,
-    audio_name: Option<String>,
-    subtitle_name: Option<String>,
-    nothing_chosen: bool,
-    plan: Plan,
+    pub total: usize,
+    pub seasons: Vec<Season>,
+    pub scope: Vec<Episode>,
+    pub reference: Option<String>,
+    pub audio: Vec<Track>,
+    pub subtitles: Vec<Track>,
+    pub audio_name: Option<String>,
+    pub subtitle_name: Option<String>,
+    pub nothing_chosen: bool,
+    pub plan: Plan,
 }
 
 pub fn view(app: &AppState, q: &Query) -> Result<View> {

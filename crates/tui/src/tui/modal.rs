@@ -2,6 +2,7 @@
 
 use patina_core::config::QUALITIES;
 use patina_core::ops::library::FilterView;
+use patina_core::tracks;
 use patina_plex::{Directory, HomeUser, MatchResult, Stream, stream_type};
 
 use crate::item::Item;
@@ -34,6 +35,8 @@ pub enum Modal {
     Edit(EditModal),
     /// A list loaded in the background, then chosen from.
     Pick(Picker),
+    /// Audio and subtitle tracks for a whole show or season.
+    Tracks(Box<TracksModal>),
 }
 
 // ---- action menu ---------------------------------------------------------
@@ -84,6 +87,7 @@ pub enum MenuAction {
     FixMatch,
     DeleteMedia,
     SearchSubtitles,
+    Tracks,
     SwitchUser,
 }
 
@@ -470,6 +474,139 @@ pub fn sort_rows() -> &'static [SortKey] {
     &SortKey::ALL
 }
 
+// ---- audio & subtitles for a whole show ----------------------------------
+
+/// The rows of the tracks dialog, in order.
+pub const TRACK_FIELDS: [&str; 4] = ["Apply to", "Take tracks from", "Audio", "Subtitles"];
+
+/// Choices made in the tracks dialog; the core plans them into a [`tracks::View`].
+pub struct TracksModal {
+    /// The show's rating key and title.
+    pub show: String,
+    pub title: String,
+    pub loaded: bool,
+    pub error: Option<String>,
+    pub season: Option<i64>,
+    pub reference: Option<String>,
+    pub audio: Option<i64>,
+    /// "keep", "off" or a stream id, as the core expects.
+    pub subtitle: String,
+    pub view: Option<tracks::View>,
+    /// (done, total) while applying.
+    pub progress: Option<(usize, usize)>,
+    /// A field row, or `TRACK_FIELDS.len()` for Apply.
+    pub cursor: usize,
+    /// The field whose choices are listed, and the cursor in them.
+    pub choosing: Option<(usize, usize)>,
+}
+
+impl TracksModal {
+    /// For a show, season or episode: the show, with the season and episode preselected as on the GUI.
+    pub fn new(item: &Item) -> Option<Self> {
+        let (show, title, season, reference) = match item.meta.kind.as_deref()? {
+            "show" => (item.rating_key.clone()?, item.title().to_string(), None, None),
+            "season" => (item.parent_rating_key.clone()?, item.parent_title.clone().unwrap_or_default(), item.index, None),
+            "episode" => (item.grandparent_rating_key.clone()?, item.grandparent_title.clone().unwrap_or_default(), item.parent_index, item.rating_key.clone()),
+            _ => return None,
+        };
+        Some(Self {
+            show,
+            title,
+            loaded: false,
+            error: None,
+            season,
+            reference,
+            audio: None,
+            subtitle: "keep".into(),
+            view: None,
+            progress: None,
+            cursor: 0,
+            choosing: None,
+        })
+    }
+
+    pub fn query(&self) -> tracks::Query {
+        tracks::Query {
+            show: self.show.clone(),
+            season: self.season,
+            reference: self.reference.clone(),
+            audio: self.audio,
+            subtitle: self.subtitle.clone(),
+        }
+    }
+
+    /// Labels of a field's choices and the index of the current one.
+    pub fn choices(&self, field: usize) -> (Vec<String>, usize) {
+        let Some(v) = &self.view else { return (Vec::new(), 0) };
+        let eps = |n: usize| format!("{n} episode{}", if n == 1 { "" } else { "s" });
+        let pos = |labels: Vec<String>, i: Option<usize>| (labels, i.unwrap_or(0));
+        match field {
+            0 => {
+                let mut l = vec![format!("All seasons ({})", eps(v.total))];
+                l.extend(v.seasons.iter().map(|s| format!("{} ({})", s.title, eps(s.count))));
+                let i = self.season.and_then(|n| v.seasons.iter().position(|s| s.index == n)).map(|i| i + 1);
+                pos(l, i.or(Some(0)))
+            }
+            1 => {
+                let i = v.scope.iter().position(|e| Some(&e.rating_key) == v.reference.as_ref());
+                pos(v.scope.iter().map(|e| e.label.clone()).collect(), i)
+            }
+            2 => {
+                let mut l = vec!["Don't change".to_string()];
+                l.extend(v.audio.iter().map(|t| t.label.clone()));
+                let i = self.audio.and_then(|a| v.audio.iter().position(|t| t.id == a)).map(|i| i + 1);
+                pos(l, i)
+            }
+            _ => {
+                let mut l = vec!["Don't change".to_string(), "None (turn off)".to_string()];
+                l.extend(v.subtitles.iter().map(|t| format!("{}{}", t.label, if t.external { " · external" } else { "" })));
+                let i = match self.subtitle.as_str() {
+                    "keep" => Some(0),
+                    "off" => Some(1),
+                    id => v.subtitles.iter().position(|t| t.id.to_string() == id).map(|i| i + 2),
+                };
+                pos(l, i)
+            }
+        }
+    }
+
+    /// Choose entry `i` of `field`. As on the GUI, a new season or reference
+    /// episode resets the track choices (their ids belong to that episode).
+    pub fn choose(&mut self, field: usize, i: usize) {
+        let Some(v) = &self.view else { return };
+        match field {
+            0 => {
+                self.season = i.checked_sub(1).and_then(|i| v.seasons.get(i)).map(|s| s.index);
+                self.reference = None;
+                self.reset_tracks();
+            }
+            1 => {
+                if let Some(e) = v.scope.get(i) {
+                    self.reference = Some(e.rating_key.clone());
+                    self.reset_tracks();
+                }
+            }
+            2 => self.audio = i.checked_sub(1).and_then(|i| v.audio.get(i)).map(|t| t.id),
+            _ => {
+                self.subtitle = match i {
+                    0 => "keep".into(),
+                    1 => "off".into(),
+                    i => v.subtitles.get(i - 2).map_or("keep".into(), |t| t.id.to_string()),
+                }
+            }
+        }
+    }
+
+    fn reset_tracks(&mut self) {
+        self.audio = None;
+        self.subtitle = "keep".into();
+    }
+
+    pub fn can_apply(&self) -> bool {
+        self.progress.is_none() && self.view.as_ref().is_some_and(|v| !v.plan.changes.is_empty())
+    }
+}
+
 // ---- library filters -----------------------------------------------------
 
 pub struct FilterPicker {
@@ -545,4 +682,53 @@ mod tests {
         assert!(invalid_value("originallyAvailableAt", "2014-05-03").is_none());
         assert!(invalid_value("title", "x").is_none());
     }
+
+    fn tracks_view() -> tracks::View {
+        use tracks::{Episode, Season, Track};
+        let track = |id, label: &str| Track { id, label: label.into(), external: false };
+        tracks::View {
+            total: 4,
+            seasons: vec![Season { index: 1, title: "Season 1".into(), count: 2 }, Season { index: 2, title: "Season 2".into(), count: 2 }],
+            scope: vec![Episode { rating_key: "11".into(), label: "S01E01".into() }, Episode { rating_key: "12".into(), label: "S01E02".into() }],
+            reference: Some("11".into()),
+            audio: vec![track(5, "English"), track(6, "Japanese")],
+            subtitles: vec![track(9, "English")],
+            audio_name: None,
+            subtitle_name: None,
+            nothing_chosen: true,
+            plan: Default::default(),
+        }
+    }
+
+    #[test]
+    fn tracks_choices_start_where_the_item_is() {
+        let ep = Item::from(patina_plex::Metadata {
+            kind: Some("episode".into()),
+            rating_key: Some("12".into()),
+            grandparent_rating_key: Some("1".into()),
+            grandparent_title: Some("Show".into()),
+            parent_index: Some(1),
+            ..Default::default()
+        });
+        let mut m = TracksModal::new(&ep).unwrap();
+        assert_eq!((m.show.as_str(), m.season, m.reference.as_deref()), ("1", Some(1), Some("12")));
+        m.view = Some(tracks_view());
+        assert_eq!(m.choices(0), (vec!["All seasons (4 episodes)".into(), "Season 1 (2 episodes)".into(), "Season 2 (2 episodes)".into()], 1));
+        assert_eq!(m.choices(3).0[1], "None (turn off)");
+
+        m.choose(2, 2);
+        m.choose(3, 2);
+        assert_eq!((m.audio, m.subtitle.as_str()), (Some(6), "9"));
+        assert_eq!((m.choices(2).1, m.choices(3).1), (2, 2));
+        m.choose(3, 1);
+        assert_eq!(m.subtitle, "off");
+        // A new episode or season resets the tracks, whose ids belong to the old one.
+        m.choose(1, 0);
+        assert_eq!((m.reference.as_deref(), m.audio, m.subtitle.as_str()), (Some("11"), None, "keep"));
+        m.choose(2, 1);
+        m.choose(0, 0);
+        assert_eq!((m.season, m.reference.as_deref(), m.audio), (None, None, None));
+        assert!(TracksModal::new(&Item::from(patina_plex::Metadata { kind: Some("movie".into()), ..Default::default() })).is_none());
+    }
+
 }

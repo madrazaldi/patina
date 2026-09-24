@@ -12,6 +12,7 @@ mod menu;
 mod nav;
 mod playback;
 mod search;
+mod tracks;
 
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
@@ -91,6 +92,9 @@ pub enum Msg {
         result: Result<Vec<(String, String)>, String>,
     },
     EditItem(Result<Box<Item>, String>),
+    TracksLoaded(String, Result<(), String>),
+    TracksProgress(usize, usize),
+    TracksApplied(Result<(), String>),
     /// A plex.tv link code to show on the sign-in screen, or why there is none.
     Pin(Result<(String, String), String>),
     Core(CoreEvent),
@@ -553,6 +557,9 @@ impl App {
                 }
             },
             Msg::Watchlisted(guids) => self.watchlist = guids,
+            Msg::TracksLoaded(show, result) => self.on_tracks_loaded(show, result),
+            Msg::TracksProgress(done, total) => self.on_tracks_progress(done, total),
+            Msg::TracksApplied(result) => self.on_tracks_applied(result),
             Msg::CollectionRows(result) => {
                 if let Some(Modal::Collections(c)) = &mut self.modal {
                     c.loading = false;

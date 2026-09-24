@@ -1,4 +1,5 @@
 use super::*;
+use super::inspector::progress_bar;
 
 fn list_lines(rows: &[String], cursor: usize, theme: &Theme, width: usize) -> Vec<Line<'static>> {
     rows.iter()
@@ -42,6 +43,7 @@ pub const HELP: &[(&str, &str)] = &[
     ("J / K", "move a playlist (or custom-sorted collection) entry down / up"),
     ("+", "add to / remove from watchlist"),
     ("C", "add to / remove from collections"),
+    ("T", "audio & subtitles for a whole show or season"),
     ("c", "related & similar, cast & crew, genres and tags"),
     ("e", "edit details, genres, labels (renames a playlist); menu: poster, background, match"),
     ("S", "scan library for new files"),
@@ -132,6 +134,7 @@ pub(super) fn draw_modal(f: &mut Frame, app: &App, theme: &Theme) {
             f.render_widget(Paragraph::new(lines).block(modal_block(format!(" {section_title} "), theme)), area);
         }
         Modal::Filter(p) => draw_filters(f, app, p, theme),
+        Modal::Tracks(m) => draw_tracks(f, app, m, theme),
         Modal::Menu(m) => {
             let width = 46u16;
             let area = centered(screen, width, m.rows.len() as u16 + 2);
@@ -481,4 +484,96 @@ fn draw_filters(f: &mut Frame, app: &App, p: &FilterPicker, theme: &Theme) {
     let skip = cursor.saturating_sub(visible.saturating_sub(1));
     lines.extend(list_lines(&rows, cursor, theme, inner_w).into_iter().skip(skip));
     f.render_widget(Paragraph::new(lines).block(block), area);
+}
+
+fn draw_tracks(f: &mut Frame, app: &App, m: &TracksModal, theme: &Theme) {
+    let screen = f.area();
+    let max_h = screen.height.saturating_sub(4).min(34) as usize;
+    let width = centered(screen, 76, 3).width as usize - 2;
+    let draw = |f: &mut Frame, lines: Vec<Line<'static>>, block: Block<'static>| {
+        let area = centered(screen, 76, lines.len() as u16 + 2);
+        f.render_widget(Clear, area);
+        f.render_widget(Paragraph::new(lines).block(block), area);
+    };
+    let dim = Style::default().fg(theme.dim);
+    let hint = match (m.progress, m.choosing) {
+        (Some(_), _) => " updating… ",
+        (_, Some(_)) => " enter choose · esc back ",
+        _ => " enter choose · ←/→ change · a apply · esc close ",
+    };
+    let block = modal_block(format!(" Audio & subtitles · {} ", truncate(&m.title, 48)), theme).title_bottom(Line::from(Span::styled(hint, dim)));
+    let mut lines = vec![Line::from(Span::styled(" Pick tracks in one episode; the closest match is selected in every other.", dim)), Line::raw("")];
+    let status = |text: String, style: Style| Line::from(Span::styled(format!(" {text}"), style));
+    let Some(v) = &m.view else {
+        lines.push(match &m.error {
+            Some(e) => status(e.clone(), Style::default().fg(theme.error)),
+            None => status(format!("{} Reading tracks from every episode…", spinner(app)), dim),
+        });
+        return draw(f, lines, block);
+    };
+    if v.total == 0 {
+        lines.push(status("This show has no episodes.".into(), dim));
+        return draw(f, lines, block);
+    }
+    let eps = |n: usize| format!("{n} episode{}", if n == 1 { "" } else { "s" });
+    if let Some((field, at)) = m.choosing {
+        lines.push(status(TRACK_FIELDS[field].to_string(), Style::default().fg(theme.accent).bold()));
+        let (labels, current) = m.choices(field);
+        let rows: Vec<String> = labels.iter().enumerate().map(|(i, l)| format!("{} {l}", if i == current { "●" } else { " " })).collect();
+        let visible = max_h.saturating_sub(5);
+        let skip = at.saturating_sub(visible.saturating_sub(1));
+        lines.extend(list_lines(&rows, at, theme, width).into_iter().skip(skip).take(visible));
+        return draw(f, lines, block);
+    }
+    for (i, name) in TRACK_FIELDS.iter().enumerate() {
+        let (labels, at) = m.choices(i);
+        let value = labels.get(at).cloned().unwrap_or_else(|| "—".into());
+        let text = format!("{name:<18}{}", truncate(&value, width.saturating_sub(21)));
+        let line = if i == m.cursor && m.progress.is_none() {
+            highlight(Line::from(format!(" {text}")), width, selected_style(theme))
+        } else {
+            Line::from(vec![Span::styled(format!(" {name:<18}"), dim), Span::raw(truncate(&value, width.saturating_sub(21)))])
+        };
+        lines.push(line);
+    }
+    let apply = if v.plan.episodes > 0 { format!("Apply to {}", eps(v.plan.episodes)) } else { "Apply".into() };
+    let apply_style = if !m.can_apply() {
+        dim
+    } else if m.cursor == TRACK_FIELDS.len() {
+        selected_style(theme)
+    } else {
+        Style::default().fg(theme.accent).bold()
+    };
+    lines.push(Line::raw(""));
+    lines.push(Line::from(Span::styled(format!(" [ {apply} ] "), apply_style)));
+    lines.push(Line::raw(""));
+    if let Some((done, total)) = m.progress {
+        let bar = progress_bar(done as f64 / total.max(1) as f64, width.saturating_sub(4).min(40));
+        lines.push(Line::from(vec![Span::styled(format!(" {bar} "), Style::default().fg(theme.accent)), Span::raw(format!("Updating {done} of {total}…"))]));
+    } else if v.nothing_chosen {
+        lines.push(status("Choose an audio or subtitle track. Matches are found by language".into(), dim));
+        lines.push(status("first, then title, codec and channels.".into(), dim));
+    } else if v.plan.episodes == 0 && v.plan.no_audio.is_empty() && v.plan.no_subtitle.is_empty() {
+        lines.push(status("Every episode already uses these tracks.".into(), Style::default()));
+    } else {
+        lines.push(status(format!("{} of {} will change.", v.plan.episodes, eps(v.scope.len())), Style::default()));
+    }
+    if m.progress.is_none() {
+        let warn = Style::default().fg(theme.star);
+        for (missing, what) in [(&v.plan.no_audio, format!("no audio matching “{}”", v.audio_name.as_deref().unwrap_or(""))), (&v.plan.no_subtitle, format!("no subtitles matching “{}”", v.subtitle_name.as_deref().unwrap_or("")))] {
+            if missing.is_empty() {
+                continue;
+            }
+            let n = missing.len();
+            lines.push(status(format!("⚠ {} {} {what}, left unchanged", eps(n), if n == 1 { "has" } else { "have" }), warn));
+            let room = max_h.saturating_sub(lines.len() + 5).clamp(1, 6);
+            for e in missing.iter().take(room) {
+                lines.push(Line::from(Span::styled(format!("   {}", truncate(e, width.saturating_sub(4))), dim)));
+            }
+            if n > room {
+                lines.push(Line::from(Span::styled(format!("   … and {} more", n - room), dim)));
+            }
+        }
+    }
+    draw(f, lines, block);
 }

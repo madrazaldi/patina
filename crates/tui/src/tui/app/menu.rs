@@ -58,6 +58,9 @@ impl App {
         if item.rating_key.is_some() && (item.is_playable() || matches!(kind, Kind::Show | Kind::Season | Kind::Album | Kind::Artist)) {
             rows.push((Download, "Download for offline", "D"));
         }
+        if matches!(kind, Kind::Show | Kind::Season | Kind::Episode) {
+            rows.push((Tracks, "Audio & subtitles for the show…", "T"));
+        }
         if matches!(kind, Kind::Movie | Kind::Episode) {
             rows.push((SearchSubtitles, "Search subtitles online…", ""));
         }
@@ -250,6 +253,7 @@ impl App {
                     }));
                 }
             }
+            Tracks => self.open_tracks(),
             SwitchUser => self.open_users(),
             DeletePlaylist | RemoveFromPlaylist | RemoveFromCollection | TerminateSession => self.delete_action(),
         }
