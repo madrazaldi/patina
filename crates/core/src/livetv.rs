@@ -256,3 +256,9 @@ pub async fn record(server: &PlexServer, guid: &str) -> Result<()> {
     server.create_subscription(&p).await?;
     Ok(())
 }
+
+/// Delete a recording rule by its id or key.
+pub async fn delete_rule(server: &PlexServer, id: &str) -> Result<()> {
+    let id = id.rsplit('/').next().unwrap_or(id);
+    Ok(server.delete_subscription(id).await?)
+}

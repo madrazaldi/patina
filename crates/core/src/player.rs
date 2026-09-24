@@ -26,7 +26,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
-use crate::config::PlayerSettings;
+use crate::config::{self, PlayerSettings, Quality};
 use crate::state::{AppState, NowPlaying, QueueItem, QueueView};
 
 static ACTIVE: Mutex<Option<Arc<Mpv>>> = Mutex::new(None);
@@ -52,11 +52,13 @@ pub struct PlayRequest {
     /// A tuned Live TV session; always transcoded, never scrobbled.
     #[serde(skip)]
     pub live: bool,
+    /// Quality preset id or label for this playback; the settings' otherwise.
+    pub quality: Option<String>,
 }
 
 impl Default for PlayRequest {
     fn default() -> Self {
-        Self { item: Metadata::default(), resume: true, shuffle: false, media_index: 0, radio: false, live: false }
+        Self { item: Metadata::default(), resume: true, shuffle: false, media_index: 0, radio: false, live: false, quality: None }
     }
 }
 
@@ -92,7 +94,7 @@ pub enum QueueCommand {
 }
 
 pub fn play(app: AppState, req: PlayRequest) {
-    tauri::async_runtime::spawn(async move {
+    app.clone().spawn(async move {
         if let Err(e) = run(app.clone(), req).await {
             tracing::error!("playback failed: {e:#}");
             app.error(format!("Playback failed: {e:#}"));
@@ -104,7 +106,7 @@ pub fn play(app: AppState, req: PlayRequest) {
 
 pub fn control(cmd: Control) {
     let Some(mpv) = ACTIVE.lock().unwrap().clone() else { return };
-    tauri::async_runtime::spawn(async move {
+    crate::runtime().spawn(async move {
         let _ = match cmd {
             Control::TogglePause => mpv.command(vec![json!("cycle"), json!("pause")]).await.map(|_| ()),
             Control::Play => mpv.set_pause(false).await,
@@ -131,10 +133,11 @@ pub fn queue(app: AppState, cmd: QueueCommand) {
 }
 
 /// Close mpv when Patina quits. The app exits without running destructors,
-/// so `kill_on_drop` alone would leave the player window behind.
+/// so `kill_on_drop` alone would leave the player window behind. Call from
+/// outside the runtime.
 pub fn shutdown() {
     let Some(mpv) = ACTIVE.lock().unwrap().take() else { return };
-    tauri::async_runtime::block_on(async move {
+    crate::runtime().block_on(async move {
         let _ = mpv.quit().await;
         mpv.wait(Duration::from_secs(2)).await;
     });
@@ -280,8 +283,7 @@ struct Loaded {
     transcode_session: Option<String>,
 }
 
-fn media_url(server: &PlexServer, item: &Metadata, media_index: usize, settings: &PlayerSettings, live: bool) -> Result<Loaded> {
-    let quality = settings.quality();
+fn media_url(server: &PlexServer, item: &Metadata, media_index: usize, quality: &Quality, live: bool) -> Result<Loaded> {
     let video = matches!(item.kind(), "movie" | "episode" | "clip" | "trailer");
     if live || (quality.kbps.is_some() && video) {
         let session = uuid::Uuid::new_v4().to_string();
@@ -341,6 +343,7 @@ struct Player {
     app: AppState,
     server: PlexServer,
     settings: PlayerSettings,
+    quality: &'static Quality,
     mpv: Arc<Mpv>,
     kind: &'static str,
     live: bool,
@@ -420,6 +423,7 @@ async fn run(app: AppState, req: PlayRequest) -> Result<()> {
         app: app.clone(),
         server: server.clone(),
         settings: settings.clone(),
+        quality: req.quality.as_deref().and_then(config::quality).unwrap_or_else(|| settings.quality()),
         mpv: mpv.clone(),
         kind: queue.kind,
         live: req.live,
@@ -516,7 +520,7 @@ impl Player {
 
     /// Load an item into mpv at `index` (the end when `None`) and track it.
     async fn insert(&mut self, item: Metadata, media_index: usize, index: Option<usize>, opts: &[(&str, String)]) -> Result<u64> {
-        let loaded = media_url(&self.server, &item, media_index, &self.settings, self.live)?;
+        let loaded = media_url(&self.server, &item, media_index, self.quality, self.live)?;
         let mut opts = opts.to_vec();
         if !opts.iter().any(|(k, _)| *k == "force-media-title") {
             opts.push(("force-media-title", item.full_title()));
@@ -1062,7 +1066,7 @@ async fn sync_stream_choice(server: &PlexServer, mpv: &Mpv, c: &Current, prop: &
 
 /// Play downloaded files. Nothing is reported to Plex.
 pub fn play_files(app: AppState, files: Vec<(Metadata, PathBuf)>) {
-    tauri::async_runtime::spawn(async move {
+    app.clone().spawn(async move {
         if let Err(e) = run_files(app.clone(), files).await {
             app.error(format!("Playback failed: {e:#}"));
             app.set_now_playing(None);

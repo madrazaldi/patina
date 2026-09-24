@@ -3006,24 +3006,36 @@ name = "patina"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "open",
+ "patina-core",
+ "patina-plex",
+ "serde",
+ "souvlaki",
+ "tauri",
+ "tauri-build",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
+name = "patina-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
  "directories",
  "discord-rich-presence",
  "fastrand 2.5.0",
  "futures",
- "open",
  "patina-mpv",
  "patina-plex",
  "reqwest",
  "serde",
  "serde_json",
  "sha2",
- "souvlaki",
- "tauri",
- "tauri-build",
  "tokio",
  "toml 1.1.6+spec-1.1.0",
  "tracing",
- "tracing-subscriber",
  "url",
  "uuid 1.26.1",
 ]

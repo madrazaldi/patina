@@ -12,12 +12,12 @@ use std::time::{Duration, Instant};
 use futures::StreamExt;
 use serde_json::Value;
 
-use crate::state::{AppState, ServerActivity};
+use crate::state::{AppState, CoreEvent, ServerActivity};
 
 /// Start listening to the current server, replacing any previous listener.
 pub fn watch(app: AppState) {
     let generation = app.live_generation.fetch_add(1, Ordering::SeqCst) + 1;
-    tauri::async_runtime::spawn(async move {
+    app.clone().spawn(async move {
         let current = || app.live_generation.load(Ordering::SeqCst) == generation;
         let pending = Arc::new(AtomicBool::new(false));
         let mut backoff = Duration::from_secs(2);
@@ -84,7 +84,7 @@ fn handle(app: &AppState, event: &str, data: &Value, pending: &Arc<AtomicBool>, 
                 if ended && library {
                     bump_soon(app, pending);
                     let app = app.clone();
-                    tauri::async_runtime::spawn(async move {
+                    app.clone().spawn(async move {
                         let _ = crate::session::reload_sections(&app).await;
                     });
                 }
@@ -93,7 +93,7 @@ fn handle(app: &AppState, event: &str, data: &Value, pending: &Arc<AtomicBool>, 
         "playing" | "transcodeSession.start" | "transcodeSession.end" | "transcodeSession.update" => {
             if last_sessions.elapsed() >= Duration::from_secs(1) {
                 *last_sessions = Instant::now();
-                app.emit("sessions-changed", ());
+                app.emit(CoreEvent::SessionsChanged);
             }
             // Something stopped playing (here or on another device): watch state may have changed.
             let stopped = entries(data, "PlaySessionStateNotification")
@@ -114,7 +114,7 @@ fn bump_soon(app: &AppState, pending: &Arc<AtomicBool>) {
     }
     let app = app.clone();
     let pending = pending.clone();
-    tauri::async_runtime::spawn(async move {
+    app.clone().spawn(async move {
         tokio::time::sleep(Duration::from_millis(1500)).await;
         pending.store(false, Ordering::SeqCst);
         app.bump();

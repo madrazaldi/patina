@@ -9,23 +9,13 @@ license.workspace = true
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+patina-core.workspace = true
 patina-plex.workspace = true
-patina-mpv.workspace = true
 anyhow.workspace = true
 tauri = { version = "2", features = [] }
-futures.workspace = true
-reqwest.workspace = true
 serde.workspace = true
-serde_json.workspace = true
-tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url.workspace = true
-uuid.workspace = true
-toml = "1"
-directories = "6"
 open = "5"
-sha2 = "0.10"
 souvlaki = { version = "0.8.3", default-features = false, features = ["use_zbus"] }
-discord-rich-presence = "1.1"
-fastrand = "2"

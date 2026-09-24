@@ -34,6 +34,12 @@ pub async fn restore(app: AppState) {
     run(&app, sign_in(&app, token)).await;
 }
 
+/// Try the saved session again (from the failure screen).
+pub async fn retry(app: &AppState) {
+    app.set_stage(Stage::Booting);
+    restore(app.clone()).await;
+}
+
 /// Validate a plex.tv token and connect to the preferred server.
 pub async fn sign_in(app: &AppState, token: String) -> Result<()> {
     app.set_stage(Stage::Connecting { name: "plex.tv".into() });
@@ -128,8 +134,9 @@ async fn connect_manual(app: &AppState, url: &str, token: &str) -> Result<()> {
 
 /// Save a manual server and connect to it. Errors are returned (and shown on
 /// the form) rather than sending the app to the failure screen.
-pub async fn sign_in_manual(app: &AppState, url: String, token: String) -> Result<()> {
-    let url = if url.starts_with("http") { url } else { format!("http://{url}") };
+pub async fn sign_in_manual(app: &AppState, url: &str, token: &str) -> Result<()> {
+    let (url, token) = (url.trim(), token.trim().to_string());
+    let url = if url.starts_with("http") { url.to_string() } else { format!("http://{url}") };
     connect_manual(app, &url, &token).await?;
     app.update_settings(|s| {
         s.server.manual_url = Some(url);
@@ -238,7 +245,9 @@ pub fn cancel_pin(app: &AppState) {
     app.login_attempt.fetch_add(1, Ordering::SeqCst);
 }
 
+/// Sign in with an email or username and password; `code` is the 2FA code, if any.
 pub async fn password_sign_in(app: &AppState, login: &str, password: &str, code: Option<&str>) -> Result<()> {
+    let code = code.map(str::trim).filter(|c| !c.is_empty());
     let tv = tv(app, None)?;
     let user = tv.sign_in(login, password, code).await.map_err(|e| match e.status() {
         Some(401) => anyhow!("Incorrect email/username or password."),

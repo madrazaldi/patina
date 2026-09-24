@@ -1,5 +1,5 @@
-//! Application state shared by commands, the session flow and the player.
-//! Changes are pushed to the webview as events; the webview asks for a
+//! Application state shared by the front end, the session flow and the player.
+//! Changes are pushed to the front end as [`CoreEvent`]s; it asks for a
 //! [`Snapshot`] once on startup and follows the events from then on.
 
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -7,9 +7,10 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use patina_plex::{ClientInfo, Directory, Metadata, PlexServer, PlexTv, Resource, User};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter};
+use serde_json::{Value, json};
 
 use crate::config::{self, Settings};
+use crate::downloads::Download;
 
 /// Where the app is in the sign-in / connect flow.
 #[derive(Clone, Debug, Serialize)]
@@ -37,7 +38,7 @@ pub struct Session {
     pub servers: Vec<Resource>,
 }
 
-/// A plex.tv account as the webview sees it (no tokens).
+/// A plex.tv account as front ends see it (no tokens).
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UserView {
@@ -60,7 +61,7 @@ impl From<&User> for UserView {
     }
 }
 
-/// A server resource as the webview sees it (no tokens or connections).
+/// A server resource as front ends see it (no tokens or connections).
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ServerView {
@@ -171,7 +172,7 @@ pub struct Toast {
     pub error: bool,
 }
 
-/// Everything the webview needs to render its first frame.
+/// Everything a front end needs to render its first frame.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
@@ -184,15 +185,66 @@ pub struct Snapshot {
     pub revision: u64,
 }
 
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SessionEvent {
-    session: Option<SessionView>,
-    sections: Vec<Directory>,
+/// A state change for the front end.
+#[derive(Clone, Debug)]
+pub enum CoreEvent {
+    Stage(Stage),
+    Session { session: Option<SessionView>, sections: Vec<Directory> },
+    NowPlaying(Option<Box<NowPlaying>>),
+    Queue(Option<QueueView>),
+    Activities(Vec<ServerActivity>),
+    /// Watch state may have changed; views refetch.
+    Revision(u64),
+    Toast(Toast),
+    Downloads(Vec<Download>),
+    /// Playback sessions on the server changed.
+    SessionsChanged,
+}
+
+impl CoreEvent {
+    /// The event name the GUI's webview listens for.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Stage(_) => "stage",
+            Self::Session { .. } => "session",
+            Self::NowPlaying(_) => "now-playing",
+            Self::Queue(_) => "queue",
+            Self::Activities(_) => "activities",
+            Self::Revision(_) => "revision",
+            Self::Toast(_) => "toast",
+            Self::Downloads(_) => "downloads",
+            Self::SessionsChanged => "sessions-changed",
+        }
+    }
+
+    /// The event payload as the webview receives it.
+    pub fn payload(&self) -> Value {
+        let v = match self {
+            Self::Stage(s) => serde_json::to_value(s),
+            Self::Session { session, sections } => Ok(json!({ "session": session, "sections": sections })),
+            Self::NowPlaying(np) => serde_json::to_value(np),
+            Self::Queue(q) => serde_json::to_value(q),
+            Self::Activities(a) => serde_json::to_value(a),
+            Self::Revision(r) => Ok(json!(r)),
+            Self::Toast(t) => serde_json::to_value(t),
+            Self::Downloads(d) => serde_json::to_value(d),
+            Self::SessionsChanged => Ok(Value::Null),
+        };
+        v.unwrap_or_else(|e| {
+            tracing::warn!("could not encode {}: {e}", self.name());
+            Value::Null
+        })
+    }
+}
+
+/// Receives every [`CoreEvent`]; called from any thread.
+pub trait EventSink: Send + Sync + 'static {
+    fn emit(&self, event: CoreEvent);
 }
 
 pub struct Inner {
-    handle: AppHandle,
+    sink: Arc<dyn EventSink>,
+    runtime: tokio::runtime::Handle,
     settings: RwLock<Settings>,
     stage: RwLock<Stage>,
     session: RwLock<Option<Session>>,
@@ -224,9 +276,12 @@ impl std::ops::Deref for AppState {
 }
 
 impl AppState {
-    pub fn new(handle: AppHandle) -> Self {
+    /// Load the settings; background work runs on `runtime`.
+    pub fn new(sink: Arc<dyn EventSink>, runtime: tokio::runtime::Handle) -> Self {
+        let _ = crate::RUNTIME.set(runtime.clone());
         Self(Arc::new(Inner {
-            handle,
+            sink,
+            runtime,
             settings: RwLock::new(Settings::load()),
             stage: RwLock::new(Stage::Booting),
             session: RwLock::new(None),
@@ -242,10 +297,20 @@ impl AppState {
         }))
     }
 
-    pub fn emit<S: Serialize + Clone>(&self, event: &str, payload: S) {
-        if let Err(e) = self.handle.emit(event, payload) {
-            tracing::warn!("could not emit {event}: {e}");
-        }
+    pub fn emit(&self, event: CoreEvent) {
+        self.sink.emit(event);
+    }
+
+    pub fn spawn<F>(&self, fut: F) -> tokio::task::JoinHandle<F::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        self.runtime.spawn(fut)
+    }
+
+    pub fn runtime(&self) -> &tokio::runtime::Handle {
+        &self.runtime
     }
 
     pub fn snapshot(&self) -> Snapshot {
@@ -268,8 +333,11 @@ impl AppState {
         self.settings.read().unwrap().clone()
     }
 
+    /// Change and save the settings. The file is re-read first so changes
+    /// made by another Patina process are kept.
     pub fn update_settings(&self, f: impl FnOnce(&mut Settings)) {
         let mut s = self.settings.write().unwrap();
+        *s = s.reload();
         f(&mut s);
         s.save();
     }
@@ -287,16 +355,21 @@ impl AppState {
         self.session.read().unwrap().as_ref().and_then(|s| s.tv.clone())
     }
 
+    /// The plex.tv client, or an error when not signed in to plex.tv.
+    pub fn plex_tv(&self) -> anyhow::Result<PlexTv> {
+        self.tv().ok_or_else(|| anyhow::anyhow!("Not signed in to plex.tv."))
+    }
+
     pub fn set_stage(&self, stage: Stage) {
         *self.stage.write().unwrap() = stage.clone();
-        self.emit("stage", stage);
+        self.emit(CoreEvent::Stage(stage));
     }
 
     pub fn set_session(&self, session: Option<Session>, sections: Vec<Directory>) {
         let view = session.as_ref().map(SessionView::from);
         *self.session.write().unwrap() = session;
         *self.sections.write().unwrap() = sections.clone();
-        self.emit("session", SessionEvent { session: view, sections });
+        self.emit(CoreEvent::Session { session: view, sections });
     }
 
     pub fn sections(&self) -> Vec<Directory> {
@@ -306,27 +379,26 @@ impl AppState {
     pub fn set_sections(&self, sections: Vec<Directory>) {
         let session = self.session.read().unwrap().as_ref().map(SessionView::from);
         *self.sections.write().unwrap() = sections.clone();
-        self.emit("session", SessionEvent { session, sections });
+        self.emit(CoreEvent::Session { session, sections });
     }
 
-    pub fn handle(&self) -> &AppHandle {
-        &self.handle
+    pub fn now_playing(&self) -> Option<NowPlaying> {
+        self.now_playing.read().unwrap().clone()
     }
 
     pub fn set_now_playing(&self, np: Option<NowPlaying>) {
-        crate::remote::update(self, np.as_ref());
         *self.now_playing.write().unwrap() = np.clone();
-        self.emit("now-playing", np);
+        self.emit(CoreEvent::NowPlaying(np.map(Box::new)));
     }
 
     pub fn set_queue(&self, queue: Option<QueueView>) {
         *self.queue.write().unwrap() = queue.clone();
-        self.emit("queue", queue);
+        self.emit(CoreEvent::Queue(queue));
     }
 
     pub fn set_activities(&self, list: Vec<ServerActivity>) {
         *self.activities.write().unwrap() = list.clone();
-        self.emit("activities", list);
+        self.emit(CoreEvent::Activities(list));
     }
 
     pub fn update_activities(&self, f: impl FnOnce(&mut Vec<ServerActivity>)) {
@@ -335,20 +407,20 @@ impl AppState {
             f(&mut a);
             a.clone()
         };
-        self.emit("activities", list);
+        self.emit(CoreEvent::Activities(list));
     }
 
     /// Watch state may have changed; views refetch.
     pub fn bump(&self) {
         let r = self.revision.fetch_add(1, Ordering::Relaxed) + 1;
-        self.emit("revision", r);
+        self.emit(CoreEvent::Revision(r));
     }
 
     pub fn toast(&self, text: impl Into<String>) {
-        self.emit("toast", Toast { text: text.into(), error: false });
+        self.emit(CoreEvent::Toast(Toast { text: text.into(), error: false }));
     }
 
     pub fn error(&self, text: impl std::fmt::Display) {
-        self.emit("toast", Toast { text: text.to_string(), error: true });
+        self.emit(CoreEvent::Toast(Toast { text: text.to_string(), error: true }));
     }
 }

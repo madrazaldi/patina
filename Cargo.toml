@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/plex", "crates/mpv", "crates/app"]
+members = ["crates/plex", "crates/mpv", "crates/core", "crates/app"]
 
 [workspace.package]
 version = "0.1.0"
@@ -11,6 +11,7 @@ repository = "https://github.com/madrazaldi/patina"
 [workspace.dependencies]
 patina-plex = { path = "crates/plex" }
 patina-mpv = { path = "crates/mpv" }
+patina-core = { path = "crates/core" }
 anyhow = "1"
 futures = "0.3"
 reqwest = { version = "0.13", features = ["json", "stream", "query", "form", "gzip"] }

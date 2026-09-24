@@ -1,7 +1,10 @@
 //! Downloads for offline playback. Original files go to the downloads folder
 //! (Settings → Player), their artwork to the data dir, and a manifest
 //! (`downloads.json` next to the config) remembers them. One download runs
-//! at a time; progress is pushed to the webview as `downloads` events.
+//! at a time; progress is pushed to the front end as `Downloads` events.
+//!
+//! Another Patina process may share the manifest, so it is re-read before
+//! each write: entries this process changed win, the rest come from disk.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -16,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt;
 
 use crate::config;
-use crate::state::AppState;
+use crate::state::{AppState, CoreEvent};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -47,6 +50,8 @@ pub struct Download {
 static STORE: Mutex<Option<Vec<Download>>> = Mutex::new(None);
 static RUNNING: AtomicBool = AtomicBool::new(false);
 static CANCELLED: Mutex<Option<HashSet<String>>> = Mutex::new(None);
+/// Ids this process added, changed or removed.
+static OWNED: Mutex<Option<HashSet<String>>> = Mutex::new(None);
 
 fn manifest() -> PathBuf {
     config::config_dir().join("downloads.json")
@@ -56,11 +61,18 @@ fn artwork_dir() -> PathBuf {
     config::data_dir().join("artwork")
 }
 
+fn read_manifest() -> Option<Vec<Download>> {
+    std::fs::read(manifest()).ok().and_then(|b| serde_json::from_slice(&b).ok())
+}
+
+fn own(id: &str) {
+    OWNED.lock().unwrap().get_or_insert_with(HashSet::new).insert(id.to_string());
+}
+
 fn with<T>(f: impl FnOnce(&mut Vec<Download>) -> T) -> T {
     let mut store = STORE.lock().unwrap();
     let list = store.get_or_insert_with(|| {
-        let mut list: Vec<Download> =
-            std::fs::read(manifest()).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        let mut list = read_manifest().unwrap_or_default();
         // Anything interrupted by quitting starts again.
         for d in &mut list {
             if d.state == State::Downloading {
@@ -74,7 +86,13 @@ fn with<T>(f: impl FnOnce(&mut Vec<Download>) -> T) -> T {
 }
 
 fn save() {
-    let list = with(|l| l.clone());
+    let disk = read_manifest();
+    let list = with(|list| {
+        if let Some(disk) = disk {
+            *list = merge(list, disk, OWNED.lock().unwrap().as_ref());
+        }
+        list.clone()
+    });
     let path = manifest();
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
@@ -87,12 +105,27 @@ fn save() {
     }
 }
 
+/// The manifest on disk with this process's own entries (or their removal) applied.
+fn merge(mine: &[Download], disk: Vec<Download>, owned: Option<&HashSet<String>>) -> Vec<Download> {
+    let owned = |id: &str| owned.is_some_and(|o| o.contains(id));
+    let mut out: Vec<Download> = disk
+        .into_iter()
+        .filter_map(|d| if owned(&d.id) { mine.iter().find(|m| m.id == d.id).cloned() } else { Some(d) })
+        .collect();
+    for m in mine.iter().filter(|m| owned(&m.id)) {
+        if !out.iter().any(|d| d.id == m.id) {
+            out.push(m.clone());
+        }
+    }
+    out
+}
+
 pub fn list() -> Vec<Download> {
     with(|l| l.clone())
 }
 
 fn emit(app: &AppState) {
-    app.emit("downloads", list());
+    app.emit(CoreEvent::Downloads(list()));
 }
 
 /// Saved artwork of a download, for the image protocol.
@@ -117,6 +150,7 @@ pub async fn enqueue(app: &AppState, rating_key: &str) -> Result<usize> {
             if list.iter().any(|d| d.id == id) {
                 continue;
             }
+            own(&id);
             list.push(Download {
                 id,
                 server_id: session.server_id.clone(),
@@ -146,6 +180,7 @@ pub fn remove(app: &AppState, id: &str) {
         let i = list.iter().position(|d| d.id == id)?;
         Some(list.remove(i))
     });
+    own(id);
     if let Some(d) = removed {
         if d.state == State::Downloading {
             CANCELLED.lock().unwrap().get_or_insert_with(HashSet::new).insert(d.id.clone());
@@ -163,6 +198,7 @@ pub fn remove(app: &AppState, id: &str) {
 pub fn retry(app: &AppState, id: &str) {
     with(|list| {
         if let Some(d) = list.iter_mut().find(|d| d.id == id && d.state == State::Failed) {
+            own(id);
             d.state = State::Queued;
             d.error = None;
             d.received = 0;
@@ -195,7 +231,7 @@ fn kick(app: AppState) {
     if RUNNING.swap(true, Ordering::SeqCst) {
         return;
     }
-    tauri::async_runtime::spawn(async move {
+    app.clone().spawn(async move {
         loop {
             let server_id = app.session().map(|s| s.server_id);
             let next = with(|l| {
@@ -228,6 +264,7 @@ fn set(id: &str, f: impl FnOnce(&mut Download)) {
             f(d);
         }
     });
+    own(id);
 }
 
 fn clean(name: &str) -> String {
@@ -330,4 +367,36 @@ async fn fetch(app: &AppState, id: &str) -> Result<()> {
         d.size = d.size.max(received);
     });
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn download(id: &str, state: State) -> Download {
+        Download {
+            id: id.into(),
+            server_id: String::new(),
+            server_name: String::new(),
+            item: Metadata::default(),
+            file: None,
+            poster: None,
+            size: 0,
+            received: 0,
+            state,
+            error: None,
+            added_at: 0,
+        }
+    }
+
+    #[test]
+    fn merges_with_other_process() {
+        let mine = [download("a", State::Downloading), download("c", State::Queued), download("d", State::Queued)];
+        let disk = vec![download("a", State::Queued), download("b", State::Done), download("d", State::Done), download("e", State::Done)];
+        // Owned: a (changed), c (added), e (removed here). d is someone else's.
+        let owned: HashSet<String> = ["a", "c", "e"].into_iter().map(String::from).collect();
+        let out = merge(&mine, disk, Some(&owned));
+        let got: Vec<(&str, State)> = out.iter().map(|d| (d.id.as_str(), d.state)).collect();
+        assert_eq!(got, [("a", State::Downloading), ("b", State::Done), ("d", State::Done), ("c", State::Queued)]);
+    }
 }

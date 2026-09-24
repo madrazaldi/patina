@@ -2,7 +2,7 @@
 //! PASTA): pick tracks in one episode and the closest match is selected in
 //! every other episode.
 //!
-//! The webview loads a show once ([`load`]), then asks for a fresh [`View`]
+//! The front end loads a show once ([`load`]), then asks for a fresh [`View`]
 //! whenever a choice changes, and finally [`apply`]s the planned changes.
 
 use std::sync::Arc;

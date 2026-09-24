@@ -16,7 +16,10 @@ pub struct Settings {
     pub auth: AuthSettings,
     pub server: ServerSettings,
     pub player: PlayerSettings,
+    /// The GUI's appearance.
     pub ui: UiSettings,
+    /// The terminal client's appearance and behaviour.
+    pub tui: TuiSettings,
 }
 
 impl Default for Settings {
@@ -27,6 +30,7 @@ impl Default for Settings {
             server: ServerSettings::default(),
             player: PlayerSettings::default(),
             ui: UiSettings::default(),
+            tui: TuiSettings::default(),
         }
     }
 }
@@ -105,7 +109,7 @@ impl PlayerSettings {
     }
 
     pub fn quality(&self) -> &'static Quality {
-        QUALITIES.iter().find(|q| q.id == self.quality).unwrap_or(&QUALITIES[0])
+        quality(&self.quality).unwrap_or(&QUALITIES[0])
     }
 
     pub fn downloads_dir(&self) -> PathBuf {
@@ -132,6 +136,24 @@ pub struct UiSettings {
 impl Default for UiSettings {
     fn default() -> Self {
         Self { accent: "paper".into(), poster_size: 160, hide_spoilers: false }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TuiSettings {
+    /// Show the inspector pane next to the columns.
+    pub show_inspector: bool,
+    pub show_watch_status: bool,
+    pub show_library_counts: bool,
+    pub hide_watched: bool,
+    /// Accent colour; empty means the theme's.
+    pub accent: String,
+}
+
+impl Default for TuiSettings {
+    fn default() -> Self {
+        Self { show_inspector: true, show_watch_status: true, show_library_counts: true, hide_watched: false, accent: String::new() }
     }
 }
 
@@ -172,6 +194,11 @@ pub const QUALITIES: &[Quality] = &[
     Quality { id: "2m-720", label: "720p · 2 Mbps", kbps: Some(2000), resolution: "1280x720" },
     Quality { id: "1m-480", label: "480p · 1 Mbps", kbps: Some(1000), resolution: "854x480" },
 ];
+
+/// A quality preset by id or label.
+pub fn quality(name: &str) -> Option<&'static Quality> {
+    QUALITIES.iter().find(|q| q.id == name || q.label == name)
+}
 
 pub fn config_dir() -> PathBuf {
     if cfg!(windows)
@@ -221,19 +248,49 @@ fn config_file() -> PathBuf {
 
 impl Settings {
     pub fn load() -> Settings {
-        let path = config_file();
-        let settings = match std::fs::read_to_string(&path) {
-            Ok(text) => toml::from_str(&text).unwrap_or_else(|e| {
-                tracing::warn!("ignoring unreadable {}: {e}", path.display());
-                Settings::default()
-            }),
-            Err(_) => Settings::default(),
+        let (settings, persist) = match Self::read() {
+            Some(l) => (l.settings, !l.client_id_saved),
+            None => (Settings::default(), !config_file().exists()),
         };
         // Persist so the generated client id stays stable.
-        if !path.exists() {
+        if persist {
             settings.save();
         }
         settings
+    }
+
+    /// The file as saved now (another process may have changed it), keeping
+    /// this client id if the file has none. `self` when it can't be read.
+    pub fn reload(&self) -> Settings {
+        match Self::read() {
+            Some(mut s) => {
+                if !s.client_id_saved {
+                    s.settings.client_id = self.client_id.clone();
+                }
+                s.settings
+            }
+            None => self.clone(),
+        }
+    }
+
+    fn read() -> Option<Loaded> {
+        let path = config_file();
+        let text = std::fs::read_to_string(&path).ok()?;
+        let table: toml::Table = match toml::from_str(&text) {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::warn!("ignoring unreadable {}: {e}", path.display());
+                return None;
+            }
+        };
+        let client_id_saved = table.contains_key("client_id");
+        match table.try_into() {
+            Ok(settings) => Some(Loaded { settings, client_id_saved }),
+            Err(e) => {
+                tracing::warn!("ignoring unreadable {}: {e}", path.display());
+                None
+            }
+        }
     }
 
     pub fn save(&self) {
@@ -250,6 +307,11 @@ impl Settings {
             Err(e) => tracing::error!("could not encode settings: {e}"),
         }
     }
+}
+
+struct Loaded {
+    settings: Settings,
+    client_id_saved: bool,
 }
 
 /// The file holds the auth token, so keep it readable only by the user.

@@ -4,41 +4,51 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
-mod config;
-mod downloads;
 mod images;
-mod live;
-mod livetv;
-mod lyrics;
-mod player;
 mod remote;
-mod session;
-mod state;
-mod tracks;
 
-use tauri::Manager;
+use std::sync::Arc;
 
-use crate::state::AppState;
+use patina_core::{AppState, CoreEvent, EventSink, player, session};
+use tauri::{AppHandle, Emitter, Manager};
+
+/// Forwards core events to the webview under their names, and what's
+/// playing to the OS media controls and Discord.
+struct Webview(AppHandle);
+
+impl EventSink for Webview {
+    fn emit(&self, event: CoreEvent) {
+        if let CoreEvent::NowPlaying(np) = &event
+            && let Some(app) = self.0.try_state::<AppState>()
+        {
+            remote::update(&self.0, np.as_deref(), &app.settings().player);
+        }
+        if let Err(e) = self.0.emit(event.name(), event.payload()) {
+            tracing::warn!("could not emit {}: {e}", event.name());
+        }
+    }
+}
 
 fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_env("PATINA_LOG")
-                .unwrap_or_else(|_| "warn,patina=info,patina_plex=info,mpv=warn".into()),
+                .unwrap_or_else(|_| "warn,patina=info,patina_core=info,patina_plex=info,mpv=warn".into()),
         )
         .init();
 
-    std::thread::spawn(images::prune_cache);
+    std::thread::spawn(patina_core::images::prune_cache);
 
     tauri::Builder::default()
         .register_asynchronous_uri_scheme_protocol(images::SCHEME, |_ctx, request, responder| {
             images::handle(request, responder)
         })
         .setup(|app| {
-            let state = AppState::new(app.handle().clone());
+            let runtime = tauri::async_runtime::handle().inner().clone();
+            let state = AppState::new(Arc::new(Webview(app.handle().clone())), runtime);
             app.manage(state.clone());
-            remote::init(&state);
-            tauri::async_runtime::spawn(session::restore(state));
+            remote::init(app.handle());
+            state.spawn(session::restore(state.clone()));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
