@@ -523,6 +523,7 @@ fn inspector_lines(app: &App, item: &Item, theme: &Theme, width: usize) -> Vec<L
                 "Your plex.tv watchlist. Titles on this server are playable; ☆ marks ones that aren't. + adds or removes the selection."
             }
             Some(Source::Path(p)) if p == PLAYLISTS => "Your playlists. Space adds the selected item to one; x deletes; e renames.",
+            Some(Source::Search) => "Search every library: titles, episodes, music, people and genres, grouped by type. f searches from anywhere.",
             Some(Source::Sessions) => "Who is streaming from this server right now. Refreshes every few seconds; x stops a stream.",
             Some(Source::History) => "Everything played on this server, newest first.",
             _ => "",

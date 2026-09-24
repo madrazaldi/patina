@@ -47,7 +47,7 @@ pub const HELP: &[(&str, &str)] = &[
     ("S", "scan library for new files"),
     ("m  .", "actions menu (more options)"),
     ("", "Finding things"),
-    ("f", "search the server"),
+    ("f", "search the server, grouped by type (tab: next type)"),
     ("/", "filter this column"),
     ("s", "sort (the server's sorts in a library)"),
     ("F", "library filters (unwatched, genre, HDR…)"),
@@ -72,7 +72,7 @@ pub(super) fn draw_modal(f: &mut Frame, app: &App, theme: &Theme) {
     let Some(modal) = &app.modal else { return };
     match modal {
         Modal::Help { scroll } => {
-            let area = centered(screen, 72, HELP.len() as u16 + 2);
+            let area = centered(screen, 80, HELP.len() as u16 + 2);
             f.render_widget(Clear, area);
             let lines: Vec<Line> = HELP
                 .iter()

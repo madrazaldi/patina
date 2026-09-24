@@ -64,7 +64,7 @@ pub enum Msg {
     DetailFailed(String),
     SearchResults {
         query: String,
-        items: Vec<Item>,
+        groups: Vec<Item>,
     },
     SearchFailed(String, String),
     OpDone {
@@ -131,7 +131,12 @@ pub struct Notice {
 
 pub struct SearchState {
     pub input: String,
+    /// One entry per result type, holding its results.
+    pub groups: Vec<Item>,
+    /// Every result, in group order; the cursor indexes this.
     pub results: Vec<Item>,
+    /// Index of each result's group.
+    pub group_of: Vec<usize>,
     pub cursor: usize,
     pub scroll: usize,
     pub pending: bool,
@@ -333,6 +338,7 @@ impl App {
         items.extend([
             Item::nav("Playlists", Source::Path(PLAYLISTS.into())),
             Item::nav("Watchlist", Source::Watchlist),
+            Item::nav("Search", Source::Search),
             Item::nav("Now Playing", Source::Sessions),
             Item::nav("History", Source::History),
         ]);
@@ -475,11 +481,11 @@ impl App {
             Msg::DetailFailed(key) => {
                 self.detail_inflight.remove(&key);
             }
-            Msg::SearchResults { query, items } => {
+            Msg::SearchResults { query, groups } => {
                 if let Some(s) = &mut self.search
                     && s.input.trim() == query
                 {
-                    s.results = items;
+                    s.set_groups(groups);
                     s.cursor = 0;
                     s.scroll = 0;
                     s.pending = false;

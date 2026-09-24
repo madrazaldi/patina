@@ -58,6 +58,9 @@ impl App {
             self.info(format!("{} isn't on this server", item.title()));
             return;
         }
+        if item.link_source() == Some(&Source::Search) {
+            return self.open_search();
+        }
         if let Some(link) = item.link.clone() {
             self.open_source(item.title().to_string(), link.source, link.items);
             if let Some(col) = self.columns.last_mut() {

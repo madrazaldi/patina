@@ -35,6 +35,8 @@ pub enum Source {
     Watchlist,
     Sessions,
     History,
+    /// Opens the search overlay rather than a column.
+    Search,
 }
 
 impl Source {
@@ -49,7 +51,7 @@ impl Source {
 
     /// Whether there is anything to (re)load.
     pub fn loads(&self) -> bool {
-        !matches!(self, Source::Root | Source::Static)
+        !matches!(self, Source::Root | Source::Static | Source::Search)
     }
 }
 
@@ -200,7 +202,7 @@ pub fn is_paged(path: &str) -> bool {
 pub async fn fetch(core: &AppState, source: &Source, progressive: bool, page: &mut (dyn FnMut(Vec<Item>, bool, Option<usize>) + Send)) -> anyhow::Result<Vec<Item>> {
     let server = core.server()?;
     match source {
-        Source::Root | Source::Static => Ok(Vec::new()),
+        Source::Root | Source::Static | Source::Search => Ok(Vec::new()),
         Source::Home => Ok(hubs(server.home_hubs(20).await?)),
         Source::Hub(key) => paged(&server, key, progressive, page).await,
         Source::Sessions => Ok(server.sessions().await?.into_iter().map(Item::from).collect()),
@@ -238,6 +240,31 @@ pub fn hubs(list: Vec<patina_plex::Hub>) -> Vec<Item> {
     let (mut first, rest): (Vec<_>, Vec<_>) = list.into_iter().filter(|h| !h.is_empty()).partition(continuing);
     first.extend(rest);
     first.into_iter().map(Item::hub).collect()
+}
+
+/// Search results as one entry per result type (the GUI's grouped search);
+/// people and tags become entries listing their titles.
+pub fn search_groups(list: Vec<Hub>) -> Vec<Item> {
+    const PEOPLE: [&str; 6] = ["actor", "director", "writer", "producer", "person", "tag"];
+    list.into_iter()
+        .filter(|h| !h.is_empty())
+        .map(|h| {
+            let title = h.title.clone().unwrap_or_default();
+            let mut items: Vec<Item> = h.metadata.into_iter().map(Item::from).collect();
+            items.extend(h.directory.into_iter().filter_map(|d| {
+                let name = d.title.clone().or(d.tag.clone())?;
+                let kind = if PEOPLE.contains(&d.kind.as_deref().unwrap_or("")) { "person" } else { "tag" };
+                let mut it = Item::link(&name, kind, Source::Path(d.key.clone()?), Vec::new());
+                it.summary = d.count.map(|n| format!("{n} titles")).or(d.kind.clone());
+                it.thumb = d.thumb;
+                Some(it)
+            }));
+            let mut group = Item::link(&title, "hub", Source::Static, items);
+            group.child_count = Some(group.link.as_ref().map_or(0, |l| l.items.len()) as i64);
+            group.key = h.hub_identifier;
+            group
+        })
+        .collect()
 }
 
 /// The item's related hubs plus extra hubs it doesn't already have (as the
@@ -395,6 +422,29 @@ mod tests {
         );
         assert_eq!(items[2].summary.as_deref(), Some("Iris"));
         assert_eq!(items[3].link_source(), Some(&Source::Path("/library/sections/1/all?genre=10".into())));
+    }
+
+    #[test]
+    fn search_groups_link_people() {
+        let people = Hub {
+            title: Some("Actors".into()),
+            hub_identifier: Some("actor".into()),
+            directory: vec![patina_plex::Directory {
+                key: Some("/library/sections/1/all?actor=300".into()),
+                tag: Some("Mara Okafor".into()),
+                kind: Some("actor".into()),
+                count: Some(20),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let groups = search_groups(vec![hub("movie", 2, false), hub("none", 0, false), people]);
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].child_count, Some(2));
+        let mara = &groups[1].link.as_ref().unwrap().items[0];
+        assert_eq!((mara.kind(), mara.title()), (Kind::Person, "Mara Okafor"));
+        assert_eq!(mara.summary.as_deref(), Some("20 titles"));
+        assert_eq!(mara.link_source(), Some(&Source::Path("/library/sections/1/all?actor=300".into())));
     }
 
     #[test]

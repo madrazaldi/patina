@@ -4,6 +4,7 @@ use super::*;
 fn nav_icon(source: Option<&Source>) -> &'static str {
     match source {
         Some(Source::Home) => "⌂",
+        Some(Source::Search) => "⌕",
         Some(Source::Watchlist) => "☆",
         Some(Source::Path(p)) if p == PLAYLISTS => "≡",
         Some(Source::Sessions) => "◉",
