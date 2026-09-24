@@ -96,7 +96,7 @@ When the server can't be reached, `d` browses and plays your downloads offline.
 ### Differences from the desktop app
 
 - Artwork is not shown; items are text, with a details panel.
-- There are no OS media controls and no Discord Rich Presence. Playback is controlled with the keys below or in mpv.
+- There are no OS media controls; playback is controlled with the keys below or in mpv. Discord Rich Presence works as in the GUI (**Settings → Player**).
 - Server statistics are text bars instead of charts.
 - Sign-in, settings and downloads are shared with the desktop app. The terminal client has its own section of settings (accent colour, details panel, watch status and counts, hide watched).
 
