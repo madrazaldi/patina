@@ -11,13 +11,12 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow};
-use dioxus::core::spawn_forever;
-use dioxus::prelude::*;
 use patina_mpv::{Event, Mpv, SpawnOptions};
 use patina_plex::{
     Marker, Metadata, MetadataOptions, Part, PlayQueueRequest, PlexServer, TimelineState, TimelineUpdate,
     TranscodeOptions, stream_type,
 };
+use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::config::PlayerSettings;
@@ -26,7 +25,8 @@ use crate::state::{AppState, NowPlaying};
 static ACTIVE: Mutex<Option<Arc<Mpv>>> = Mutex::new(None);
 
 /// What to play.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct PlayRequest {
     pub item: Metadata,
     /// Resume from the saved position (otherwise start from the beginning).
@@ -36,14 +36,15 @@ pub struct PlayRequest {
     pub media_index: usize,
 }
 
-impl PlayRequest {
-    pub fn new(item: Metadata) -> Self {
-        Self { item, resume: true, shuffle: false, media_index: 0 }
+impl Default for PlayRequest {
+    fn default() -> Self {
+        Self { item: Metadata::default(), resume: true, shuffle: false, media_index: 0 }
     }
 }
 
 /// Remote-control commands for the running player.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize)]
+#[serde(tag = "kind", content = "seconds", rename_all = "camelCase")]
 pub enum Control {
     TogglePause,
     Next,
@@ -53,19 +54,18 @@ pub enum Control {
 }
 
 pub fn play(app: AppState, req: PlayRequest) {
-    spawn_forever(async move {
-        if let Err(e) = run(app, req).await {
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = run(app.clone(), req).await {
             tracing::error!("playback failed: {e:#}");
             app.error(format!("Playback failed: {e:#}"));
-            let mut np = app.now_playing;
-            np.set(None);
+            app.set_now_playing(None);
         }
     });
 }
 
 pub fn control(cmd: Control) {
     let Some(mpv) = ACTIVE.lock().unwrap().clone() else { return };
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         let _ = match cmd {
             Control::TogglePause => mpv.command(vec![json!("cycle"), json!("pause")]).await.map(|_| ()),
             Control::Next => mpv.playlist_next().await,
@@ -73,6 +73,16 @@ pub fn control(cmd: Control) {
             Control::Stop => mpv.quit().await,
             Control::SeekRelative(s) => mpv.command(vec![json!("seek"), json!(s), json!("relative")]).await.map(|_| ()),
         };
+    });
+}
+
+/// Close mpv when Patina quits. The app exits without running destructors,
+/// so `kill_on_drop` alone would leave the player window behind.
+pub fn shutdown() {
+    let Some(mpv) = ACTIVE.lock().unwrap().take() else { return };
+    tauri::async_runtime::block_on(async move {
+        let _ = mpv.quit().await;
+        mpv.wait(Duration::from_secs(2)).await;
     });
 }
 
@@ -222,8 +232,8 @@ async fn run(app: AppState, req: PlayRequest) -> Result<()> {
         old.wait(Duration::from_secs(3)).await;
     }
 
-    let server = app.server();
-    let settings = app.settings.peek().player.clone();
+    let server = app.server()?;
+    let settings = app.settings().player;
     let queue = build_queue(&server, &req, &settings).await?;
     let is_photo = queue.kind == "photo";
 
@@ -401,8 +411,7 @@ async fn run(app: AppState, req: PlayRequest) -> Result<()> {
     mpv.wait(Duration::from_secs(2)).await;
     let still_ours = ACTIVE.lock().unwrap().is_none();
     if still_ours {
-        let mut np = app.now_playing;
-        np.set(None);
+        app.set_now_playing(None);
     }
     app.bump();
     Ok(())
@@ -435,8 +444,7 @@ async fn begin(server: &PlexServer, item: &Metadata, index: usize, media_index: 
 
 fn publish(app: &AppState, c: &mut Current, queue_len: usize, _force: bool) {
     c.last_ui = Instant::now();
-    let mut np = app.now_playing;
-    np.set(Some(NowPlaying {
+    app.set_now_playing(Some(NowPlaying {
         item: c.item.clone(),
         position_ms: c.time_ms,
         duration_ms: c.duration_ms,

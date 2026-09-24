@@ -6,7 +6,7 @@ A Plex desktop client written in Rust. It gives you a polished interface for bro
 
 - **Sign in** with the plex.tv browser flow, a plex.tv/link code, email and password (with 2FA), or a direct server URL and token. Switch between Plex Home users (PIN-protected profiles supported) and between servers.
 - **Server connections:** Patina tries every connection a server advertises at the same time. It prefers local, then remote, then relay.
-- **Home:** a rotating hero banner plus every hub the server offers (Continue Watching, Recently Added, and so on).
+- **Home:** a featured banner (step through recent and in-progress titles) plus every hub the server offers (Continue Watching, Recently Added, and so on).
 - **Libraries:** a poster grid that keeps loading as you scroll. Sort by any server sort, filter by genre or unwatched, and switch between types (shows/seasons/episodes, artists/albums/tracks). Each library also has Recommended and Collections tabs.
 - **Detail pages:** backdrop art, ratings, cast, extras, related titles, seasons and episodes, albums and tracks. Pick the version, audio track and subtitle track; your choice is saved to Plex. Mark items watched, rate them, and add them to playlists or your watchlist.
 - **Audio & subtitles for whole shows** (like [PASTA](https://github.com/cglatot/pasta)): from a show, season or episode, pick an audio and/or subtitle track in one episode and Patina selects the closest match in every episode of the season or show. It matches on language first (and forced vs. full subtitles), then title, codec and channels. It shows which episodes have no match before you apply, and it leaves them unchanged. You can also turn subtitles off everywhere.
@@ -27,18 +27,21 @@ A Plex desktop client written in Rust. It gives you a polished interface for bro
 ## Requirements
 
 - Rust 1.85+ (edition 2024)
+- Node.js 20+ and pnpm (for the web frontend)
 - mpv on `PATH`, or set its path in **Settings → Player**
 - macOS or Linux (Windows should work, but hasn't been tested)
 
 ## Build & run
 
 ```sh
-cargo run --release -p patina
+pnpm install
+pnpm tauri dev      # development, with hot reload for the frontend
+pnpm tauri build    # release app bundle in target/release/bundle
 ```
 
 Settings are stored in `~/.config/patina/config.toml` (Windows: the platform config dir). The file holds your auth token, so it is written with mode 0600. Artwork is cached in the platform cache directory.
 
-Logging: `PATINA_LOG=debug cargo run -p patina`.
+Logging: `PATINA_LOG=debug pnpm tauri dev`.
 
 ## Workspace
 
@@ -46,7 +49,8 @@ Logging: `PATINA_LOG=debug cargo run -p patina`.
 |---|---|
 | `crates/plex` (`patina-plex`) | Async client for the Plex Media Server and plex.tv APIs. It covers auth and PINs, resources, Plex Home, watchlist and discover, libraries, metadata editing and matching, artwork, hubs, search, playlists, collections, play queues, timeline, scrobbling and rating, stream selection, subtitles, transcoding, sessions, history, activities, butler, preferences, statistics, updates, logs and live notifications (SSE). `raw()` escape hatches cover anything else. |
 | `crates/mpv` (`patina-mpv`) | Starts mpv and controls it over JSON IPC (commands, property observation, events, key bindings). |
-| `crates/app` (`patina`) | The Dioxus desktop app. |
+| `crates/app` (`patina`) | The Tauri desktop app: session, playback and every Plex call, exposed to the frontend as typed commands. Tokens never reach the webview; artwork is served through the `plximg` URI scheme. |
+| `web/` | The Svelte 5 + TypeScript frontend. `pnpm check` type-checks it. |
 
 ## Developing without a Plex server
 
@@ -54,7 +58,7 @@ Logging: `PATINA_LOG=debug cargo run -p patina`.
 
 ```sh
 python3 tools/mock_pms.py --media /path/to/media --port 32499
-XDG_CONFIG_HOME=/tmp/patina-dev cargo run -p patina   # choose "Connect to a server directly"
+XDG_CONFIG_HOME=/tmp/patina-dev pnpm tauri dev   # choose "Connect to a server directly"
 ```
 
 Debug builds also accept `PATINA_ROUTE=/item/100` (opens a page) and `PATINA_PLAY=<ratingKey>` (starts playback).

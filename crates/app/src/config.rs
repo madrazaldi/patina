@@ -109,7 +109,7 @@ pub struct UiSettings {
 
 impl Default for UiSettings {
     fn default() -> Self {
-        Self { accent: "verdigris".into(), poster_size: 168, hide_spoilers: false }
+        Self { accent: "paper".into(), poster_size: 160, hide_spoilers: false }
     }
 }
 
@@ -117,21 +117,19 @@ pub struct Accent {
     pub id: &'static str,
     pub label: &'static str,
     pub color: &'static str,
-    pub rgb: &'static str,
 }
 
+/// Accents are used sparingly (progress, watched marks, focus), so they are
+/// kept muted. Ids are stable; they are stored in the config file.
 pub const ACCENTS: &[Accent] = &[
-    Accent { id: "verdigris", label: "Verdigris", color: "#3ecfa4", rgb: "62, 207, 164" },
-    Accent { id: "copper", label: "Copper", color: "#e0925a", rgb: "224, 146, 90" },
-    Accent { id: "amber", label: "Amber", color: "#f2b53c", rgb: "242, 181, 60" },
-    Accent { id: "iris", label: "Iris", color: "#8f8cff", rgb: "143, 140, 255" },
-    Accent { id: "rose", label: "Rose", color: "#f06a8c", rgb: "240, 106, 140" },
-    Accent { id: "sky", label: "Sky", color: "#4fb3f6", rgb: "79, 179, 246" },
+    Accent { id: "paper", label: "Paper", color: "#e6e1d6" },
+    Accent { id: "amber", label: "Amber", color: "#d6a44c" },
+    Accent { id: "copper", label: "Copper", color: "#c98a5e" },
+    Accent { id: "verdigris", label: "Verdigris", color: "#7fb3a0" },
+    Accent { id: "sky", label: "Sky", color: "#7ea6cc" },
+    Accent { id: "iris", label: "Iris", color: "#9d98d4" },
+    Accent { id: "rose", label: "Rose", color: "#cf8a98" },
 ];
-
-pub fn accent(id: &str) -> &'static Accent {
-    ACCENTS.iter().find(|a| a.id == id).unwrap_or(&ACCENTS[0])
-}
 
 #[derive(Debug, PartialEq)]
 pub struct Quality {

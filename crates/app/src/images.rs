@@ -1,14 +1,13 @@
-//! Artwork proxy. The webview loads `plximg://` URLs; we resolve them through
-//! the current server's photo transcoder (so the token never reaches the DOM)
-//! and cache the resized result on disk.
+//! Artwork proxy. The webview loads `plximg://localhost/i?u=<path>&w=&h=`
+//! URLs; we resolve them through the current server's photo transcoder (so the
+//! token never reaches the DOM) and cache the resized result on disk.
 
-use std::borrow::Cow;
 use std::path::PathBuf;
 use std::sync::{LazyLock, RwLock};
 
-use dioxus::desktop::wry::http::{Request, Response};
-use dioxus::desktop::wry::RequestAsyncResponder;
 use patina_plex::PlexServer;
+use tauri::UriSchemeResponder;
+use tauri::http::{Request, Response};
 use sha2::{Digest, Sha256};
 
 pub const SCHEME: &str = "plximg";
@@ -27,27 +26,9 @@ pub fn set_server(server: Option<PlexServer>) {
     *SERVER.write().unwrap() = server;
 }
 
-fn base() -> &'static str {
-    if cfg!(any(windows, target_os = "android")) { "http://plximg.localhost/" } else { "plximg://localhost/" }
-}
-
-/// URL for an image path (server-relative or absolute) resized to `w`×`h`.
-pub fn url(source: &str, w: u32, h: u32) -> String {
-    let q = url::form_urlencoded::Serializer::new(String::new())
-        .append_pair("u", source)
-        .append_pair("w", &w.to_string())
-        .append_pair("h", &h.to_string())
-        .finish();
-    format!("{}i?{q}", base())
-}
-
-pub fn opt(source: Option<&str>, w: u32, h: u32) -> Option<String> {
-    source.filter(|s| !s.is_empty()).map(|s| url(s, w, h))
-}
-
-pub fn handle(request: Request<Vec<u8>>, responder: RequestAsyncResponder) {
+pub fn handle(request: Request<Vec<u8>>, responder: UriSchemeResponder) {
     let query = request.uri().query().unwrap_or("").to_string();
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         let mut source = String::new();
         let (mut w, mut h) = (300u32, 450u32);
         for (k, v) in url::form_urlencoded::parse(query.as_bytes()) {
@@ -64,8 +45,8 @@ pub fn handle(request: Request<Vec<u8>>, responder: RequestAsyncResponder) {
                 .header("Content-Type", ctype)
                 .header("Cache-Control", "public, max-age=604800")
                 .header("Access-Control-Allow-Origin", "*")
-                .body(Cow::Owned(bytes)),
-            None => Response::builder().status(404).body(Cow::Borrowed(&b""[..])),
+                .body(bytes),
+            None => Response::builder().status(404).body(Vec::new()),
         };
         responder.respond(response.unwrap());
     });

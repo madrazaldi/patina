@@ -76,7 +76,10 @@ impl PlexServer {
         use futures::{StreamExt, TryStreamExt};
 
         let keys: Vec<String> = self.all_leaves(rating_key).await?.metadata.iter().map(|m| m.rating_key().to_string()).collect();
-        let batches: Vec<Vec<Metadata>> = futures::stream::iter(keys.chunks(40))
+        // Owned chunks keep the future `Send` (a closure over borrowed slices
+        // trips the compiler's higher-ranked lifetime check).
+        let chunks: Vec<Vec<String>> = keys.chunks(40).map(<[String]>::to_vec).collect();
+        let batches: Vec<Vec<Metadata>> = futures::stream::iter(chunks)
             .map(|chunk| async move {
                 let refs: Vec<&str> = chunk.iter().map(String::as_str).collect();
                 self.metadata_many(&refs).await
