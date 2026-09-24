@@ -259,9 +259,64 @@ class Handler(BaseHTTPRequestHandler):
     def do_DELETE(self):
         self.do_GET()
 
+    def send_events(self):
+        """Live notifications: a fake library scan every 30 seconds."""
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.end_headers()
+
+        def emit(event, data):
+            self.wfile.write(f"event: {event}\ndata: {json.dumps(data)}\n\n".encode())
+            self.wfile.flush()
+
+        try:
+            while True:
+                time.sleep(30)
+                uuid = f"scan-{int(time.time())}"
+                for progress in range(0, 101, 20):
+                    activity = {"uuid": uuid, "type": "library.update.section", "cancellable": True, "title": "Scanning Movies",
+                                "subtitle": MOVIE_TITLES[progress // 20], "progress": progress, "Context": {"librarySectionID": "1"}}
+                    emit("activity", {"ActivityNotification": [{"event": "updated", "uuid": uuid, "Activity": activity}]})
+                    time.sleep(1)
+                emit("activity", {"ActivityNotification": [{"event": "ended", "uuid": uuid, "Activity": activity}]})
+                emit("timeline", {"TimelineEntry": [{"identifier": "com.plexapp.plugins.library", "sectionID": "1", "itemID": "1",
+                                                     "type": 1, "state": 5}]})
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
     def do_GET(self):
         u = urlparse(self.path)
         p, q = u.path, parse_qs(u.query)
+        if p == "/:/eventsource/notifications":
+            return self.send_events()
+        # --- play queue edits ----------------------------------------------------
+        if re.fullmatch(r"/playQueues/\d+(/items(/\d+(/move)?)?|/shuffle|/unshuffle)?", p) and self.command != "GET":
+            self.record("playqueue " + self.command + " " + p, q)
+            return self.send_json(mc(playQueueID=77))
+        # --- browsing extras -------------------------------------------------------
+        m = re.fullmatch(r"/library/sections/(\d+)/(firstCharacter|folder)", p)
+        if m:
+            sid, what = m.groups()
+            items = all_movies() if sid == "1" else all_shows()
+            if what == "firstCharacter":
+                counts = {}
+                for i in sorted(items, key=lambda i: i["title"]):
+                    ch = i["title"][0].upper()
+                    counts[ch] = counts.get(ch, 0) + 1
+                return self.send_json(mc(Directory=[{"key": c, "title": c, "size": n} for c, n in counts.items()]))
+            if "parent" not in q:
+                return self.send_json(mc(title1="Movies", Directory=[{"key": f"/library/sections/{sid}/folder?parent=1", "title": "Features"}]))
+            return self.send_json(mc(title2="Features", Metadata=items[:6]))
+        if re.fullmatch(r"/library/sections/\d+/all", p) and q.get("includeMeta") == ["1"]:
+            filters = [{"filter": "genre", "filterType": "string", "key": "/library/sections/1/genre", "title": "Genre"},
+                       {"filter": "year", "filterType": "integer", "key": "/library/sections/1/year", "title": "Year"},
+                       {"filter": "unwatched", "filterType": "boolean", "key": "/library/sections/1/unwatched", "title": "Unwatched"},
+                       {"filter": "hdr", "filterType": "boolean", "key": "/library/sections/1/hdr", "title": "HDR"}]
+            return self.send_json(mc(size=0, Meta={"Type": [{"key": "/library/sections/1/all?type=1", "type": "movie", "title": "Movies",
+                                                             "active": True, "Filter": filters}]}))
+        if re.fullmatch(r"/library/sections/\d+/year", p):
+            years = sorted({m.get("year") for m in all_movies() if m.get("year")}, reverse=True)
+            return self.send_json(mc(Directory=[{"key": str(y), "title": str(y)} for y in years]))
         # --- playback reporting -------------------------------------------------
         if p == "/:/timeline":
             self.record("timeline", q)
