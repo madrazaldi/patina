@@ -1,26 +1,40 @@
 <script lang="ts">
   // Right-click / "…" menu for any item.
   import {
+    ArrowDownToLine,
     Bookmark,
     Captions,
     CircleCheck,
     Circle,
+    Crosshair,
+    Download,
+    Eraser,
     ExternalLink,
+    EyeOff,
+    FolderPlus,
+    Image,
     Layers,
+    ListEnd,
     ListPlus,
+    ListStart,
+    Pencil,
     Play,
+    Radio,
     RefreshCw,
     RotateCcw,
     ScanLine,
     Shuffle,
+    Trash,
     Tv,
     User,
+    Wallpaper,
   } from "@lucide/svelte";
   import { api } from "../lib/api";
-  import { play, setWatched } from "../lib/actions.svelte";
+  import { download, downloaded, enqueue, play, setWatched } from "../lib/actions.svelte";
   import * as plex from "../lib/plex";
   import { nav } from "../lib/router.svelte";
   import { act, app } from "../lib/state.svelte";
+  import type { Metadata } from "../lib/types";
 
   let el: HTMLDivElement | undefined = $state();
   let width = $state(0);
@@ -41,6 +55,25 @@
       close();
     }
   };
+
+  const LIBRARY = ["movie", "show", "season", "episode", "artist", "album", "track", "collection"];
+
+  async function remove(target: Metadata) {
+    const rk = target.ratingKey ?? "";
+    const collection = plex.kind(target) === "collection";
+    const ok = await app.confirm(`Delete “${plex.title(target)}”?`, {
+      text: collection
+        ? "The collection is removed; its items stay in the library."
+        : "This deletes the media files from disk. It can't be undone.",
+      action: "Delete",
+      danger: true,
+    });
+    if (!ok) return;
+    const onPage = nav.route.name === "item" && nav.route.ratingKey === rk;
+    if (await act(collection ? api.deleteCollection(rk) : api.deleteItem(rk), "Deleted", true)) {
+      if (onPage) nav.back();
+    }
+  }
 </script>
 
 <svelte:window onkeydown={(e) => e.key === "Escape" && close()} />
@@ -52,6 +85,9 @@
   {@const rk = item.ratingKey ?? ""}
   {@const discover = app.hasTv ? plex.discoverId(item) : null}
   {@const machine = app.session?.machineIdentifier}
+  {@const queueable = plex.canPlay(item) && !["photo", "photoalbum"].includes(kind)}
+  {@const saved = downloaded(item)}
+  {@const inLibrary = LIBRARY.includes(kind)}
   <div
     class="scrim"
     role="presentation"
@@ -75,6 +111,13 @@
       {#if plex.isContainer(item)}
         <button onclick={run(() => play(item, { shuffle: true }))}><Shuffle />Shuffle</button>
       {/if}
+      {#if queueable}
+        <button onclick={run(() => enqueue(item, true))}><ListStart />Play next</button>
+        <button onclick={run(() => enqueue(item, false))}><ListEnd />Add to queue</button>
+      {/if}
+      {#if ["artist", "album", "track"].includes(kind)}
+        <button onclick={run(() => play(item, { radio: true }))}><Radio />Start radio</button>
+      {/if}
       <hr />
     {/if}
 
@@ -96,8 +139,19 @@
         {#if watched}<Circle />Mark as unwatched{:else}<CircleCheck />Mark as watched{/if}
       </button>
     {/if}
+    {#if resume}
+      <button onclick={run(() => act(api.clearProgress(rk), "Progress cleared", true))}><Eraser />Clear progress</button>
+    {/if}
+    {#if kind === "episode" || (kind === "movie" && resume)}
+      <button onclick={run(() => act(api.removeFromContinueWatching(rk), "Removed from Continue Watching", true))}>
+        <EyeOff />Remove from Continue Watching
+      </button>
+    {/if}
     {#if kind !== "playlist" && kind !== "collection"}
       <button onclick={run(() => (app.playlistTarget = item))}><ListPlus />Add to playlist…</button>
+    {/if}
+    {#if app.owned && ["movie", "show", "artist", "album"].includes(kind)}
+      <button onclick={run(() => (app.collectionTarget = item))}><FolderPlus />Add to collection…</button>
     {/if}
     {#if plex.supportsTracks(item)}
       <button onclick={run(() => (app.tracksTarget = item))}><Captions />Audio & subtitles…</button>
@@ -107,11 +161,35 @@
         <Bookmark />Add to watchlist
       </button>
     {/if}
+    {#if ["movie", "episode", "track", "show", "season", "album", "artist"].includes(kind)}
+      {#if saved?.state === "done"}
+        <button disabled><ArrowDownToLine />Downloaded</button>
+      {:else if saved && saved.state !== "failed"}
+        <button disabled><Download />Downloading…</button>
+      {:else}
+        <button onclick={run(() => download(item))}><Download />Download</button>
+      {/if}
+    {/if}
 
     {#if app.owned && kind !== "playlist"}
       <hr />
+      {#if inLibrary}
+        <button onclick={run(() => (app.editTarget = item))}><Pencil />Edit…</button>
+        {#if kind !== "track"}
+          <button onclick={run(() => (app.artworkTarget = { item, kind: "poster" }))}><Image />Choose poster…</button>
+        {/if}
+        {#if ["movie", "show", "artist", "album", "collection"].includes(kind)}
+          <button onclick={run(() => (app.artworkTarget = { item, kind: "art" }))}><Wallpaper />Choose background…</button>
+        {/if}
+        {#if ["movie", "show", "artist", "album"].includes(kind)}
+          <button onclick={run(() => (app.matchTarget = item))}><Crosshair />Fix match…</button>
+        {/if}
+      {/if}
       <button onclick={run(() => act(api.refreshMetadata(rk), "Refreshing metadata…"))}><RefreshCw />Refresh metadata</button>
       <button onclick={run(() => act(api.analyzeMetadata(rk), "Analyzing…"))}><ScanLine />Analyze</button>
+      {#if inLibrary}
+        <button class="danger" onclick={run(() => remove(item))}><Trash />Delete…</button>
+      {/if}
     {/if}
     {#if machine}
       <button
@@ -124,3 +202,16 @@
     {/if}
   </div>
 {/if}
+
+<style>
+  button:disabled {
+    color: var(--text-3);
+    cursor: default;
+  }
+  button:disabled:hover {
+    background: none;
+  }
+  .danger :global(svg) {
+    color: inherit;
+  }
+</style>

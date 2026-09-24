@@ -14,10 +14,12 @@
   let tab = $state<"playing" | "history" | "tasks">("playing");
   let page = $state(0);
 
-  /** A counter that ticks every `secs` seconds while the tab shows. */
+  /** A counter that ticks every `secs` seconds while the tab shows. Sessions
+   *  refetch on server events; the slow tick only keeps their progress moving.
+   *  Transcodes have no events, so they poll. */
   let tick = $state(0);
   $effect(() => {
-    const secs = tab === "playing" ? 4 : tab === "tasks" ? 3 : 0;
+    const secs = tab === "playing" ? 15 : tab === "tasks" ? 5 : 0;
     if (!secs) return;
     const t = setInterval(() => tick++, secs * 1000);
     return () => clearInterval(t);
@@ -25,6 +27,7 @@
 
   const sessions = resource(() => {
     tick;
+    app.sessionsTick;
     return tab === "playing" ? api.sessions() : Promise.resolve(null);
   });
   const history = resource(() => {
@@ -32,9 +35,9 @@
     const p = page;
     return tab === "history" ? api.history(p) : Promise.resolve(null);
   });
-  const tasks = resource(() => {
+  const transcodes = resource(() => {
     tick;
-    return tab === "tasks" ? api.tasks() : Promise.resolve(null);
+    return tab === "tasks" ? api.tasks().then((t) => t.transcodes) : Promise.resolve(null);
   });
 
   function decision(t?: TranscodeSession | null): [string, boolean] {
@@ -145,35 +148,35 @@
       </div>
     {/if}
   {:else}
-    {@const t = tasks.data}
-    {#if !t}
-      <Status loading={!tasks.error} error={tasks.error} />
-    {:else}
-      <div class="section-head"><h2>Background activity</h2></div>
-      {#if t.activities.length === 0}<p class="faint">The server is idle.</p>{/if}
-      <div class="rows">
-        {#each t.activities as a, i (a.uuid ?? i)}
-          {@const uuid = a.uuid}
-          <div class="setting">
-            <div class="label grow">
-              <b>{a.title}</b>
-              <span>{a.subtitle ?? ""}</span>
-              <div class="bar task"><i style:width="{a.progress ?? 0}%"></i></div>
-            </div>
-            <div class="control">
-              <span class="faint num">{a.progress ?? 0}%</span>
-              {#if a.cancellable && uuid}
-                <button class="btn sm" onclick={() => act(api.cancelActivity(uuid))}>Cancel</button>
-              {/if}
-            </div>
+    <div class="section-head"><h2>Background activity</h2></div>
+    {#if app.activities.length === 0}<p class="faint">The server is idle.</p>{/if}
+    <div class="rows">
+      {#each app.activities as a (a.uuid)}
+        {@const uuid = a.uuid}
+        <div class="setting">
+          <div class="label grow">
+            <b>{a.title}</b>
+            <span>{a.subtitle ?? ""}</span>
+            <div class="bar task"><i style:width="{a.progress}%"></i></div>
           </div>
-        {/each}
-      </div>
+          <div class="control">
+            <span class="faint num">{a.progress}%</span>
+            {#if a.cancellable}
+              <button class="btn sm" onclick={() => act(api.cancelActivity(uuid))}>Cancel</button>
+            {/if}
+          </div>
+        </div>
+      {/each}
+    </div>
 
-      <div class="section-head"><h2>Transcoder sessions</h2></div>
-      {#if t.transcodes.length === 0}<p class="faint">No transcodes running.</p>{/if}
+    <div class="section-head"><h2>Transcoder sessions</h2></div>
+    {@const list = transcodes.data}
+    {#if !list}
+      <Status loading={!transcodes.error} error={transcodes.error} />
+    {:else}
+      {#if list.length === 0}<p class="faint">No transcodes running.</p>{/if}
       <div class="rows">
-        {#each t.transcodes as tr, i (tr.key ?? i)}
+        {#each list as tr, i (tr.key ?? i)}
           {@const key = tr.key}
           <div class="setting">
             <div class="label grow">

@@ -5,10 +5,13 @@ import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
 import type {
   Directory,
+  Download,
   Info,
   Metadata,
   NowPlaying,
   PlayerSettings,
+  QueueView,
+  ServerActivity,
   SessionView,
   Settings,
   Stage,
@@ -27,6 +30,15 @@ export interface Menu {
   y: number;
 }
 
+export interface Confirm {
+  title: string;
+  text?: string;
+  /** Label of the confirming button. */
+  action: string;
+  danger: boolean;
+  resolve: (ok: boolean) => void;
+}
+
 let toastId = 0;
 
 export const message = (e: unknown) => (typeof e === "string" ? e : e instanceof Error ? e.message : String(e));
@@ -36,8 +48,16 @@ class App {
   session = $state<SessionView | null>(null);
   sections = $state<Directory[]>([]);
   nowPlaying = $state<NowPlaying | null>(null);
+  queue = $state<QueueView | null>(null);
+  /** Server background tasks, live. */
+  activities = $state<ServerActivity[]>([]);
+  downloads = $state<Download[]>([]);
+  /** Whether the server has a DVR (Live TV page). */
+  liveTv = $state(false);
   /** Bumped whenever watch state may have changed; views refetch. */
   revision = $state(0);
+  /** Bumped when playback sessions on the server change (Activity page refetches). */
+  sessionsTick = $state(0);
   settings = $state<Settings | null>(null);
   info = $state<Info | null>(null);
   toasts = $state<Toast[]>([]);
@@ -47,6 +67,20 @@ class App {
   playlistTarget = $state<Metadata | null>(null);
   /** Show, season or episode waiting for the bulk audio/subtitle dialog. */
   tracksTarget = $state<Metadata | null>(null);
+  /** Item waiting for the "add to collection" dialog. */
+  collectionTarget = $state<Metadata | null>(null);
+  /** Item waiting for the metadata editor. */
+  editTarget = $state<Metadata | null>(null);
+  /** Item and kind waiting for the poster/background picker. */
+  artworkTarget = $state<{ item: Metadata; kind: "poster" | "art" } | null>(null);
+  /** Item waiting for the "fix match" dialog. */
+  matchTarget = $state<Metadata | null>(null);
+  /** Movie or episode waiting for the online subtitle search. */
+  subtitleTarget = $state<Metadata | null>(null);
+  /** Open confirmation dialog (see `confirm`). */
+  confirming = $state<Confirm | null>(null);
+  /** Queue drawer / lyrics panel above the now-playing bar. */
+  panel = $state<"queue" | "lyrics" | null>(null);
   search = $state("");
 
   get owned() {
@@ -67,14 +101,30 @@ class App {
         this.sections = e.payload.sections;
       }),
       listen<NowPlaying | null>("now-playing", (e) => (this.nowPlaying = e.payload)),
+      listen<QueueView | null>("queue", (e) => {
+        this.queue = e.payload;
+        // The queue only goes away when playback ends, unlike now-playing between tracks.
+        if (!e.payload) this.panel = null;
+      }),
+      listen<ServerActivity[]>("activities", (e) => (this.activities = e.payload)),
+      listen<Download[]>("downloads", (e) => (this.downloads = e.payload)),
+      listen("sessions-changed", () => this.sessionsTick++),
       listen<number>("revision", () => this.revision++),
       listen<{ text: string; error: boolean }>("toast", (e) => this.#push(e.payload.text, e.payload.error)),
     ]);
-    const [snap, settings, info] = await Promise.all([api.snapshot(), api.settings(), api.info()]);
+    const [snap, settings, info, downloads] = await Promise.all([
+      api.snapshot(),
+      api.settings(),
+      api.info(),
+      api.downloads(),
+    ]);
     this.stage = snap.stage;
     this.session = snap.session ?? null;
     this.sections = snap.sections;
     this.nowPlaying = snap.nowPlaying ?? null;
+    this.queue = snap.queue ?? null;
+    this.activities = snap.activities;
+    this.downloads = downloads;
     this.settings = settings;
     this.info = info;
   }
@@ -82,6 +132,14 @@ class App {
   /** Refetch everything that depends on watch state. */
   refresh() {
     this.revision++;
+  }
+
+  /** Ask before something destructive; resolves to whether it was confirmed. */
+  confirm(title: string, opts: { text?: string; action?: string; danger?: boolean } = {}) {
+    this.confirming?.resolve(false);
+    return new Promise<boolean>((resolve) => {
+      this.confirming = { title, text: opts.text, action: opts.action ?? "OK", danger: opts.danger ?? false, resolve };
+    });
   }
 
   toast(text: string) {

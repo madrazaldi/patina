@@ -1,5 +1,19 @@
 <script lang="ts">
-  import { Bookmark, BookmarkCheck, Captions, Check, Ellipsis, ListPlus, Play, RotateCcw, Shuffle } from "@lucide/svelte";
+  import {
+    Bookmark,
+    BookmarkCheck,
+    Captions,
+    Check,
+    Download,
+    Ellipsis,
+    ListPlus,
+    ListStart,
+    Play,
+    Radio,
+    RotateCcw,
+    Shuffle,
+    Trash,
+  } from "@lucide/svelte";
   import Children from "../components/Children.svelte";
   import HubRow from "../components/HubRow.svelte";
   import Img from "../components/Img.svelte";
@@ -7,7 +21,7 @@
   import StarRating from "../components/StarRating.svelte";
   import Status from "../components/Status.svelte";
   import StreamPickers from "../components/StreamPickers.svelte";
-  import { openMenu, play, setWatched } from "../lib/actions.svelte";
+  import { download, downloaded, enqueue, openMenu, play, setWatched } from "../lib/actions.svelte";
   import { api } from "../lib/api";
   import { ago, airDate, bitrate, bytes, date, duration, initials, remaining } from "../lib/format";
   import { img } from "../lib/images";
@@ -15,13 +29,21 @@
   import { resource } from "../lib/resource.svelte";
   import { browseRoute, nav, type Route } from "../lib/router.svelte";
   import { act, app } from "../lib/state.svelte";
-  import type { Metadata, Tag } from "../lib/types";
+  import type { Download as Saved, Hub, Metadata, Tag } from "../lib/types";
 
   let { ratingKey }: { ratingKey: string } = $props();
 
   const data = resource(() => {
     app.revision;
     return api.metadata(ratingKey);
+  });
+
+  // More hubs (sonically similar, similar artists, ...), fetched once the kind is known.
+  let loadedKind = $derived(data.data ? plex.kind(data.data) : null);
+  const extra = resource(() => {
+    const k = loadedKind;
+    app.revision;
+    return k ? api.itemHubs(ratingKey, k) : Promise.resolve([] as Hub[]);
   });
 
   let mediaIndex = $state(0);
@@ -40,6 +62,43 @@
     const on = !watchlisted;
     if (await act(api.setWatchlisted(id, on), on ? "Added to watchlist" : "Removed from watchlist")) watchlisted = on;
   }
+
+  /** Item-page hubs not already shown under Related. */
+  function extraHubs(item: Metadata, hubs: Hub[]) {
+    const related = item.Related?.Hub ?? [];
+    const seen = (h: Hub) =>
+      related.some(
+        (r) =>
+          (h.hubIdentifier != null && r.hubIdentifier === h.hubIdentifier) ||
+          (h.title != null && r.title?.toLowerCase() === h.title.toLowerCase()),
+      );
+    return hubs.filter((h) => h.Metadata.length && !seen(h));
+  }
+
+  function downloadLabel(d: Saved | undefined) {
+    if (!d) return "Download";
+    if (d.state === "done") return "Downloaded — show downloads";
+    if (d.state === "failed") return `Download failed${d.error ? `: ${d.error}` : ""} — retry`;
+    return d.state === "queued" ? "Waiting to download" : "Downloading";
+  }
+
+  function onDownload(item: Metadata, d: Saved | undefined) {
+    if (d?.state === "done") nav.push({ name: "downloads" });
+    else if (d?.state === "failed") act(api.retryDownload(d.id));
+    else if (!d) download(item);
+  }
+
+  async function deleteCollection(item: Metadata) {
+    const ok = await app.confirm(`Delete “${plex.title(item)}”?`, {
+      text: "The collection is removed; its items stay in the library.",
+      action: "Delete",
+      danger: true,
+    });
+    if (ok && (await act(api.deleteCollection(item.ratingKey ?? ""), "Collection deleted", true))) nav.back();
+  }
+
+  const setCollection = (item: Metadata, s: { mode?: number; sort?: number }) =>
+    act(api.collectionSettings(item.ratingKey ?? "", s), "Collection updated", true);
 
   function tagRoute(item: Metadata, tag: Tag): Route | null {
     if (item.librarySectionID == null || !tag.filter) return null;
@@ -143,6 +202,7 @@
   {@const summary = item.summary ?? ""}
   {@const info = facts(item)}
   {@const watched = plex.isWatched(item)}
+  {@const saved = downloaded(item)}
 
   <div class="detail">
     <div class="backdrop"><Img src={img(plex.backdrop(item), 1920, 1080)} /></div>
@@ -185,6 +245,9 @@
               {#if plex.isContainer(item)}
                 <button class="btn lg" onclick={() => play(item, { shuffle: true })}><Shuffle size={14} />Shuffle</button>
               {/if}
+              {#if kind === "artist" || kind === "album"}
+                <button class="btn lg" onclick={() => play(item, { radio: true })}><Radio size={14} />Radio</button>
+              {/if}
             {/if}
             <span class="spacer"></span>
             {#if plex.hasWatchState(item)}
@@ -209,8 +272,28 @@
                 <Captions />
               </button>
             {/if}
+            {#if plex.canPlay(item) && kind !== "photo" && kind !== "photoalbum"}
+              <button class="icon-btn outlined" title="Play next" onclick={() => enqueue(item, true)}><ListStart /></button>
+            {/if}
             {#if kind !== "collection" && kind !== "playlist"}
               <button class="icon-btn outlined" title="Add to playlist" onclick={() => (app.playlistTarget = item)}><ListPlus /></button>
+            {/if}
+            {#if ["movie", "episode", "track", "show", "season", "album", "artist"].includes(kind)}
+              {@const busy = saved?.state === "queued" || saved?.state === "downloading"}
+              <button
+                class={["icon-btn outlined", { on: saved?.state === "done", busy }]}
+                title={downloadLabel(saved)}
+                disabled={busy}
+                onclick={() => onDownload(item, saved)}
+              >
+                {#if saved?.state === "done"}
+                  <Check />
+                {:else if busy}
+                  <span class="pct num">{saved && saved.size > 0 ? `${Math.floor((saved.received / saved.size) * 100)}%` : "…"}</span>
+                {:else}
+                  <Download />
+                {/if}
+              </button>
             {/if}
             <button class="icon-btn outlined" title="More" onclick={(e) => openMenu(item, e)}><Ellipsis /></button>
             {#if ["movie", "show", "episode", "season", "album", "track", "artist"].includes(kind)}
@@ -255,8 +338,34 @@
         {/if}
       </div>
 
+      {#if kind === "collection" && app.owned}
+        {@const mode = item.collectionMode ?? -1}
+        {@const order = Number(item.collectionSort ?? 0)}
+        <div class="collection-tools">
+          <label>
+            <span>Show in library</span>
+            <select class="select" value={String(mode)} onchange={(e) => setCollection(item, { mode: Number(e.currentTarget.value) })}>
+              <option value="-1">Library default</option>
+              <option value="0">Hide collection</option>
+              <option value="1">Hide items</option>
+              <option value="2">Show both</option>
+            </select>
+          </label>
+          <label>
+            <span>Sort</span>
+            <select class="select" value={String(order)} onchange={(e) => setCollection(item, { sort: Number(e.currentTarget.value) })}>
+              <option value="0">Release date</option>
+              <option value="1">Title</option>
+              <option value="2">Custom</option>
+            </select>
+          </label>
+          <span class="grow"></span>
+          <button class="btn quiet danger" onclick={() => deleteCollection(item)}><Trash size={14} />Delete collection</button>
+        </div>
+      {/if}
+
       {#if ["show", "season", "artist", "album", "collection", "photoalbum"].includes(kind)}
-        <Children {item} />
+        <Children {item} sort={item.collectionSort} />
       {/if}
 
       {#if item.Role.length}
@@ -279,6 +388,9 @@
         <Row title="Extras" items={item.Extras.Metadata} shape="landscape" />
       {/if}
       {#each (item.Related?.Hub ?? []).filter((h) => h.Metadata.length) as hub, i (`${hub.hubIdentifier}:${i}`)}
+        <HubRow {hub} />
+      {/each}
+      {#each extraHubs(item, extra.data ?? []) as hub, i (`x:${hub.hubIdentifier}:${i}`)}
         <HubRow {hub} />
       {/each}
     </div>
@@ -396,6 +508,33 @@
   }
   .spacer {
     width: 8px;
+  }
+  .pct {
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--text-2);
+  }
+  .icon-btn.busy:disabled {
+    opacity: 1;
+  }
+  .collection-tools {
+    display: flex;
+    align-items: flex-end;
+    gap: 14px;
+    margin-top: 32px;
+  }
+  .collection-tools label {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 170px;
+  }
+  .collection-tools label span {
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-3);
   }
   .body {
     max-width: 880px;

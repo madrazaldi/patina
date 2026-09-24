@@ -1,9 +1,10 @@
 <script lang="ts">
   // Version / audio / subtitle choosers. Changes are saved to Plex at once,
   // and playback follows them.
+  import { Trash } from "@lucide/svelte";
   import { api } from "../lib/api";
   import * as plex from "../lib/plex";
-  import { act } from "../lib/state.svelte";
+  import { act, app } from "../lib/state.svelte";
   import type { Metadata } from "../lib/types";
 
   let { item, mediaIndex = $bindable(0) }: { item: Metadata; mediaIndex?: number } = $props();
@@ -14,10 +15,16 @@
   let subs = $derived(part ? plex.subtitleStreams(part) : []);
   let selectedAudio = $derived(audio.find((s) => s.selected)?.id ?? audio[0]?.id);
   let selectedSub = $derived(subs.find((s) => s.selected)?.id ?? 0);
+  let external = $derived(subs.find((s) => s.selected && plex.isExternal(s)));
 
   function select(a?: number, s?: number) {
     if (part?.id == null) return;
     act(api.selectStreams(part.id, a, s), undefined, true);
+  }
+
+  async function removeSub(id: number, label: string) {
+    const ok = await app.confirm("Delete this subtitle?", { text: `${label} is removed from the server.`, action: "Delete", danger: true });
+    if (ok) act(api.deleteStream(id), "Subtitle deleted", true);
   }
 </script>
 
@@ -40,15 +47,32 @@
       </label>
     {/if}
     {#if plex.kind(item) !== "track"}
-      <label>
-        <span>Subtitles</span>
-        <select class="select" value={String(selectedSub)} onchange={(e) => select(undefined, Number(e.currentTarget.value))}>
-          <option value="0">None</option>
-          {#each subs as s (s.id)}
-            <option value={String(s.id)}>{plex.streamLabel(s)}{plex.isExternal(s) ? " · external" : ""}</option>
-          {/each}
-        </select>
-      </label>
+      <div class="field">
+        <div class="head">
+          <span>Subtitles</span>
+          {#if app.owned && ["movie", "episode"].includes(plex.kind(item))}
+            <button class="link" onclick={() => (app.subtitleTarget = item)}>Search…</button>
+          {/if}
+        </div>
+        <div class="control">
+          <select
+            class="select"
+            aria-label="Subtitles"
+            value={String(selectedSub)}
+            onchange={(e) => select(undefined, Number(e.currentTarget.value))}
+          >
+            <option value="0">None</option>
+            {#each subs as s (s.id)}
+              <option value={String(s.id)}>{plex.streamLabel(s)}{plex.isExternal(s) ? " · external" : ""}</option>
+            {/each}
+          </select>
+          {#if app.owned && external?.id != null}
+            {@const id = external.id}
+            {@const label = plex.streamLabel(external)}
+            <button class="icon-btn" title="Delete this subtitle file" onclick={() => removeSub(id, label)}><Trash size={15} /></button>
+          {/if}
+        </div>
+      </div>
     {/if}
   </div>
 {/if}
@@ -60,14 +84,38 @@
     gap: 14px;
     margin-top: 26px;
   }
-  label {
+  label,
+  .field {
     display: flex;
     flex-direction: column;
     gap: 5px;
     min-width: 200px;
     max-width: 340px;
   }
-  label span {
+  .head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .head .link {
+    font-size: 11.5px;
+    text-decoration: none;
+  }
+  .head .link:hover {
+    text-decoration: underline;
+  }
+  .control {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .control .select {
+    flex: 1;
+    min-width: 0;
+  }
+  label span,
+  .head span {
     font-size: 10.5px;
     font-weight: 600;
     letter-spacing: 0.08em;

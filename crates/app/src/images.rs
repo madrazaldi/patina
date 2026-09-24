@@ -1,6 +1,8 @@
 //! Artwork proxy. The webview loads `plximg://localhost/i?u=<path>&w=&h=`
 //! URLs; we resolve them through the current server's photo transcoder (so the
 //! token never reaches the DOM) and cache the resized result on disk.
+//! `plximg://localhost/d?id=<download>` serves the saved artwork of a
+//! download, which also works offline.
 
 use std::path::PathBuf;
 use std::sync::{LazyLock, RwLock};
@@ -28,6 +30,16 @@ pub fn set_server(server: Option<PlexServer>) {
 
 pub fn handle(request: Request<Vec<u8>>, responder: UriSchemeResponder) {
     let query = request.uri().query().unwrap_or("").to_string();
+    if request.uri().path() == "/d" {
+        let id = url::form_urlencoded::parse(query.as_bytes()).find(|(k, _)| k == "id").map(|(_, v)| v.into_owned());
+        let file = id.and_then(|id| crate::downloads::poster(&id)).and_then(|p| std::fs::read(&p).ok().map(|b| (b, p)));
+        let response = match file {
+            Some((bytes, path)) => Response::builder().status(200).header("Content-Type", sniff(&path)).body(bytes),
+            None => Response::builder().status(404).body(Vec::new()),
+        };
+        responder.respond(response.unwrap());
+        return;
+    }
     tauri::async_runtime::spawn(async move {
         let mut source = String::new();
         let (mut w, mut h) = (300u32, 450u32);
@@ -52,14 +64,26 @@ pub fn handle(request: Request<Vec<u8>>, responder: UriSchemeResponder) {
     });
 }
 
+fn cache_path(server: Option<&PlexServer>, source: &str, w: u32, h: u32) -> PathBuf {
+    let scope = server.and_then(|s| s.machine_identifier().map(str::to_string)).unwrap_or_default();
+    let key = hex(&Sha256::digest(format!("{scope}|{source}|{w}|{h}").as_bytes()));
+    CACHE.join(&key[..2]).join(&key)
+}
+
+/// A resized image as a file on disk, for things outside the webview
+/// (OS media controls, downloads).
+pub async fn cached_file(source: &str, w: u32, h: u32) -> Option<PathBuf> {
+    fetch(source, w, h).await?;
+    let server = SERVER.read().unwrap().clone();
+    Some(cache_path(server.as_ref(), source, w, h))
+}
+
 async fn fetch(source: &str, w: u32, h: u32) -> Option<(Vec<u8>, String)> {
     if source.is_empty() {
         return None;
     }
     let server = SERVER.read().unwrap().clone();
-    let scope = server.as_ref().and_then(|s| s.machine_identifier().map(str::to_string)).unwrap_or_default();
-    let key = hex(&Sha256::digest(format!("{scope}|{source}|{w}|{h}").as_bytes()));
-    let path = CACHE.join(&key[..2]).join(&key);
+    let path = cache_path(server.as_ref(), source, w, h);
     if let Ok(bytes) = tokio::fs::read(&path).await {
         return Some((bytes, sniff(&path).into()));
     }

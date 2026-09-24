@@ -26,6 +26,13 @@ export interface Stream {
   channels?: number;
   colorTrc?: string;
   DOVIPresent: boolean;
+  hearingImpaired: boolean;
+  format?: string;
+  // Online subtitle search results.
+  providerTitle?: string;
+  score?: number;
+  perfectMatch: boolean;
+  downloaded: boolean;
 }
 
 export interface Part {
@@ -125,6 +132,8 @@ export interface Metadata {
   thumb?: string;
   art?: string;
   composite?: string;
+  titleSort?: string;
+  editionTitle?: string;
   parentRatingKey?: string;
   parentTitle?: string;
   parentThumb?: string;
@@ -140,6 +149,11 @@ export interface Metadata {
   playlistType?: string;
   smart: boolean;
   playlistItemID?: number;
+  playQueueItemID?: number;
+  /** Collections: -1 library default, 0 hide, 1 hide items, 2 show items. */
+  collectionMode?: number;
+  /** Collections: "0" release date, "1" title, "2" custom (a string on most servers). */
+  collectionSort?: string | number;
   historyKey?: string;
   viewedAt?: number;
   accountID?: number;
@@ -171,8 +185,15 @@ export interface Directory {
   type?: string;
   thumb?: string;
   count?: number;
+  /** Item count of a first-character entry. */
+  size?: number;
   tag?: string;
+  filter?: string;
   descKey?: string;
+  agent?: string;
+  scanner?: string;
+  language?: string;
+  refreshing: boolean;
   scannedAt?: number;
   hidden: boolean;
   Location: { id?: number; path?: string }[];
@@ -194,6 +215,7 @@ export interface MediaContainer {
   totalSize?: number;
   offset?: number;
   Metadata: Metadata[];
+  Directory: Directory[];
 }
 
 export interface HomeUser {
@@ -294,6 +316,40 @@ export interface NowPlaying {
   transcoding: boolean;
   queueLen: number;
   queuePos: number;
+  /** Queue entry id of the item (see QueueView). */
+  uid: number;
+  /** In the closing credits / last seconds with something queued after: show "Up next". */
+  ending: boolean;
+  /** Playback stops when this item ends. */
+  stopAfter: boolean;
+  live: boolean;
+  /** A downloaded file played offline. */
+  local: boolean;
+}
+
+export interface QueueItem {
+  uid: number;
+  item: Metadata;
+}
+
+/** The running play queue in play order. Absent when nothing plays (or for offline files). */
+export interface QueueView {
+  items: QueueItem[];
+  current?: number;
+  shuffled: boolean;
+  stopAfter: boolean;
+}
+
+/** A background task on the server (scan, analysis, ...), live from notifications. */
+export interface ServerActivity {
+  uuid: string;
+  /** e.g. "library.update.section", "library.refresh.items", "media.generate.intros" */
+  kind: string;
+  title: string;
+  subtitle?: string;
+  progress: number;
+  cancellable: boolean;
+  sectionId?: string;
 }
 
 export interface Snapshot {
@@ -301,6 +357,8 @@ export interface Snapshot {
   session?: SessionView;
   sections: Directory[];
   nowPlaying?: NowPlaying;
+  queue?: QueueView;
+  activities: ServerActivity[];
   revision: number;
 }
 
@@ -332,6 +390,11 @@ export interface PlayerSettings {
   sync_streams: boolean;
   watched_threshold: number;
   continuous: boolean;
+  media_controls: boolean;
+  discord: boolean;
+  discord_app_id: string;
+  /** Empty means the default folder. */
+  downloads_dir: string;
 }
 
 export interface UiSettings {
@@ -394,10 +457,22 @@ export interface Pref {
   advanced: boolean;
 }
 
+export interface Friend {
+  id?: number;
+  title?: string;
+  username?: string;
+  email?: string;
+  thumb?: string;
+  restricted: boolean;
+  home: boolean;
+  status?: string;
+}
+
 export interface UsersDevices {
   accounts: Account[];
   devices: Device[];
   clients: ServerDevice[];
+  friends: Friend[];
 }
 
 export interface PartChange {
@@ -422,4 +497,112 @@ export interface TrackView {
     noAudio: string[];
     noSubtitle: string[];
   };
+}
+
+export interface Lyrics {
+  synced: boolean;
+  lines: { timeMs?: number; text: string }[];
+}
+
+export interface FilterView {
+  /** Query key, e.g. "genre", "year", "unwatched", "hdr". */
+  filter: string;
+  title: string;
+  /** "string", "integer", "tag" or "boolean". Boolean filters take "1". */
+  kind: string;
+}
+
+export interface FolderView {
+  title?: string;
+  /** Sub-folders; pass `key` back to sectionFolders. */
+  directories: Directory[];
+  items: Metadata[];
+}
+
+/** A poster/background choice: `key` is what setArtwork wants; `thumb` previews it. */
+export interface Artwork {
+  key?: string;
+  ratingKey?: string;
+  thumb?: string;
+  provider?: string;
+  selected?: boolean | number;
+}
+
+export interface MatchResult {
+  guid?: string;
+  name?: string;
+  score?: number;
+  year?: number;
+  thumb?: string;
+  summary?: string;
+  matched: boolean;
+}
+
+export type DownloadState = "queued" | "downloading" | "done" | "failed";
+
+export interface Download {
+  /** "<server id>:<ratingKey>" */
+  id: string;
+  serverId: string;
+  serverName: string;
+  item: Metadata;
+  file?: string;
+  /** Local artwork path; show it with `downloadImg(id)` from lib/images. */
+  poster?: string;
+  size: number;
+  received: number;
+  state: DownloadState;
+  error?: string;
+  addedAt: number;
+}
+
+export interface LiveProgram {
+  title: string;
+  subtitle?: string;
+  guid?: string;
+  summary?: string;
+  thumb?: string;
+  /** Unix seconds. */
+  beginsAt: number;
+  endsAt: number;
+}
+
+export interface LiveChannel {
+  dvr: string;
+  id: string;
+  number?: string;
+  title: string;
+  thumb?: string;
+  /** From now on, in order; the first may be on air. */
+  programs: LiveProgram[];
+}
+
+export interface Recordings {
+  upcoming: { id: string; title: string; subtitle?: string; beginsAt?: number; channel?: string; status?: string }[];
+  rules: { id: string; title: string; kind?: string }[];
+}
+
+export interface LibraryChoices {
+  /** [identifier, title] */
+  agents: [string, string][];
+  scanners: string[];
+}
+
+export interface LibraryForm {
+  name: string;
+  /** "movie", "show", "artist" or "photo". */
+  kind: string;
+  agent: string;
+  scanner: string;
+  language: string;
+  locations: string[];
+}
+
+export interface ServerStats {
+  /** Bytes per time bucket, oldest first; `at` in unix seconds. */
+  bandwidth: { at: number; lan: number; wan: number }[];
+  accounts: { name: string; bytes: number }[];
+  devices: { name: string; bytes: number }[];
+  plays: number;
+  playSeconds: number;
 }

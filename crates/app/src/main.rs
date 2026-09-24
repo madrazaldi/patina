@@ -5,8 +5,13 @@
 
 mod commands;
 mod config;
+mod downloads;
 mod images;
+mod live;
+mod livetv;
+mod lyrics;
 mod player;
+mod remote;
 mod session;
 mod state;
 mod tracks;
@@ -32,6 +37,7 @@ fn main() {
         .setup(|app| {
             let state = AppState::new(app.handle().clone());
             app.manage(state.clone());
+            remote::init(&state);
             tauri::async_runtime::spawn(session::restore(state));
             Ok(())
         })
@@ -102,6 +108,54 @@ fn main() {
             commands::prefs,
             commands::set_pref,
             commands::users_devices,
+            commands::queue,
+            commands::lyrics,
+            commands::section_filters,
+            commands::first_characters,
+            commands::section_folders,
+            commands::item_hubs,
+            commands::remove_from_continue_watching,
+            commands::clear_progress,
+            commands::delete_item,
+            commands::edit_metadata,
+            commands::artwork,
+            commands::set_artwork,
+            commands::matches,
+            commands::apply_match,
+            commands::unmatch,
+            commands::search_subtitles,
+            commands::download_subtitle,
+            commands::delete_stream,
+            commands::add_to_collection,
+            commands::remove_from_collection,
+            commands::move_collection_item,
+            commands::delete_collection,
+            commands::collection_settings,
+            commands::move_playlist_item,
+            commands::update_playlist,
+            commands::clear_playlist,
+            commands::downloads,
+            commands::download,
+            commands::remove_download,
+            commands::retry_download,
+            commands::play_downloads,
+            commands::open_downloads_folder,
+            commands::livetv_available,
+            commands::livetv_guide,
+            commands::livetv_watch,
+            commands::recordings,
+            commands::record,
+            commands::delete_recording_rule,
+            commands::library_choices,
+            commands::create_library,
+            commands::edit_library,
+            commands::delete_library,
+            commands::cancel_scan,
+            commands::library_prefs,
+            commands::set_library_pref,
+            commands::butler_all,
+            commands::server_stats,
+            commands::save_diagnostics,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Patina")

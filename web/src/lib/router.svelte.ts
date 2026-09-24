@@ -13,6 +13,8 @@ export type Route =
   | { name: "playlists" }
   | { name: "playlist"; id: string }
   | { name: "watchlist" }
+  | { name: "downloads" }
+  | { name: "livetv" }
   | { name: "activity" }
   | { name: "server" }
   | { name: "settings" };
@@ -48,6 +50,8 @@ export function parseRoute(path: string): Route | null {
     case "search":
     case "playlists":
     case "watchlist":
+    case "downloads":
+    case "livetv":
     case "activity":
     case "server":
     case "settings":

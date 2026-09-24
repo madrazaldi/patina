@@ -1,6 +1,6 @@
 <script lang="ts">
   // Seasons, episodes, albums, tracks or collection items below a detail header.
-  import { Play } from "@lucide/svelte";
+  import { Play, X } from "@lucide/svelte";
   import Card from "./Card.svelte";
   import Img from "./Img.svelte";
   import Row from "./Row.svelte";
@@ -12,10 +12,10 @@
   import * as plex from "../lib/plex";
   import { resource } from "../lib/resource.svelte";
   import { nav } from "../lib/router.svelte";
-  import { app } from "../lib/state.svelte";
+  import { act, app } from "../lib/state.svelte";
   import type { Metadata } from "../lib/types";
 
-  let { item }: { item: Metadata } = $props();
+  let { item, sort }: { item: Metadata; /** Collection sort: 2 (or "2") is custom. */ sort?: string | number } = $props();
 
   let kind = $derived(plex.kind(item));
   const children = resource(() => {
@@ -24,6 +24,65 @@
   });
 
   const open = (m: Metadata) => nav.push({ name: "item", ratingKey: m.ratingKey ?? "" });
+
+  // Collection items; reassigned optimistically on remove / reorder until the refetch lands.
+  let items = $derived(children.data ?? []);
+  let editable = $derived(kind === "collection" && app.owned);
+  let reorderable = $derived(editable && String(sort) === "2" && items.length > 1);
+
+  function removeItem(m: Metadata) {
+    const rk = m.ratingKey ?? "";
+    items = items.filter((x) => x.ratingKey !== rk);
+    act(api.removeFromCollection(item.ratingKey ?? "", rk), "Removed from collection", true);
+  }
+
+  // Pointer drag rather than HTML5 DnD, which the Tauri webview swallows on Windows.
+  let grid: HTMLDivElement | undefined = $state();
+  let drag = $state<{ rk: string; x: number; y: number; moved: boolean } | null>(null);
+  /** Item the dragged one would land before; null is the end. */
+  let before = $state<string | null | undefined>(undefined);
+  let dropped = false;
+
+  function down(e: PointerEvent, rk: string) {
+    if (!reorderable || e.button !== 0) return;
+    drag = { rk, x: e.clientX, y: e.clientY, moved: false };
+  }
+
+  function move(e: PointerEvent) {
+    if (!drag || !grid) return;
+    if (!drag.moved) {
+      if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 6) return;
+      drag.moved = true;
+      // Capture only once dragging, so plain clicks still reach the card.
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    }
+    const cells = [...grid.querySelectorAll<HTMLElement>("[data-rk]")];
+    const hit = cells.find((c) => {
+      const b = c.getBoundingClientRect();
+      return e.clientY < b.top || (e.clientY <= b.bottom && e.clientX < b.left + b.width / 2);
+    });
+    before = hit ? (hit.dataset.rk ?? null) : null;
+  }
+
+  function up() {
+    const d = drag;
+    if (d?.moved && before !== undefined && before !== d.rk) {
+      const dragged = items.find((m) => m.ratingKey === d.rk);
+      const rest = items.filter((m) => m.ratingKey !== d.rk);
+      const at = before === null ? rest.length : rest.findIndex((m) => m.ratingKey === before);
+      const after = at > 0 ? (rest[at - 1].ratingKey ?? null) : null;
+      if (dragged && at >= 0 && items.indexOf(dragged) !== at) {
+        items = [...rest.slice(0, at), dragged, ...rest.slice(at)];
+        act(api.moveCollectionItem(item.ratingKey ?? "", d.rk, after), undefined, true);
+      }
+    }
+    if (d?.moved) {
+      dropped = true;
+      setTimeout(() => (dropped = false));
+    }
+    drag = null;
+    before = undefined;
+  }
 </script>
 
 {#if children.data === undefined}
@@ -90,6 +149,46 @@
             {#if t.originalTitle}<div class="s">{t.originalTitle}</div>{/if}
           </div>
           <div class="end">{t.duration ? clock(t.duration) : ""}</div>
+        </div>
+      {/each}
+    </div>
+  {:else if kind === "collection"}
+    <div class="section-head">
+      <h2>{items.length} item{items.length === 1 ? "" : "s"}</h2>
+      {#if reorderable}<span class="hint faint">Drag to reorder</span>{/if}
+    </div>
+    <div class="grid" bind:this={grid} onclickcapture={(e) => dropped && e.stopPropagation()}>
+      {#each items as m (m.ratingKey)}
+        {@const rk = m.ratingKey ?? ""}
+        <div
+          class={[
+            "cell",
+            {
+              movable: reorderable,
+              dragging: drag?.moved && drag.rk === rk,
+              "drop-before": drag?.moved && before === rk,
+              "drop-after": drag?.moved && before === null && rk === items[items.length - 1]?.ratingKey,
+            },
+          ]}
+          role="presentation"
+          data-rk={rk}
+          onpointerdown={(e) => down(e, rk)}
+          onpointermove={move}
+          onpointerup={up}
+          onpointercancel={up}
+        >
+          <Card item={m} />
+          {#if editable}
+            <button
+              class="remove"
+              title="Remove from collection"
+              onpointerdown={(e) => e.stopPropagation()}
+              onclick={(e) => {
+                e.stopPropagation();
+                removeItem(m);
+              }}><X size={13} /></button
+            >
+          {/if}
         </div>
       {/each}
     </div>
@@ -202,5 +301,61 @@
   }
   .idx {
     text-align: right;
+  }
+  .hint {
+    font-size: 11.5px;
+  }
+  .cell {
+    position: relative;
+    min-width: 0;
+  }
+  .cell.movable {
+    touch-action: none;
+  }
+  .cell.dragging {
+    opacity: 0.35;
+  }
+  .cell.drop-before::before,
+  .cell.drop-after::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    border-radius: 1px;
+    background: var(--accent);
+  }
+  .cell.drop-before::before {
+    left: -10px;
+  }
+  .cell.drop-after::after {
+    right: -10px;
+  }
+  .remove {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: 0;
+    border-radius: 3px;
+    background: rgba(12, 12, 12, 0.82);
+    color: var(--text-2);
+    opacity: 0;
+    cursor: pointer;
+    transition: opacity 0.15s var(--ease);
+  }
+  .remove:hover {
+    color: var(--text);
+  }
+  .cell:hover .remove,
+  .remove:focus-visible {
+    opacity: 1;
+  }
+  .cell.dragging .remove {
+    display: none;
   }
 </style>

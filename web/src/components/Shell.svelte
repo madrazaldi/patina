@@ -3,10 +3,16 @@
   // the global overlays (menus, dialogs, now-playing bar).
   import { ChevronDown, ChevronLeft, ChevronRight, Search } from "@lucide/svelte";
   import type { Snippet } from "svelte";
+  import ArtworkDialog from "./ArtworkDialog.svelte";
+  import CollectionDialog from "./CollectionDialog.svelte";
+  import ConfirmDialog from "./ConfirmDialog.svelte";
+  import EditDialog from "./EditDialog.svelte";
   import Img from "./Img.svelte";
   import ItemMenu from "./ItemMenu.svelte";
+  import MatchDialog from "./MatchDialog.svelte";
   import NowPlaying from "./NowPlaying.svelte";
   import PlaylistDialog from "./PlaylistDialog.svelte";
+  import SubtitleDialog from "./SubtitleDialog.svelte";
   import TrackDialog from "./TrackDialog.svelte";
   import { api } from "../lib/api";
   import { initials } from "../lib/format";
@@ -23,6 +29,11 @@
   let userName = $derived(session?.user?.name ?? "Server owner");
 
   const isLibrary = (id: string) => nav.route.name === "library" && nav.route.id === id;
+
+  // Library scans and other server work, live.
+  let task = $derived(app.activities[0]);
+  let scanning = $derived(new Set(app.activities.map((a) => a.sectionId).filter(Boolean)));
+  let activeDownloads = $derived(app.downloads.filter((d) => d.state === "queued" || d.state === "downloading").length);
 
   function onSearch(value: string) {
     app.search = value;
@@ -44,6 +55,12 @@
     } else if (e.key === "Escape") {
       app.menu = null;
       app.playlistTarget = null;
+      app.collectionTarget = null;
+      app.editTarget = null;
+      app.artworkTarget = null;
+      app.matchTarget = null;
+      app.subtitleTarget = null;
+      app.panel = null;
       userMenu = false;
     }
   }
@@ -63,8 +80,10 @@
 
 <svelte:window onkeydown={onKey} onmouseup={onMouse} />
 
-{#snippet link(route: Route, label: string, active = nav.is(route))}
-  <button class={["nav-item", { active }]} onclick={() => nav.push(route)}>{label}</button>
+{#snippet link(route: Route, label: string, active = nav.is(route), note = "")}
+  <button class={["nav-item", { active }]} onclick={() => nav.push(route)}>
+    <span class="ellipsis">{label}</span>{#if note}<span class="note">{note}</span>{/if}
+  </button>
 {/snippet}
 
 <div class="app">
@@ -77,18 +96,33 @@
       {@render link({ name: "search" }, "Search")}
       {#if app.hasTv}{@render link({ name: "watchlist" }, "Watchlist")}{/if}
       {@render link({ name: "playlists" }, "Playlists")}
+      {#if app.liveTv}{@render link({ name: "livetv" }, "Live TV")}{/if}
+      {#if app.downloads.length}
+        {@render link({ name: "downloads" }, "Downloads", undefined, activeDownloads ? String(activeDownloads) : "")}
+      {/if}
     </div>
 
     {#if app.sections.length}
       <div class="label">Libraries</div>
       <div class="group">
         {#each app.sections as s (s.key)}
-          {@render link({ name: "library", id: s.key ?? "" }, s.title ?? "", isLibrary(s.key ?? ""))}
+          {@render link(
+            { name: "library", id: s.key ?? "" },
+            s.title ?? "",
+            isLibrary(s.key ?? ""),
+            scanning.has(s.key) ? "·" : "",
+          )}
         {/each}
       </div>
     {/if}
 
     <div class="spacer"></div>
+    {#if task}
+      <button class="task" title={task.subtitle ?? task.title} onclick={() => nav.push({ name: "activity" })}>
+        <span class="ellipsis">{task.title}</span>
+        <span class="bar"><i style:width="{task.progress}%"></i></span>
+      </button>
+    {/if}
     <div class="group">
       {@render link({ name: "activity" }, "Activity")}
       {#if app.owned}{@render link({ name: "server" }, "Server")}{/if}
@@ -168,6 +202,12 @@
 <ItemMenu />
 <PlaylistDialog />
 <TrackDialog />
+<CollectionDialog />
+<EditDialog />
+<ArtworkDialog />
+<MatchDialog />
+<SubtitleDialog />
+<ConfirmDialog />
 
 <style>
   .app {
@@ -211,7 +251,9 @@
     gap: 1px;
   }
   .nav-item {
-    display: block;
+    display: flex;
+    align-items: center;
+    gap: 8px;
     width: 100%;
     padding: 5px 10px;
     border: 0;
@@ -226,6 +268,38 @@
   }
   .nav-item:hover {
     color: var(--text);
+  }
+  .note {
+    margin-left: auto;
+    font-size: 11.5px;
+    color: var(--accent);
+  }
+  .task {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 0 0 10px;
+    padding: 6px 10px;
+    border: 0;
+    background: none;
+    color: var(--text-3);
+    font-size: 11.5px;
+    text-align: left;
+    cursor: pointer;
+  }
+  .task:hover {
+    color: var(--text-2);
+  }
+  .task .bar {
+    display: block;
+    height: 2px;
+    background: var(--line);
+  }
+  .task .bar i {
+    display: block;
+    height: 100%;
+    background: var(--accent);
+    transition: width 0.4s linear;
   }
   .nav-item.active {
     color: var(--text);

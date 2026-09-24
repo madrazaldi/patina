@@ -145,6 +145,8 @@ async fn activate(app: &AppState, session: Session) -> Result<()> {
     app.set_session(Some(session), sections.into_iter().filter(|d| !d.hidden).collect());
     app.set_stage(Stage::Ready);
     app.bump();
+    crate::live::watch(app.clone());
+    crate::downloads::resume(app);
     Ok(())
 }
 
@@ -181,6 +183,7 @@ pub async fn switch_user(app: &AppState, uuid: &str, pin: Option<&str>) -> Resul
 
 pub fn sign_out(app: &AppState) {
     crate::player::control(crate::player::Control::Stop);
+    crate::live::stop(app);
     app.update_settings(|s| {
         s.auth.token = None;
         s.server = Default::default();

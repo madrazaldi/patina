@@ -125,6 +125,44 @@ pub struct NowPlaying {
     pub transcoding: bool,
     pub queue_len: usize,
     pub queue_pos: usize,
+    /// Queue entry id of the item (see [`QueueView`]).
+    pub uid: u64,
+    /// In the closing credits or last seconds with something queued after: show "Up next".
+    pub ending: bool,
+    /// Playback stops when this item ends.
+    pub stop_after: bool,
+    pub live: bool,
+    /// A downloaded file played offline.
+    pub local: bool,
+}
+
+/// The running play queue, in play order.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueView {
+    pub items: Vec<QueueItem>,
+    pub current: Option<u64>,
+    pub shuffled: bool,
+    pub stop_after: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct QueueItem {
+    pub uid: u64,
+    pub item: Metadata,
+}
+
+/// A background task on the server (scan, analysis, ...), from live notifications.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerActivity {
+    pub uuid: String,
+    pub kind: String,
+    pub title: String,
+    pub subtitle: Option<String>,
+    pub progress: i64,
+    pub cancellable: bool,
+    pub section_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -141,6 +179,8 @@ pub struct Snapshot {
     pub session: Option<SessionView>,
     pub sections: Vec<Directory>,
     pub now_playing: Option<NowPlaying>,
+    pub queue: Option<QueueView>,
+    pub activities: Vec<ServerActivity>,
     pub revision: u64,
 }
 
@@ -158,7 +198,12 @@ pub struct Inner {
     session: RwLock<Option<Session>>,
     sections: RwLock<Vec<Directory>>,
     now_playing: RwLock<Option<NowPlaying>>,
+    queue: RwLock<Option<QueueView>>,
+    activities: RwLock<Vec<ServerActivity>>,
     revision: AtomicU64,
+    /// Bumped whenever the session changes, which stops the previous
+    /// server's notification listener.
+    pub live_generation: AtomicU64,
     /// Bumped to abandon an in-flight PIN sign-in.
     pub login_attempt: AtomicU64,
     /// Servers offered on the "choose a server" screen.
@@ -187,14 +232,17 @@ impl AppState {
             session: RwLock::new(None),
             sections: RwLock::new(Vec::new()),
             now_playing: RwLock::new(None),
+            queue: RwLock::new(None),
+            activities: RwLock::new(Vec::new()),
             revision: AtomicU64::new(0),
+            live_generation: AtomicU64::new(0),
             login_attempt: AtomicU64::new(0),
             pending: Mutex::new(None),
             tracks: Mutex::new(None),
         }))
     }
 
-    fn emit<S: Serialize + Clone>(&self, event: &str, payload: S) {
+    pub fn emit<S: Serialize + Clone>(&self, event: &str, payload: S) {
         if let Err(e) = self.handle.emit(event, payload) {
             tracing::warn!("could not emit {event}: {e}");
         }
@@ -206,6 +254,8 @@ impl AppState {
             session: self.session.read().unwrap().as_ref().map(SessionView::from),
             sections: self.sections.read().unwrap().clone(),
             now_playing: self.now_playing.read().unwrap().clone(),
+            queue: self.queue.read().unwrap().clone(),
+            activities: self.activities.read().unwrap().clone(),
             revision: self.revision.load(Ordering::Relaxed),
         }
     }
@@ -249,15 +299,43 @@ impl AppState {
         self.emit("session", SessionEvent { session: view, sections });
     }
 
+    pub fn sections(&self) -> Vec<Directory> {
+        self.sections.read().unwrap().clone()
+    }
+
     pub fn set_sections(&self, sections: Vec<Directory>) {
         let session = self.session.read().unwrap().as_ref().map(SessionView::from);
         *self.sections.write().unwrap() = sections.clone();
         self.emit("session", SessionEvent { session, sections });
     }
 
+    pub fn handle(&self) -> &AppHandle {
+        &self.handle
+    }
+
     pub fn set_now_playing(&self, np: Option<NowPlaying>) {
+        crate::remote::update(self, np.as_ref());
         *self.now_playing.write().unwrap() = np.clone();
         self.emit("now-playing", np);
+    }
+
+    pub fn set_queue(&self, queue: Option<QueueView>) {
+        *self.queue.write().unwrap() = queue.clone();
+        self.emit("queue", queue);
+    }
+
+    pub fn set_activities(&self, list: Vec<ServerActivity>) {
+        *self.activities.write().unwrap() = list.clone();
+        self.emit("activities", list);
+    }
+
+    pub fn update_activities(&self, f: impl FnOnce(&mut Vec<ServerActivity>)) {
+        let list = {
+            let mut a = self.activities.write().unwrap();
+            f(&mut a);
+            a.clone()
+        };
+        self.emit("activities", list);
     }
 
     /// Watch state may have changed; views refetch.

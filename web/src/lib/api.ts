@@ -3,7 +3,19 @@
 
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
+  Artwork,
   ButlerTask,
+  Download,
+  FilterView,
+  FolderView,
+  LibraryChoices,
+  LibraryForm,
+  LiveChannel,
+  Lyrics,
+  MatchResult,
+  Recordings,
+  ServerStats,
+  Stream,
   Directory,
   HistoryPage,
   HomeUser,
@@ -31,14 +43,35 @@ export interface PlayOptions {
   resume?: boolean;
   shuffle?: boolean;
   mediaIndex?: number;
+  /** Play the item's radio station (music). */
+  radio?: boolean;
 }
 
 export type Control =
   | { kind: "togglePause" }
+  | { kind: "play" }
+  | { kind: "pause" }
   | { kind: "next" }
   | { kind: "previous" }
   | { kind: "stop" }
-  | { kind: "seekRelative"; seconds: number };
+  | { kind: "seekRelative"; seconds: number }
+  | { kind: "seekTo"; seconds: number };
+
+/** Edits to the running queue; entries are addressed by `QueueItem.uid`. */
+export type QueueCommand =
+  | { kind: "add"; item: Metadata; next: boolean }
+  | { kind: "remove"; uid: number }
+  | { kind: "move"; uid: number; before: number | null }
+  | { kind: "jump"; uid: number }
+  | { kind: "shuffle"; on: boolean }
+  | { kind: "stopAfter"; on: boolean };
+
+export interface TagEdit {
+  /** "genre", "label", "collection", "mood", ... */
+  tag: string;
+  add: string[];
+  remove: string[];
+}
 
 export const api = {
   // App
@@ -72,10 +105,17 @@ export const api = {
   sectionSorts: (id: string) => call<Directory[]>("section_sorts", { id }),
   sectionFilterValues: (id: string, filter: string, kind?: number) =>
     call<Directory[]>("section_filter_values", { id, filter, kind }),
+  /** `filters` are [filter, value] pairs, e.g. ["genre", "12"], ["year", "1999"], ["hdr", "1"]. */
   sectionItems: (
     id: string,
-    q: { kind?: number; sort?: string; unwatched: boolean; genre?: string; start: number; size: number },
+    q: { kind?: number; sort?: string; unwatched: boolean; filters: [string, string][]; start: number; size: number },
   ) => call<MediaContainer>("section_items", { id, ...q }),
+  sectionFilters: (id: string, kind?: number) => call<FilterView[]>("section_filters", { id, kind }),
+  firstCharacters: (id: string, kind?: number) => call<Directory[]>("first_characters", { id, kind }),
+  /** Folder view; `key` is a directory key from a previous call, or none for the top. */
+  sectionFolders: (id: string, key?: string) => call<FolderView>("section_folders", { id, key }),
+  /** More hubs for a detail page (related, sonically similar, similar artists). */
+  itemHubs: (ratingKey: string, kind: string) => call<Hub[]>("item_hubs", { ratingKey, kind }),
   collections: (id: string) => call<Metadata[]>("collections", { id }),
   listing: (path: string, start: number, size: number) => call<MediaContainer>("listing", { path, start, size }),
   search: (query: string) => call<Hub[]>("search", { query }),
@@ -90,6 +130,34 @@ export const api = {
     call("select_streams", { partId, audio, subtitle }),
   refreshMetadata: (ratingKey: string) => call("refresh_metadata", { ratingKey }),
   analyzeMetadata: (ratingKey: string) => call("analyze_metadata", { ratingKey }),
+  removeFromContinueWatching: (ratingKey: string) => call("remove_from_continue_watching", { ratingKey }),
+  clearProgress: (ratingKey: string) => call("clear_progress", { ratingKey }),
+  /** Deletes the item and its files (the server must allow media deletion). */
+  deleteItem: (ratingKey: string) => call("delete_item", { ratingKey }),
+  /** `fields` are [field, value] pairs: title, titleSort, originalTitle, summary, tagline, studio,
+   *  contentRating, year, originallyAvailableAt. Edited fields are locked. */
+  editMetadata: (ratingKey: string, fields: [string, string][], tags: TagEdit[] = []) =>
+    call("edit_metadata", { ratingKey, fields, tags }),
+  artwork: (ratingKey: string, kind: "poster" | "art") => call<Artwork[]>("artwork", { ratingKey, kind }),
+  setArtwork: (ratingKey: string, kind: "poster" | "art", url: string) => call("set_artwork", { ratingKey, kind, url }),
+  matches: (ratingKey: string, title?: string, year?: number) => call<MatchResult[]>("matches", { ratingKey, title, year }),
+  applyMatch: (ratingKey: string, guid: string, name?: string) => call("apply_match", { ratingKey, guid, name }),
+  unmatch: (ratingKey: string) => call("unmatch", { ratingKey }),
+  searchSubtitles: (ratingKey: string, language: string, hearingImpaired = false, forced = false) =>
+    call<Stream[]>("search_subtitles", { ratingKey, language, hearingImpaired, forced }),
+  downloadSubtitle: (ratingKey: string, key: string) => call("download_subtitle", { ratingKey, key }),
+  deleteStream: (id: number) => call("delete_stream", { id }),
+
+  // Collections
+  addToCollection: (ratingKey: string, target: { collection?: string; title?: string }) =>
+    call("add_to_collection", { ratingKey, ...target }),
+  removeFromCollection: (id: string, ratingKey: string) => call("remove_from_collection", { id, ratingKey }),
+  /** Custom-sorted collections only; `after` null moves to the top. */
+  moveCollectionItem: (id: string, ratingKey: string, after: string | null) =>
+    call("move_collection_item", { id, ratingKey, after }),
+  deleteCollection: (id: string) => call("delete_collection", { id }),
+  /** mode: -1 library default, 0 hide collection, 1 hide items, 2 show both. sort: 0 release date, 1 title, 2 custom. */
+  collectionSettings: (id: string, s: { mode?: number; sort?: number }) => call("collection_settings", { id, ...s }),
 
   // Watchlist
   watchlist: () => call<Metadata[]>("watchlist"),
@@ -103,11 +171,43 @@ export const api = {
     call("add_to_playlist", { ratingKey, kind, ...target }),
   removeFromPlaylist: (id: string, itemId: number) => call("remove_from_playlist", { id, itemId }),
   deletePlaylist: (id: string) => call("delete_playlist", { id }),
+  /** `after` null moves to the top. */
+  movePlaylistItem: (id: string, itemId: number, after: number | null) => call("move_playlist_item", { id, itemId, after }),
+  updatePlaylist: (id: string, title: string, summary: string) => call("update_playlist", { id, title, summary }),
+  clearPlaylist: (id: string) => call("clear_playlist", { id }),
 
   // Playback
   play: (item: Metadata, opts: PlayOptions = {}) =>
-    call("play", { request: { item, resume: opts.resume ?? true, shuffle: opts.shuffle ?? false, mediaIndex: opts.mediaIndex ?? 0 } }),
+    call("play", {
+      request: {
+        item,
+        resume: opts.resume ?? true,
+        shuffle: opts.shuffle ?? false,
+        mediaIndex: opts.mediaIndex ?? 0,
+        radio: opts.radio ?? false,
+      },
+    }),
   control: (command: Control) => call("control", { command }),
+  /** Adding while nothing plays starts playback. */
+  queue: (command: QueueCommand) => call("queue", { command }),
+  lyrics: (ratingKey: string) => call<Lyrics | null>("lyrics", { ratingKey }),
+
+  // Downloads
+  downloads: () => call<Download[]>("downloads"),
+  /** Queue an item (or every episode/track below it); resolves to how many were added. */
+  download: (ratingKey: string) => call<number>("download", { ratingKey }),
+  removeDownload: (id: string) => call("remove_download", { id }),
+  retryDownload: (id: string) => call("retry_download", { id }),
+  playDownloads: (ids: string[]) => call("play_downloads", { ids }),
+  openDownloadsFolder: () => call("open_downloads_folder"),
+
+  // Live TV
+  livetvAvailable: () => call<boolean>("livetv_available"),
+  livetvGuide: (hours: number) => call<LiveChannel[]>("livetv_guide", { hours }),
+  livetvWatch: (dvr: string, channel: string, title: string) => call("livetv_watch", { dvr, channel, title }),
+  recordings: () => call<Recordings>("recordings"),
+  record: (guid: string) => call("record", { guid }),
+  deleteRecordingRule: (id: string) => call("delete_recording_rule", { id }),
 
   // Bulk audio & subtitles
   tracksLoad: (show: string) => call("tracks_load", { show }),
@@ -140,4 +240,16 @@ export const api = {
   prefs: () => call<Pref[]>("prefs"),
   setPref: (id: string, value: string) => call("set_pref", { id, value }),
   usersDevices: () => call<UsersDevices>("users_devices"),
+  libraryChoices: (kind: string) => call<LibraryChoices>("library_choices", { kind }),
+  createLibrary: (form: LibraryForm) => call("create_library", { form }),
+  editLibrary: (id: string, name: string, locations: string[]) => call("edit_library", { id, name, locations }),
+  deleteLibrary: (id: string) => call("delete_library", { id }),
+  cancelScan: (id: string) => call("cancel_scan", { id }),
+  libraryPrefs: (id: string) => call<Pref[]>("library_prefs", { id }),
+  setLibraryPref: (id: string, pref: string, value: string) => call("set_library_pref", { id, pref, value }),
+  butlerAll: (start: boolean) => call("butler_all", { start }),
+  /** timespan: 6 = hourly buckets, 4 = daily. `since` in unix seconds. */
+  serverStats: (timespan: number, since: number) => call<ServerStats>("server_stats", { timespan, since }),
+  /** Saves a zip to the Downloads folder and reveals it; resolves to the path. */
+  saveDiagnostics: (what: "logs" | "database") => call<string>("save_diagnostics", { what }),
 };

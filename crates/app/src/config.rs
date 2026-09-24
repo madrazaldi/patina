@@ -69,6 +69,14 @@ pub struct PlayerSettings {
     pub watched_threshold: f64,
     /// Autoplay following episodes.
     pub continuous: bool,
+    /// Show what's playing in the OS media controls (Now Playing, MPRIS, SMTC).
+    pub media_controls: bool,
+    /// Show what's playing as Discord Rich Presence.
+    pub discord: bool,
+    /// Discord application id; its name is what Discord shows ("Watching Patina").
+    pub discord_app_id: String,
+    /// Where downloads for offline playback go; a default folder when empty.
+    pub downloads_dir: String,
 }
 
 impl Default for PlayerSettings {
@@ -83,6 +91,10 @@ impl Default for PlayerSettings {
             sync_streams: true,
             watched_threshold: 0.9,
             continuous: true,
+            media_controls: true,
+            discord: false,
+            discord_app_id: String::new(),
+            downloads_dir: String::new(),
         }
     }
 }
@@ -94,6 +106,16 @@ impl PlayerSettings {
 
     pub fn quality(&self) -> &'static Quality {
         QUALITIES.iter().find(|q| q.id == self.quality).unwrap_or(&QUALITIES[0])
+    }
+
+    pub fn downloads_dir(&self) -> PathBuf {
+        let custom = self.downloads_dir.trim();
+        if !custom.is_empty() {
+            return PathBuf::from(custom);
+        }
+        directories::UserDirs::new()
+            .and_then(|d| d.video_dir().map(|v| v.join("Patina")))
+            .unwrap_or_else(|| data_dir().join("downloads"))
     }
 }
 
@@ -169,6 +191,12 @@ pub fn cache_dir() -> PathBuf {
     directories::ProjectDirs::from("", "", "patina")
         .map(|d| d.cache_dir().to_path_buf())
         .unwrap_or_else(|| std::env::temp_dir().join("patina"))
+}
+
+pub fn data_dir() -> PathBuf {
+    directories::ProjectDirs::from("", "", "patina")
+        .map(|d| d.data_dir().to_path_buf())
+        .unwrap_or_else(|| config_dir().join("data"))
 }
 
 /// The directory mpv reads its configuration from by default.

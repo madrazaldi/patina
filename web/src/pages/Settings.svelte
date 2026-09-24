@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { ExternalLink } from "@lucide/svelte";
   import Img from "../components/Img.svelte";
   import { api } from "../lib/api";
   import { initials } from "../lib/format";
@@ -110,6 +111,55 @@
             >
               {#each [0.8, 0.85, 0.9, 0.95] as t (t)}<option value={String(t)}>{Math.round(t * 100)}%</option>{/each}
             </select>
+          </div>
+        </div>
+        <div class="setting">
+          <div class="label"><b>System media controls</b><span>Show what's playing in the OS media controls and respond to media keys.</span></div>
+          <div class="control">
+            <button
+              class={["toggle", { on: p.media_controls }]}
+              aria-label="System media controls"
+              onclick={() => app.updatePlayer({ media_controls: !p.media_controls })}
+            ></button>
+          </div>
+        </div>
+        <div class="setting">
+          <div class="label"><b>Discord Rich Presence</b><span>Show what you're watching or listening to on your Discord profile.</span></div>
+          <div class="control">
+            <button class={["toggle", { on: p.discord }]} aria-label="Discord Rich Presence" onclick={() => app.updatePlayer({ discord: !p.discord })}></button>
+          </div>
+        </div>
+        {#if p.discord}
+          <div class="setting">
+            <div class="label">
+              <b>Discord application ID</b>
+              <span>Create an application at discord.com/developers and paste its ID here. Its name is what Discord shows, e.g. “Patina”.</span>
+            </div>
+            <div class="control">
+              <input
+                class="input num"
+                style="width: 200px"
+                placeholder="Application ID"
+                value={p.discord_app_id}
+                oninput={(e) => app.updatePlayer({ discord_app_id: e.currentTarget.value.trim() })}
+              />
+              <button class="btn sm" onclick={() => api.openUrl("https://discord.com/developers/applications").catch((e) => app.error(e))}>
+                <ExternalLink size={14} />Developer portal
+              </button>
+            </div>
+          </div>
+        {/if}
+        <div class="setting">
+          <div class="label"><b>Downloads folder</b><span>Where movies, episodes and music you download for offline viewing are saved.</span></div>
+          <div class="control">
+            <input
+              class="input"
+              style="width: 240px"
+              placeholder="Default (Movies/Patina)"
+              value={p.downloads_dir}
+              oninput={(e) => app.updatePlayer({ downloads_dir: e.currentTarget.value })}
+            />
+            <button class="btn sm" onclick={() => api.openDownloadsFolder().catch((e) => app.error(e))}>Open</button>
           </div>
         </div>
       </div>

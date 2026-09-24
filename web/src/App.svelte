@@ -8,6 +8,8 @@
   import { app } from "./lib/state.svelte";
   import Activity from "./pages/Activity.svelte";
   import Browse from "./pages/Browse.svelte";
+  import Downloads from "./pages/Downloads.svelte";
+  import LiveTV from "./pages/LiveTV.svelte";
   import Gate from "./pages/Gate.svelte";
   import Home from "./pages/Home.svelte";
   import Item from "./pages/Item.svelte";
@@ -35,6 +37,13 @@
     const root = document.documentElement.style;
     if (accent) root.setProperty("--accent", accent);
     root.setProperty("--poster", `${app.settings?.ui.poster_size ?? 160}px`);
+  });
+
+  // Live TV shows in the sidebar when the server has a DVR.
+  $effect(() => {
+    const id = app.stage.kind === "ready" ? app.session?.serverId : undefined;
+    app.liveTv = false;
+    if (id) api.livetvAvailable().then((on) => app.session?.serverId === id && (app.liveTv = on), () => {});
   });
 
   // Debug builds: PATINA_ROUTE=/item/100 opens a page, PATINA_PLAY=<ratingKey> starts playback.
@@ -71,6 +80,10 @@
             <Playlist id={route.id} />
           {:else if route.name === "watchlist"}
             <Watchlist />
+          {:else if route.name === "downloads"}
+            <Downloads />
+          {:else if route.name === "livetv"}
+            <LiveTV />
           {:else if route.name === "activity"}
             <Activity />
           {:else if route.name === "server"}
