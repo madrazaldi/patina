@@ -35,6 +35,10 @@ MOVIE_TITLES = [
     "Signal Fires", "Hollow Crown", "Bright Minutes", "The Understudy", "Ember Season",
 ]
 SHOW_TITLES = ["Station Eleven Below", "The Weatherman", "Parallel Lines", "Harbor Lights"]
+EPG = "/tv.plex.providers.epg.cloud:2"
+CHANNELS = [("2.1", "Harbor One"), ("4.1", "Copper News"), ("7.1", "Verdigris Classics")]
+RULES = {"41": "Copper News Tonight"}
+DELETED = set()
 
 
 def img(kind, n):
@@ -369,6 +373,120 @@ def children(rk):
     return []
 
 
+def livetv(self, p, q):
+    """Live TV & DVR: one tuner, three channels, half-hour programs, recording rules."""
+    now = int(time.time()) // 1800 * 1800
+    if p == "/livetv/dvrs":
+        maps = [{"channelKey": f"k{n}", "enabled": "1"} for n, _ in CHANNELS]
+        return mc(Dvr=[{"key": "7", "epgIdentifier": EPG[1:], "lineup": "lineup://mock", "Device": [{"ChannelMapping": maps}]}])
+    if p == EPG + "/lineups/dvr/channels":
+        return mc(Channel=[{"identifier": f"ch{n}", "key": f"k{n}", "channelVcn": n, "title": t} for n, t in CHANNELS])
+    if p == EPG + "/grid":
+        out = []
+        for c, (n, t) in enumerate(CHANNELS):
+            for i in range(-1, 12):
+                b = now + i * 1800
+                show = i % 2 == 0
+                out.append({"type": "episode" if show else "movie", "guid": f"plex://episode/{c}-{i}",
+                            "title": f"Episode {i + 2}" if show else MOVIE_TITLES[(c * 5 + i) % 20],
+                            "grandparentTitle": SHOW_TITLES[c % 4], "year": 1999 + i, "summary": f"Live on {t}.",
+                            "Media": [{"channelIdentifier": f"ch{n}", "beginsAt": b, "endsAt": b + 1800}]})
+        return mc(Metadata=out)
+    m = re.fullmatch(r"/livetv/dvrs/7/channels/([^/]+)/tune", p)
+    if m:
+        self.record("tune " + m.group(1), q)
+        return mc(MediaSubscription=[{"MediaGrabOperation": [{"Metadata": {"key": "/livetv/sessions/mock/index.m3u8",
+                                                                           "title": "Live", "type": "clip"}}]}])
+    if p == "/media/subscriptions/template":
+        return mc(SubscriptionTemplate=[{"MediaSubscription": [{"type": 4, "targetLibrarySectionID": 2, "parameters": "hints[guid]=x",
+                                                                 "Setting": [{"id": "minVideoQuality", "default": 0}]}]}])
+    if p == "/media/subscriptions" and self.command == "POST":
+        self.record("record", q)
+        RULES[str(40 + len(RULES) + 1)] = q.get("hints[guid]", ["New rule"])[0]
+        return mc()
+    m = re.fullmatch(r"/media/subscriptions/(\d+)", p)
+    if m and self.command == "DELETE":
+        self.record("delete rule", q)
+        RULES.pop(m.group(1), None)
+        return mc()
+    if p == "/media/subscriptions":
+        return mc(MediaSubscription=[{"key": f"/media/subscriptions/{k}", "title": t, "type": "4"} for k, t in RULES.items()])
+    if p == "/media/subscriptions/scheduled":
+        return mc(MediaGrabOperation=[{"id": "g1", "status": "scheduled", "Metadata": {"type": "episode", "grandparentTitle": "Copper News Tonight",
+                                       "title": "Evening edition", "Media": [{"beginsAt": now + 7200, "channelTitle": "Copper News"}]}}])
+    return None
+
+
+def admin(self, p, q):
+    """Server tools: activities, transcodes, stats, updates, users, libraries, diagnostics."""
+    now = int(time.time())
+    if p == "/activities":
+        return mc(Activity=[{"uuid": "act-1", "type": "media.generate.thumbs", "cancellable": True, "title": "Generating thumbnails",
+                             "subtitle": "Copper Sky", "progress": 42}])
+    if p.startswith("/activities/") or p.startswith("/transcode/sessions/") or p.startswith("/updater/") \
+            or (p.startswith("/butler") and self.command != "GET") or p in ("/library/clean/bundles", "/library/optimize"):
+        self.record(self.command + " " + p, q)
+        return mc()
+    if p == "/transcode/sessions":
+        return mc(TranscodeSession=[{"key": "/transcode/sessions/tr-1", "progress": 37.5, "speed": 2.4, "context": "streaming",
+                                     "protocol": "hls", "sourceVideoCodec": "hevc", "videoCodec": "h264", "audioCodec": "aac",
+                                     "videoDecision": "transcode", "audioDecision": "copy", "transcodeHwRequested": True}])
+    if p == "/updater/status":
+        return mc(canInstall=True, Release=[{"version": "1.42.0.1000", "added": "Faster scans.", "state": "available"}])
+    if p == "/statistics/bandwidth":
+        rows = [{"accountID": 1, "deviceID": 1 + h % 2, "at": now - h * 3600, "lan": h % 3 != 0, "bytes": (h + 1) * 40_000_000}
+                for h in range(0, 24, 3)]
+        return mc(Account=[{"id": 1, "name": "tester"}], Device=[{"id": 1, "name": "Living room TV"}, {"id": 2, "name": "Patina"}],
+                  StatisticsBandwidth=rows)
+    if p == "/statistics/media":
+        return mc(StatisticsMedia=[{"accountID": 1, "at": now - 7200, "count": 3, "duration": 9000}])
+    if p == "/devices":
+        return mc(Device=[{"id": 1, "name": "Living room TV", "platform": "tvOS", "createdAt": now - 86400 * 30}])
+    if p == "/clients":
+        return mc(Server=[{"name": "Kitchen speaker", "product": "Plexamp", "address": "192.168.1.20", "machineIdentifier": "c1"}])
+    if p == "/system/agents":
+        return mc(Agent=[{"identifier": "tv.plex.agents.movie", "title": "Plex Movie"}, {"identifier": "com.plexapp.agents.none", "title": "Personal Media"}])
+    if p == "/system/scanners":
+        return mc(Scanner=[{"name": "Plex Movie"}, {"name": "Plex Video Files Scanner"}])
+    if p == "/library/sections" and self.command == "POST":
+        self.record("create library", q)
+        return mc()
+    m = re.fullmatch(r"/library/sections/(\d+)(/prefs|/refresh|/analyze|/emptyTrash)?", p)
+    if m and (self.command != "GET" or m.group(2) == "/refresh"):
+        self.record(self.command + " " + p, q)
+        if m.group(2) == "/prefs":
+            SECTION_PREFS.setdefault(m.group(1), {}).update({k: v[0] for k, v in q.items() if not k.startswith("X-Plex")})
+        return mc()
+    if m and m.group(2) == "/prefs":
+        saved = SECTION_PREFS.get(m.group(1), {})
+        return mc(Setting=[{**s, "value": pref_value(s, saved)} for s in [
+            {"id": "enableCinemaTrailers", "label": "Enable cinema trailers", "type": "bool", "value": True},
+            {"id": "collectionMode", "label": "Collections", "type": "int", "value": 0,
+             "enumValues": "0:Show|1:Hide items in collections|2:Hide collections"}]])
+    if p in ("/diagnostics/logs", "/diagnostics/databases"):
+        body = b"PK\x05\x06" + bytes(18)
+        self.send_response(200)
+        self.send_header("Content-Type", "application/zip")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+        return True
+    return None
+
+
+PREFS, SECTION_PREFS = {}, {}
+
+
+def pref_value(setting, saved):
+    """A saved pref in the shape Plex reports it."""
+    v = saved.get(setting["id"])
+    if v is None:
+        return setting["value"]
+    if setting["type"] == "bool":
+        return v in ("1", "true")
+    return int(v) if setting["type"] == "int" else v
+
+
 def mc(**kw):
     kw.setdefault("size", len(kw.get("Metadata", kw.get("Directory", kw.get("Hub", [])))))
     return {"MediaContainer": kw}
@@ -473,6 +591,12 @@ class Handler(BaseHTTPRequestHandler):
             self.record("playqueue " + self.command + " " + p, q)
             return self.send_json(mc(playQueueID=77))
         out = edit_lists(self, p, q)
+        if out is None:
+            out = livetv(self, p, q)
+        if out is None:
+            out = admin(self, p, q)
+        if out is True:
+            return
         if out is not None:
             return self.send_json(out)
         # --- browsing extras -------------------------------------------------------
@@ -683,21 +807,40 @@ class Handler(BaseHTTPRequestHandler):
                              "Directory": [{"key": "/library/sections/1/all?actor=300", "tag": "Mara Okafor", "type": "actor", "count": 20}]})
             return self.send_json(mc(Hub=hubs))
         if p == "/status/sessions":
-            return self.send_json(mc(Metadata=[]))
+            playing = dict(movie(5), viewOffset=60_000, User={"id": "1", "title": "tester"},
+                           Player={"title": "Living room TV", "product": "Plex for Apple TV", "platform": "tvOS", "state": "playing",
+                                   "address": "192.168.1.30", "local": True},
+                           Session={"id": "sess-1", "bandwidth": 8200, "location": "lan"},
+                           TranscodeSession={"key": "/transcode/sessions/tr-1", "videoDecision": "transcode", "audioDecision": "copy",
+                                             "sourceVideoCodec": "hevc", "videoCodec": "h264", "speed": 2.4})
+            return self.send_json(mc(Metadata=[playing]))
+        if p == "/status/sessions/terminate":
+            self.record("terminate", q)
+            return self.send_json(mc())
         if p == "/status/sessions/history/all":
-            hist = [dict(movie(3), historyKey="/status/sessions/history/1", viewedAt=int(time.time()) - 5000, accountID=1)]
-            return self.send_json(mc(Metadata=hist))
+            hist = [dict(movie(i % 20), historyKey=f"/status/sessions/history/{i + 1}", viewedAt=int(time.time()) - 5000 - i * 3600,
+                         accountID=1) for i in range(75) if str(i + 1) not in DELETED]
+            return self.send_json(page(hist, q))
+        m = re.fullmatch(r"/status/sessions/history/(\d+)", p)
+        if m and self.command == "DELETE":
+            self.record("delete history", q)
+            DELETED.add(m.group(1))
+            return self.send_json(mc())
         if p == "/accounts":
             return self.send_json(mc(Account=[{"id": 1, "name": "tester"}]))
         if p == "/playlists":
             return self.send_json(mc(Metadata=[]))
+        if p == "/:/prefs" and self.command == "PUT":
+            self.record("PUT /:/prefs", q)
+            PREFS.update({k: v[0] for k, v in q.items() if not k.startswith("X-Plex")})
+            return self.send_json(mc())
         if p == "/:/prefs":
-            return self.send_json(mc(Setting=[
+            return self.send_json(mc(Setting=[{**s, "value": pref_value(s, PREFS)} for s in [
                 {"id": "FriendlyName", "label": "Friendly name", "summary": "The name of this server.", "type": "text", "value": "Mock Server"},
                 {"id": "ScheduledLibraryUpdatesEnabled", "label": "Update my library periodically", "type": "bool", "value": True},
                 {"id": "TranscoderQuality", "label": "Transcoder quality", "type": "int", "value": 0,
                  "enumValues": "0:Automatic|1:Prefer higher speed encoding|2:Prefer higher quality encoding"},
-            ]))
+            ]]))
         if p == "/butler":
             return self.send_json({"ButlerTasks": {"ButlerTask": [
                 {"name": "BackupDatabase", "title": "Backup Database", "description": "Create a backup copy of the server's database.", "enabled": True},
