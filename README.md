@@ -1,8 +1,15 @@
 # Patina
 
-A Plex desktop client written in Rust. It gives you a polished interface for browsing your libraries and plays everything in **mpv**. mpv starts normally, so it reads your own `mpv.conf`, `input.conf`, scripts and shaders from mpv's default config directory (`~/.config/mpv` on macOS/Linux, `%APPDATA%\mpv` on Windows).
+A Plex client written in Rust, with two front ends on one shared backend:
+
+- **Patina**, a desktop app (Tauri and Svelte) with a polished interface for browsing your libraries.
+- **patina-tui**, a keyboard-driven terminal client with Miller columns, plus a scriptable CLI with `--json` output. See [Terminal client](#terminal-client-patina-tui).
+
+Both play everything in **mpv**. mpv starts normally, so it reads your own `mpv.conf`, `input.conf`, scripts and shaders from mpv's default config directory (`~/.config/mpv` on macOS/Linux, `%APPDATA%\mpv` on Windows). They share one config file, sign-in and downloads, and can run at the same time.
 
 ## Features
+
+The desktop app and the terminal client have the same features; the terminal client's differences are listed [below](#differences-from-the-desktop-app).
 
 - **Sign in** with the plex.tv browser flow, a plex.tv/link code, email and password (with 2FA), or a direct server URL and token. Switch between Plex Home users (PIN-protected profiles supported) and between servers.
 - **Server connections:** Patina tries every connection a server advertises at the same time. It prefers local, then remote, then relay.
@@ -36,11 +43,13 @@ A Plex desktop client written in Rust. It gives you a polished interface for bro
 ## Requirements
 
 - Rust 1.85+ (edition 2024)
-- Node.js 20+ and pnpm (for the web frontend)
+- Node.js 20+ and pnpm (desktop app only, for the web frontend)
 - mpv 0.38+ on `PATH`, or set its path in **Settings → Player**
 - macOS or Linux (Windows should work, but hasn't been tested)
 
 ## Build & run
+
+Desktop app:
 
 ```sh
 pnpm install
@@ -48,9 +57,143 @@ pnpm tauri dev      # development, with hot reload for the frontend
 pnpm tauri build    # release app bundle in target/release/bundle
 ```
 
-Settings are stored in `~/.config/patina/config.toml` (Windows: the platform config dir). The file holds your auth token, so it is written with mode 0600. Artwork is cached in the platform cache directory.
+Terminal client:
 
-Logging: `PATINA_LOG=debug pnpm tauri dev`.
+```sh
+cargo run -p patina-tui                  # the TUI
+cargo run -p patina-tui -- libraries     # a CLI subcommand
+cargo install --path crates/tui          # installs `patina-tui` into ~/.cargo/bin
+```
+
+Settings are stored in `~/.config/patina/config.toml` (or `$XDG_CONFIG_HOME/patina`; Windows: the platform config dir). Both front ends use this file, so signing in once signs in both, and settings changed in one show up in the other. The file holds your auth token, so it is written with mode 0600. Downloads are listed in `downloads.json` next to it and show up in both front ends. Artwork is cached in the platform cache directory.
+
+Logging: `PATINA_LOG=debug pnpm tauri dev`. The terminal client logs to `patina-tui.log` in the platform data directory, never to the terminal, and reads the same `PATINA_LOG`.
+
+## Terminal client (patina-tui)
+
+A terminal client for the same backend: you browse your libraries in Miller columns with a details panel, and play in mpv. It also has a scriptable CLI.
+
+### Install
+
+```sh
+cargo install --path crates/tui
+```
+
+### First run
+
+```sh
+patina-tui
+```
+
+If you have already signed in with the desktop app, it connects straight away. Otherwise it shows a code to enter at <https://plex.tv/link>. On that screen, `b` approves the sign-in in your browser instead, `p` signs in with email and password, and `m` connects to a server by URL and token. After signing in, you pick a server. To skip plex.tv from the shell:
+
+```sh
+patina-tui login --url http://192.168.1.10:32400 --token YOUR_TOKEN
+```
+
+When the server can't be reached, `d` browses and plays your downloads offline.
+
+### Differences from the desktop app
+
+- Artwork is not shown; items are text, with a details panel.
+- There are no OS media controls and no Discord Rich Presence. Playback is controlled with the keys below or in mpv.
+- Server statistics are text bars instead of charts.
+- Sign-in, settings and downloads are shared with the desktop app. The terminal client has its own section of settings (accent colour, details panel, watch status and counts, hide watched).
+
+### Keys
+
+`?` shows these in the app, and the footer lists the keys for the selection.
+
+| Key | Action |
+|---|---|
+| **Navigation** | |
+| `j`/`k` `↑`/`↓` | Move |
+| `l` `→` / `h` `←` `⌫` | Open / back |
+| `g`/`G` | Top / bottom |
+| `^d`/`^u` `PgDn`/`PgUp` | Half page / page |
+| `Enter` | Play (resume) or open |
+| **Playback** | |
+| `p` | Play from start |
+| `a` | Play all / from here (next-up for shows) |
+| `z` | Shuffle |
+| `o` | Play with options (version, tracks, quality) |
+| `P` | Pause / resume the player |
+| `<` / `>` | Previous / next in the queue |
+| `-` / `=` | Seek back / forward 10 s |
+| `X` | Stop the player |
+| `n` / `N` | Play next / add to the end of the queue |
+| `Q` | Play queue: jump, remove, `J`/`K` reorder, `z` shuffle |
+| `E` | Stop after this (when Up next shows, `>` plays it now) |
+| `Y` | Lyrics of the playing track (`Enter` seeks to a line) |
+| `m` → Radio | Start radio from an artist, album or track |
+| **Library** | |
+| `w` / `u` | Mark watched / unwatched |
+| `*` | Rate 0–10 |
+| `Space` | Add to / remove from playlists |
+| `x` | Delete playlist or collection · remove entry · stop stream · delete history entry |
+| `J` / `K` | Move a playlist (or custom-sorted collection) entry down / up |
+| `+` | Add to / remove from watchlist |
+| `C` | Add to / remove from collections |
+| `T` | Audio & subtitles for a whole show or season |
+| `c` | Related & similar, cast & crew, genres and tags |
+| `e` | Edit details, genres, labels (renames a playlist); menu: poster, background, match |
+| `S` | Scan library for new files |
+| `b` / `B` | Go to the season or album / the show or artist |
+| `m` or `.` | Actions menu (more options) |
+| **Downloads, Live TV, Activity, Server, Settings** | |
+| `Enter` | A row's main action: play, retry, watch, record, run, change |
+| `x` | Remove a download · delete a rule · cancel a task · stop a transcode |
+| `a` | Play a downloaded show, album or all movies |
+| `l` | A channel's later programs · a library's settings |
+| `/` | Search server settings (or any list) |
+| **Finding things** | |
+| `f` | Search the server, grouped by type (`Tab`: next type) |
+| `/` | Filter this column |
+| `s` | Sort (the server's sorts in a library) |
+| `F` | Library filters (unwatched, genre, HDR…) |
+| `A` | Jump to a letter (library sorted by title) |
+| `t` | Switch type: shows / seasons / episodes… |
+| `v` | Library views: recommended, collections, folders… |
+| `H` | Hide / show watched |
+| **Other** | |
+| `i` | Toggle details panel |
+| `[` / `]` | Scroll details |
+| `O` | Open in Plex Web |
+| `y` | Copy stream URL |
+| `D` | Download for offline |
+| `r` / `R` | Refresh view / everything |
+| `U` | Switch Plex Home user |
+| `L` | Sign out |
+| `q` `^c` | Quit |
+
+### Command line
+
+```text
+patina-tui                          start the TUI
+patina-tui login [--url URL --token TOKEN]
+patina-tui logout
+patina-tui servers [--switch]       list or switch servers on your account
+patina-tui info                     server details and activity
+patina-tui libraries                library sections
+patina-tui ls <key|/path>           an item's children, or any Plex path
+patina-tui search <query>
+patina-tui continue                 continue watching
+patina-tui recent [-n N]            recently added
+patina-tui sessions                 who is streaming now
+patina-tui history [-n N]
+patina-tui playlists [id]           playlists, or a playlist's items
+patina-tui play <key> [--from-start] [--shuffle] [--quality original|1080p|…]
+                                    plays items and containers in mpv
+patina-tui watchlist [add|remove <key>]
+patina-tui users [switch <name> [--pin PIN]]
+patina-tui mark watched|unwatched <key>
+patina-tui rate <key> [0-10]        omit the rating to clear it
+patina-tui scan [section] [--force]
+patina-tui url <key>                direct stream URL (contains your token)
+patina-tui config-path
+```
+
+The listing commands (`libraries`, `ls`, `search`, `continue`, `recent`, `sessions`, `history`, `playlists`, `watchlist`) accept `--json` to print Plex's JSON instead of a table.
 
 ## Workspace
 
@@ -58,8 +201,10 @@ Logging: `PATINA_LOG=debug pnpm tauri dev`.
 |---|---|
 | `crates/plex` (`patina-plex`) | Async client for the Plex Media Server and plex.tv APIs. It covers auth and PINs, resources, Plex Home, watchlist and discover, libraries, metadata editing and matching, artwork, hubs, search, playlists, collections, play queues, timeline, scrobbling and rating, stream selection, subtitles, transcoding, sessions, history, activities, butler, preferences, statistics, updates, logs and live notifications (SSE). `raw()` escape hatches cover anything else. |
 | `crates/mpv` (`patina-mpv`) | Starts mpv and controls it over JSON IPC (commands, property observation, events, key bindings). |
-| `crates/app` (`patina`) | The Tauri desktop app: session, playback and every Plex call, exposed to the frontend as typed commands. Tokens never reach the webview; artwork is served through the `plximg` URI scheme. |
+| `crates/core` (`patina-core`) | The backend both front ends share, with no UI code: settings, sign-in and sessions, mpv playback and play queues, downloads, live server updates, Live TV, lyrics, and the heavier server queries. Front ends receive its events through an `EventSink`. |
+| `crates/app` (`patina`) | The Tauri desktop app: a thin layer that exposes core to the frontend as typed commands and forwards its events to the webview. It also handles OS media controls. Tokens never reach the webview; artwork is served through the `plximg` URI scheme. |
 | `web/` | The Svelte 5 + TypeScript frontend. `pnpm check` type-checks it. |
+| `crates/tui` (`patina-tui`) | The terminal client (ratatui) and its CLI. |
 
 ## Developing without a Plex server
 
@@ -67,7 +212,16 @@ Logging: `PATINA_LOG=debug pnpm tauri dev`.
 
 ```sh
 python3 tools/mock_pms.py --media /path/to/media --port 32499
-XDG_CONFIG_HOME=/tmp/patina-dev pnpm tauri dev   # choose "Connect to a server directly"
+
+# Desktop app: choose "Connect to a server directly"
+XDG_CONFIG_HOME=/tmp/patina-dev pnpm tauri dev
+
+# Terminal client
+export XDG_CONFIG_HOME=/tmp/patina-dev
+cargo run -p patina-tui -- login --url http://127.0.0.1:32499 --token x
+cargo run -p patina-tui
 ```
+
+Setting `XDG_CONFIG_HOME` keeps the mock sign-in out of your real config.
 
 Debug builds also accept `PATINA_ROUTE=/item/100` (opens a page) and `PATINA_PLAY=<ratingKey>` (starts playback).
