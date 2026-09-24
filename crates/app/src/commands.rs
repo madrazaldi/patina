@@ -324,7 +324,29 @@ fn tv(app: &AppState) -> Result<patina_plex::PlexTv, Error> {
 
 #[tauri::command]
 pub async fn watchlist(app: App<'_>) -> Res<Vec<Metadata>> {
-    Ok(tv(&app)?.watchlist(0, 300).await?.metadata)
+    // Discover caps the page size at an undocumented value that has shrunk
+    // before (even 50 was refused at times), so page and step down when refused.
+    let tv = tv(&app)?;
+    let mut sizes = [50u32, 20, 10].into_iter().peekable();
+    let mut size = sizes.next().unwrap_or(10);
+    let mut items = Vec::new();
+    loop {
+        let page = match tv.watchlist(items.len() as u32, size).await {
+            Ok(page) => page,
+            Err(e) if format!("{e:#}").contains("container-size") && sizes.peek().is_some() => {
+                size = sizes.next().unwrap_or(size);
+                continue;
+            }
+            Err(e) => return Err(e.into()),
+        };
+        let total = page.total_size.map(|t| t as usize);
+        let got = page.metadata.len();
+        items.extend(page.metadata);
+        if got < size as usize || total.is_some_and(|t| items.len() >= t) || items.len() >= 1000 {
+            break;
+        }
+    }
+    Ok(items)
 }
 
 #[tauri::command]
