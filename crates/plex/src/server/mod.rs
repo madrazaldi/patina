@@ -90,7 +90,8 @@ impl PlexServer {
         if path.starts_with("http://") || path.starts_with("https://") {
             return Ok(Url::parse(path)?);
         }
-        Ok(self.base.join(path.trim_start_matches('/'))?)
+        // "./" keeps a colon in the first segment (`/tv.plex.providers.epg.cloud:2/...`) from reading as a scheme.
+        Ok(self.base.join(&format!("./{}", path.trim_start_matches('/')))?)
     }
 
     /// A URL with the token embedded, for handing to external programs.
