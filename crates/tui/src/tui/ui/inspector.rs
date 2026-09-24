@@ -326,6 +326,9 @@ fn inspector_lines(app: &App, item: &Item, theme: &Theme, width: usize) -> Vec<L
     if !credits.is_empty() {
         heading(&mut lines, "Credits", width, theme);
         lines.extend(credits);
+        if item.library_section_id.is_some() {
+            lines.push(key_hints(&[("c", "related, cast & tags")], theme));
+        }
     }
 
     // Media.

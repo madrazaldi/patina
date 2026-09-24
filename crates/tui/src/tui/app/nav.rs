@@ -85,6 +85,18 @@ impl App {
         self.open_column(title, path);
     }
 
+    /// `c`: related hubs, cast & crew and tags of the selection, as a column.
+    pub(super) fn open_related(&mut self) {
+        let Some(item) = self.selected().cloned() else { return };
+        let (Some(rating_key), Some(kind)) = (item.rating_key.clone(), item.meta.kind.clone()) else { return };
+        if !detail_kind(&item) {
+            self.info("Related items, cast and tags are for library items");
+            return;
+        }
+        self.search = None;
+        self.open_source(format!("{} · Related", item.title()), Source::Related { rating_key, kind }, Vec::new());
+    }
+
     pub(super) fn back(&mut self) {
         if self.columns.len() > 1 {
             self.columns.pop();

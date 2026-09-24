@@ -48,7 +48,7 @@ impl App {
             rows.push((Extras, if n == 1 { "Extras (1)" } else { "Extras (trailers, featurettes…)" }, ""));
         }
         if detail_kind(&item) {
-            rows.push((Related, "Related items", ""));
+            rows.push((Related, "Related, cast & tags…", "c"));
             rows.push((OpenWeb, "Open in Plex Web", "O"));
         }
         if item.is_playable() {
@@ -141,14 +141,7 @@ impl App {
             }
             Rate => self.open_rate(),
             AddToPlaylist => self.open_playlist_picker(),
-            Related => {
-                if let Some(i) = item
-                    && let Some(k) = i.rating_key.clone()
-                {
-                    self.search = None;
-                    self.open_column(format!("Related to {}", i.title()), format!("/library/metadata/{k}/related"));
-                }
-            }
+            Related => self.open_related(),
             OpenWeb => self.open_web(),
             CopyUrl => self.copy_url(),
             Download => self.download_selected(),

@@ -5,7 +5,7 @@
 
 use patina_core::AppState;
 use patina_core::ops::{library, lists};
-use patina_plex::Params;
+use patina_plex::{Hub, Metadata, MetadataOptions, Params, Tag};
 
 use crate::fetch::watchlist_items;
 use crate::item::Item;
@@ -26,6 +26,8 @@ pub enum Source {
     SectionHubs(String),
     /// A section's folder tree at `key` (its top level when `None`).
     Folder { section: String, key: Option<String> },
+    /// An item's related hubs (incl. sonically similar), people and tags.
+    Related { rating_key: String, kind: String },
     /// The server's home hubs (Continue Watching, Recently Added, ...).
     Home,
     /// A hub's items, paged from its key.
@@ -216,6 +218,12 @@ pub async fn fetch(core: &AppState, source: &Source, progressive: bool, page: &m
             });
             Ok(folders.chain(view.items.into_iter().map(Item::from)).collect())
         }
+        Source::Related { rating_key, kind } => {
+            let opts = MetadataOptions { related: true, ..Default::default() };
+            let meta = server.metadata(rating_key, opts).await?.ok_or_else(|| anyhow::anyhow!("item not found"))?;
+            let extra = library::item_hubs(core, rating_key, kind).await.unwrap_or_default();
+            Ok(related(meta, extra))
+        }
         Source::Path(p) if is_paged(p) => paged(&server, p, progressive, page).await,
         Source::Path(p) => Ok(Item::listing(server.fetch(p, &Params::new()).await?)),
     }
@@ -230,6 +238,47 @@ pub fn hubs(list: Vec<patina_plex::Hub>) -> Vec<Item> {
     let (mut first, rest): (Vec<_>, Vec<_>) = list.into_iter().filter(|h| !h.is_empty()).partition(continuing);
     first.extend(rest);
     first.into_iter().map(Item::hub).collect()
+}
+
+/// The item's related hubs plus extra hubs it doesn't already have (as the
+/// GUI's detail page dedupes them), then its people and tags.
+fn related(mut meta: Metadata, extra: Vec<Hub>) -> Vec<Item> {
+    let own: Vec<Hub> = meta.related.take().map(|r| r.hub).unwrap_or_default().into_iter().filter(|h| !h.metadata.is_empty()).collect();
+    let seen = |h: &Hub| {
+        own.iter().any(|r| {
+            (h.hub_identifier.is_some() && r.hub_identifier == h.hub_identifier)
+                || h.title.as_deref().is_some_and(|t| r.title.as_deref().is_some_and(|rt| rt.eq_ignore_ascii_case(t)))
+        })
+    };
+    let extra: Vec<Hub> = extra.into_iter().filter(|h| !h.metadata.is_empty() && !seen(h)).collect();
+    let mut out: Vec<Item> = own.into_iter().chain(extra).map(Item::hub).collect();
+    let Some(section) = meta.library_section_id else { return out };
+    let music = matches!(meta.kind.as_deref(), Some("album" | "artist" | "track"));
+    let entry = |kind: &str, t: &Tag, note: String| {
+        let filter = t.filter.as_deref()?;
+        let source = Source::Path(format!("/library/sections/{section}/all?{filter}"));
+        let mut it = Item::link(t.name(), kind, source, Vec::new());
+        it.summary = Some(note);
+        it.thumb = t.thumb.clone();
+        Some(it)
+    };
+    let cast = if music { "Featuring" } else { "Cast" };
+    out.extend(meta.roles.iter().take(40).filter_map(|t| entry("person", t, t.role.clone().filter(|r| !r.is_empty()).unwrap_or_else(|| cast.into()))));
+    for (label, list) in [("Director", &meta.directors), ("Writer", &meta.writers)] {
+        out.extend(list.iter().take(8).filter_map(|t| entry("person", t, label.into())));
+    }
+    let tags = [
+        ("Genre", &meta.genres),
+        ("Collection", &meta.collections),
+        ("Mood", &meta.moods),
+        ("Style", &meta.styles),
+        ("Country", &meta.countries),
+        ("Label", &meta.labels),
+    ];
+    for (label, list) in tags {
+        out.extend(list.iter().take(8).filter_map(|t| entry("tag", t, label.into())));
+    }
+    out
 }
 
 async fn paged(
@@ -265,7 +314,6 @@ async fn paged(
 mod tests {
     use super::*;
     use crate::item::Kind;
-    use patina_plex::{Hub, Metadata};
 
     fn hub(id: &str, n: usize, more: bool) -> Hub {
         Hub {
@@ -328,6 +376,25 @@ mod tests {
         let d = |t: &str, n: i64| patina_plex::Directory { title: Some(t.into()), size: Some(n), ..Default::default() };
         let starts = letter_starts(&[d("#", 2), d("A", 3), d("b", 1), d("C", 4)]);
         assert_eq!(starts, vec![("#".into(), 0, 2), ("A".into(), 2, 3), ("B".into(), 5, 1), ("C".into(), 6, 4)]);
+    }
+
+    #[test]
+    fn related_dedupes_hubs_and_links_people_and_tags() {
+        let tag = |name: &str, filter: &str| Tag { tag: Some(name.into()), filter: Some(filter.into()), ..Default::default() };
+        let mut meta = Metadata { library_section_id: Some(1), kind: Some("movie".into()), ..Default::default() };
+        meta.related = Some(patina_plex::Nested { hub: vec![hub("similar", 3, false)], ..Default::default() });
+        meta.roles = vec![Tag { role: Some("Iris".into()), ..tag("Mara", "actor=300") }, Tag { filter: None, ..tag("Nobody", "") }];
+        meta.genres = vec![tag("Drama", "genre=10")];
+        let mut dup = hub("other", 2, false);
+        dup.title = Some("SIMILAR".into());
+        let items = related(meta, vec![dup, hub("director", 2, false), hub("empty", 0, false)]);
+        let names: Vec<_> = items.iter().map(|i| (i.kind(), i.title().to_string())).collect();
+        assert_eq!(
+            names,
+            [(Kind::Hub, "similar".into()), (Kind::Hub, "director".into()), (Kind::Person, "Mara".into()), (Kind::Tag, "Drama".into())]
+        );
+        assert_eq!(items[2].summary.as_deref(), Some("Iris"));
+        assert_eq!(items[3].link_source(), Some(&Source::Path("/library/sections/1/all?genre=10".into())));
     }
 
     #[test]

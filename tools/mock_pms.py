@@ -392,6 +392,11 @@ class Handler(BaseHTTPRequestHandler):
                 {"hubIdentifier": "movie.toprated", "title": "Top Rated", "type": "movie", "size": 8,
                  "Metadata": sorted(movies, key=lambda m: -m["audienceRating"])[:8]},
             ]))
+        if re.fullmatch(r"/hubs/metadata/\d+", p):
+            movies = all_movies()
+            return self.send_json(mc(Hub=[{"hubIdentifier": "similar", "title": "More Like This", "type": "movie", "Metadata": movies[3:11]},
+                                          {"hubIdentifier": "director", "title": "More Directed by Ada Lindqvist", "type": "movie",
+                                           "Metadata": movies[12:16]}]))
         m = re.fullmatch(r"/hubs/sections/(\d+)", p)
         if m:
             items = all_movies() if m.group(1) == "1" else all_shows()

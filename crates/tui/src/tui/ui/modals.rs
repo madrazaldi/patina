@@ -42,6 +42,7 @@ pub const HELP: &[(&str, &str)] = &[
     ("J / K", "move playlist entry down / up"),
     ("+", "add to / remove from watchlist"),
     ("C", "add to / remove from collections"),
+    ("c", "related & similar, cast & crew, genres and tags"),
     ("e", "edit details (renames a playlist)"),
     ("S", "scan library for new files"),
     ("m  .", "actions menu (more options)"),

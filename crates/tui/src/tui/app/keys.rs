@@ -141,6 +141,7 @@ impl App {
             }
             KeyCode::Char('+') => self.toggle_watchlist(),
             KeyCode::Char('C') => self.open_collections(),
+            KeyCode::Char('c') => self.open_related(),
             KeyCode::Char('U') => self.open_users(),
             KeyCode::Char('J') => self.move_in_playlist(true),
             KeyCode::Char('K') => self.move_in_playlist(false),
