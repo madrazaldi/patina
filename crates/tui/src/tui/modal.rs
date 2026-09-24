@@ -1,11 +1,13 @@
 //! Modal dialog state.
 
 use patina_core::config::QUALITIES;
-use patina_plex::{HomeUser, MatchResult, Stream, stream_type};
+use patina_core::ops::library::FilterView;
+use patina_plex::{Directory, HomeUser, MatchResult, Stream, stream_type};
 
 use crate::item::Item;
 
 use super::column::SortKey;
+use super::source::Source;
 
 pub enum Modal {
     Help {
@@ -14,11 +16,15 @@ pub enum Modal {
     Sort {
         cursor: usize,
     },
+    /// A library's views: its types, Recommended, Collections, Folders, browse-by lists.
     Browse {
         section_id: String,
         section_title: String,
+        rows: Vec<(String, Source)>,
         cursor: usize,
     },
+    /// Server filters of the library listing in the last column.
+    Filter(FilterPicker),
     Menu(Menu),
     Input(Input),
     Confirm(Confirm),
@@ -39,6 +45,10 @@ pub enum MenuAction {
     PlayAll,
     Shuffle,
     PlayOptions,
+    Sort,
+    Filter,
+    Letters,
+    SwitchType,
     MarkWatched,
     MarkUnwatched,
     ClearProgress,
@@ -332,6 +342,10 @@ pub struct EditModal {
 // ---- generic background-loaded picker ------------------------------------
 
 pub enum PickKind {
+    /// Server sorts of the library listing in the last column.
+    Sort,
+    /// A–Z jump in the library listing in the last column.
+    Letters,
     Posters { rating_key: String },
     Matches { rating_key: String },
     Subtitles { rating_key: String },
@@ -339,6 +353,9 @@ pub enum PickKind {
 }
 
 pub enum PickEntry {
+    Sort(Box<Directory>),
+    /// A letter and the row it starts at.
+    Letter(String, usize),
     Poster(Box<Item>),
     PosterFromUrl,
     Match(Box<MatchResult>),
@@ -360,22 +377,47 @@ pub fn sort_rows() -> &'static [SortKey] {
     &SortKey::ALL
 }
 
-/// Section sub-views (Plex "secondary" directories).
+// ---- library filters -----------------------------------------------------
+
+pub struct FilterPicker {
+    pub section_title: String,
+    pub defs: Vec<FilterView>,
+    pub loading: bool,
+    pub error: Option<String>,
+    pub cursor: usize,
+    /// The value filter being chosen from.
+    pub values: Option<FilterValues>,
+}
+
+pub struct FilterValues {
+    pub def: FilterView,
+    /// (value, label)
+    pub all: Vec<(String, String)>,
+    pub loading: bool,
+    pub error: Option<String>,
+    pub query: String,
+    pub cursor: usize,
+}
+
+impl FilterValues {
+    /// Values matching the typed query.
+    pub fn shown(&self) -> Vec<&(String, String)> {
+        let q = self.query.trim().to_lowercase();
+        self.all.iter().filter(|(_, l)| q.is_empty() || l.to_lowercase().contains(&q)).collect()
+    }
+}
+
+/// Section sub-listings offered next to the library's own views.
 pub const BROWSE_VIEWS: &[(&str, &str)] = &[
-    ("All", "all"),
-    ("Unwatched", "all?unwatched=1"),
     ("Recently added", "recentlyAdded"),
     ("Recently viewed", "recentlyViewed"),
     ("On deck", "onDeck"),
-    ("Collections", "collections"),
-    ("Genres", "genre"),
-    ("Years", "year"),
-    ("Decades", "decade"),
-    ("Directors", "director"),
-    ("Actors", "actor"),
-    ("Studios", "studio"),
-    ("Content ratings", "contentRating"),
-    ("Resolutions", "resolution"),
-    ("By first letter", "firstCharacter"),
-    ("Folders", "folder"),
+    ("By genre", "genre"),
+    ("By year", "year"),
+    ("By decade", "decade"),
+    ("By director", "director"),
+    ("By actor", "actor"),
+    ("By studio", "studio"),
+    ("By content rating", "contentRating"),
+    ("By resolution", "resolution"),
 ];

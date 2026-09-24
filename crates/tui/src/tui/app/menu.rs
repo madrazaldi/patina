@@ -78,8 +78,18 @@ impl App {
         if smart_playlist_path(col, &self.sections).is_some() {
             rows.push((SmartPlaylist, "Save view as smart playlist…", ""));
         }
+        if let Some(v) = col.library() {
+            rows.push((Sort, "Sort…", "s"));
+            rows.push((Filter, "Filter…", "F"));
+            if v.alphabetical() {
+                rows.push((Letters, "Jump to letter…", "A"));
+            }
+            if v.type_label().is_some() {
+                rows.push((SwitchType, "Switch type (shows, seasons, episodes…)", "t"));
+            }
+        }
         if kind == Kind::Section || col.section_id().is_some() {
-            rows.push((BrowseBy, "Browse by…", "v"));
+            rows.push((BrowseBy, "Library views…", "v"));
             rows.push((ScanLibrary, "Scan library files", "S"));
             rows.push((ForceScanLibrary, "Refresh all library metadata", ""));
             rows.push((EmptyTrash, "Empty library trash", ""));
@@ -168,6 +178,10 @@ impl App {
                 }
             }
             BrowseBy => self.open_browse(),
+            Sort => self.open_sort(),
+            Filter => self.open_filters(),
+            Letters => self.open_letters(),
+            SwitchType => self.cycle_type(),
             RenamePlaylist => self.open_rename(),
             Watchlist => self.toggle_watchlist(),
             Collections => self.open_collections(),

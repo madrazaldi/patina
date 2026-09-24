@@ -43,13 +43,16 @@ pub const HELP: &[(&str, &str)] = &[
     ("+", "add to / remove from watchlist"),
     ("C", "add to / remove from collections"),
     ("e", "edit details (renames a playlist)"),
-    ("v", "browse library by genre, year, collection…"),
     ("S", "scan library for new files"),
     ("m  .", "actions menu (more options)"),
     ("", "Finding things"),
     ("f", "search the server"),
     ("/", "filter this column"),
-    ("s", "sort"),
+    ("s", "sort (the server's sorts in a library)"),
+    ("F", "library filters (unwatched, genre, HDR…)"),
+    ("A", "jump to a letter (library sorted by title)"),
+    ("t", "switch type: shows / seasons / episodes…"),
+    ("v", "library views: recommended, collections, folders…"),
     ("H", "hide / show watched"),
     ("", "Other"),
     ("i", "toggle details panel"),
@@ -118,21 +121,16 @@ pub(super) fn draw_modal(f: &mut Frame, app: &App, theme: &Theme) {
                 area,
             );
         }
-        Modal::Browse {
-            section_title,
-            cursor,
-            ..
-        } => {
-            let rows: Vec<String> = BROWSE_VIEWS.iter().map(|(l, _)| l.to_string()).collect();
+        Modal::Browse { section_title, rows, cursor, .. } => {
+            let rows: Vec<String> = rows.iter().map(|(l, _)| l.clone()).collect();
             let area = centered(screen, 36, rows.len() as u16 + 2);
             f.render_widget(Clear, area);
-            let lines = list_lines(&rows, *cursor, theme, area.width as usize - 2);
-            f.render_widget(
-                Paragraph::new(lines)
-                    .block(modal_block(format!(" Browse {section_title} "), theme)),
-                area,
-            );
+            let visible = area.height.saturating_sub(2) as usize;
+            let skip = cursor.saturating_sub(visible.saturating_sub(1));
+            let lines: Vec<Line> = list_lines(&rows, *cursor, theme, area.width as usize - 2).into_iter().skip(skip).collect();
+            f.render_widget(Paragraph::new(lines).block(modal_block(format!(" {section_title} "), theme)), area);
         }
+        Modal::Filter(p) => draw_filters(f, app, p, theme),
         Modal::Menu(m) => {
             let width = 46u16;
             let area = centered(screen, width, m.rows.len() as u16 + 2);
@@ -422,4 +420,68 @@ pub(super) fn draw_modal(f: &mut Frame, app: &App, theme: &Theme) {
             f.render_widget(Paragraph::new(lines).block(block), area);
         }
     }
+}
+
+fn draw_filters(f: &mut Frame, app: &App, p: &FilterPicker, theme: &Theme) {
+    let view = app.columns.last().and_then(|c| c.library());
+    let dim = Style::default().fg(theme.dim);
+    let (title, hint, rows, cursor, status): (String, &str, Vec<String>, usize, Option<Span>) = match &p.values {
+        Some(v) => {
+            let rows = v
+                .shown()
+                .iter()
+                .map(|(value, label)| format!("[{}] {label}", if view.is_some_and(|w| w.is_on(&v.def.filter, value)) { "✓" } else { " " }))
+                .collect();
+            let status = if v.loading {
+                Some(Span::styled(format!(" {} Loading…", spinner(app)), dim))
+            } else if let Some(e) = &v.error {
+                Some(Span::styled(format!(" {e}"), Style::default().fg(theme.error)))
+            } else if v.shown().is_empty() {
+                Some(Span::styled(" Nothing to choose", dim))
+            } else {
+                None
+            };
+            (format!(" {} ", v.def.title), " type to narrow · enter toggle · esc back ", rows, v.cursor, status)
+        }
+        None => {
+            let mut rows: Vec<String> = p
+                .defs
+                .iter()
+                .map(|d| {
+                    let on: Vec<&str> = view.map(|w| w.filters.iter().filter(|x| x.filter == d.filter).map(|x| x.label.as_str()).collect()).unwrap_or_default();
+                    if d.kind == "boolean" {
+                        format!("[{}] {}", if on.is_empty() { " " } else { "✓" }, d.title)
+                    } else {
+                        format!("    {:<18} {} ›", d.title, on.join(", "))
+                    }
+                })
+                .collect();
+            if view.is_some_and(|w| !w.filters.is_empty()) {
+                rows.push("    Clear all filters".into());
+            }
+            let status = if p.loading {
+                Some(Span::styled(format!(" {} Loading filters…", spinner(app)), dim))
+            } else {
+                p.error.as_ref().map(|e| Span::styled(format!(" {e}"), Style::default().fg(theme.error)))
+            };
+            (format!(" Filter {} ", p.section_title), " enter toggle / choose · esc close ", rows, p.cursor, status)
+        }
+    };
+    let query = p.values.as_ref().map(|v| v.query.clone());
+    let extra = u16::from(query.is_some()) + u16::from(status.is_some());
+    let area = centered(f.area(), 52, (rows.len() as u16 + 2 + extra).clamp(5, 24));
+    f.render_widget(Clear, area);
+    let block = modal_block(title, theme).title_bottom(Line::from(Span::styled(hint, dim)));
+    let inner_w = area.width as usize - 2;
+    let mut lines: Vec<Line> = Vec::new();
+    if let Some(q) = query {
+        lines.push(Line::from(vec![Span::styled(" › ", Style::default().fg(theme.accent).bold()), Span::raw(q), Span::styled("█", Style::default().fg(theme.accent))]));
+    }
+    if let Some(s) = status {
+        lines.push(Line::from(s));
+    }
+    let visible = (area.height.saturating_sub(2) as usize).saturating_sub(lines.len());
+    let skip = cursor.saturating_sub(visible.saturating_sub(1));
+    lines.extend(list_lines(&rows, cursor, theme, inner_w).into_iter().skip(skip));
+    f.render_widget(Paragraph::new(lines).block(block), area);
 }

@@ -6,6 +6,7 @@
 mod actions;
 mod edit;
 mod keys;
+mod library;
 mod login;
 mod menu;
 mod nav;
@@ -84,6 +85,11 @@ pub enum Msg {
         result: Result<bool, String>,
     },
     PickRows(Result<Vec<(PickEntry, String)>, String>),
+    FilterDefs(Result<Vec<patina_core::ops::library::FilterView>, String>),
+    FilterValues {
+        filter: String,
+        result: Result<Vec<(String, String)>, String>,
+    },
     EditItem(Result<Box<Item>, String>),
     /// A plex.tv link code to show on the sign-in screen, or why there is none.
     Pin(Result<(String, String), String>),
@@ -572,8 +578,32 @@ impl App {
                     p.loading = false;
                     match result {
                         Ok(rows) if rows.is_empty() => p.error = Some("Nothing found".into()),
-                        Ok(rows) => p.rows = rows,
+                        Ok(rows) => {
+                            p.cursor = rows.iter().position(|(_, l)| l.starts_with('●')).unwrap_or(0);
+                            p.rows = rows;
+                        }
                         Err(e) => p.error = Some(e),
+                    }
+                }
+            }
+            Msg::FilterDefs(result) => {
+                if let Some(Modal::Filter(p)) = &mut self.modal {
+                    p.loading = false;
+                    match result {
+                        Ok(defs) if defs.is_empty() => p.error = Some("This library has no filters".into()),
+                        Ok(defs) => p.defs = defs,
+                        Err(e) => p.error = Some(e),
+                    }
+                }
+            }
+            Msg::FilterValues { filter, result } => {
+                if let Some(Modal::Filter(p)) = &mut self.modal
+                    && let Some(v) = p.values.as_mut().filter(|v| v.def.filter == filter)
+                {
+                    v.loading = false;
+                    match result {
+                        Ok(all) => v.all = all,
+                        Err(e) => v.error = Some(e),
                     }
                 }
             }

@@ -6,7 +6,7 @@ use serde::Serialize;
 
 use crate::state::AppState;
 
-#[derive(Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FilterView {
     pub filter: String,

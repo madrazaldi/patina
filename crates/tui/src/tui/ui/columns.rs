@@ -31,7 +31,8 @@ pub(super) fn hub_continues(item: &Item) -> bool {
 /// Columns whose items appear outside their natural parent need full titles.
 fn context_free(col: &Column) -> bool {
     match &col.source {
-        Source::Root => false,
+        Source::Root | Source::Folder { .. } => false,
+        Source::Library(v) => v.leaves(),
         Source::Path(p) => {
             p.starts_with("/playlists/")
                 || p.ends_with("/related")
@@ -258,6 +259,9 @@ pub(super) fn draw_columns(f: &mut Frame, app: &mut App, theme: &Theme, area: Re
                 format!(" /{} ", col.filter),
                 Style::default().fg(theme.accent),
             ));
+        }
+        if let Some(v) = col.library() {
+            bottom.push(Span::styled(format!(" {} ", v.describe()), Style::default().fg(if v.filters.is_empty() { theme.dim } else { theme.accent })));
         }
         if col.sort != SortKey::Default {
             bottom.push(Span::styled(

@@ -408,8 +408,16 @@ class Handler(BaseHTTPRequestHandler):
             if what == "collections":
                 return self.send_json(mc(Metadata=[]))
             items = all_movies() if sid == "1" else all_shows()
-            if "genre" in q:
-                items = [i for i in items if any(str(g["id"]) == q["genre"][0] for g in i.get("Genre", []))]
+            if sid == "2" and q.get("type") in (["3"], ["4"]):
+                seasons = [s for sh in items for s in children(sh["ratingKey"])]
+                items = seasons if q["type"] == ["3"] else [e for s in seasons for e in children(s["ratingKey"])]
+            for tag, field in (("genre", "Genre"), ("actor", "Role"), ("director", "Director")):
+                for want in q.get(tag, []):
+                    items = [i for i in items if any(str(g["id"]) == want for g in i.get(field, []))]
+            if "year" in q:
+                items = [i for i in items if str(i.get("year")) in q["year"]]
+            if q.get("hdr") == ["1"]:
+                items = [i for i in items if int(i["ratingKey"]) % 4 == 0]
             if q.get("unwatched") == ["1"]:
                 items = [i for i in items if not i.get("viewCount")]
             sort = q.get("sort", ["titleSort"])[0]

@@ -507,7 +507,7 @@ fn inspector_lines(app: &App, item: &Item, theme: &Theme, width: usize) -> Vec<L
         }
         lines.push(Line::raw(""));
         lines.push(key_hints(
-            &[("v", "browse by"), ("S", "scan"), ("m", "more")],
+            &[("v", "views"), ("S", "scan"), ("m", "more")],
             theme,
         ));
     }

@@ -178,6 +178,8 @@ impl App {
     pub(super) fn pick_selected(&mut self, p: Picker) {
         let Some((entry, _)) = p.rows.into_iter().nth(p.cursor) else { return };
         match (p.kind, entry) {
+            (PickKind::Sort, PickEntry::Sort(d)) => self.choose_sort(*d),
+            (PickKind::Letters, PickEntry::Letter(l, at)) => self.jump_to_letter(&l, at),
             (PickKind::Posters { rating_key }, PickEntry::PosterFromUrl) => {
                 self.modal = Some(Modal::Input(Input {
                     title: "Poster from URL".into(),

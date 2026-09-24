@@ -1,7 +1,7 @@
 use super::*;
 use patina_core::session;
 use crate::item::resolve_key;
-use crate::tui::source::{self, is_paged};
+use crate::tui::source::{self, LibraryView, is_paged};
 
 impl App {
     // ---- loading ---------------------------------------------------------
@@ -64,6 +64,11 @@ impl App {
                 col.from = Some(Column::identity(&item));
             }
             return;
+        }
+        if item.kind() == Kind::Section
+            && let Some(view) = library_view(&item)
+        {
+            return self.open_source(item.title().to_string(), Source::Library(view), Vec::new());
         }
         let Some(key) = item.children_key() else { return };
         if item.is_playable() {
@@ -170,34 +175,6 @@ impl App {
         }
     }
 
-    pub(super) fn open_browse(&mut self) {
-        let sid = self
-            .selected()
-            .filter(|i| i.kind() == Kind::Section)
-            .and_then(|i| i.key.clone())
-            .or_else(|| self.columns.last()?.section_id().map(str::to_string));
-        let Some(section_id) = sid else {
-            self.info("Browse-by works in a library");
-            return;
-        };
-        let section_title = self.sections.iter().find(|s| s.key.as_deref() == Some(&section_id)).map(|s| s.title().to_string()).unwrap_or_default();
-        self.modal = Some(Modal::Browse { section_id, section_title, cursor: 0 });
-    }
-
-    pub(super) fn browse_to(&mut self, section_id: &str, section_title: &str, view: usize) {
-        let (label, sub) = BROWSE_VIEWS[view];
-        let path = format!("/library/sections/{section_id}/{sub}");
-        let title = if view == 0 { section_title.to_string() } else { format!("{section_title} · {label}") };
-        // Replace the library's column (or open one from the root).
-        let keep = if self.columns.last().and_then(|c| c.section_id()) == Some(section_id) {
-            self.columns.iter().position(|c| c.section_id() == Some(section_id)).unwrap_or(1)
-        } else {
-            self.columns.len()
-        };
-        self.columns.truncate(keep.max(1));
-        self.open_column(title, path);
-    }
-
     pub(super) fn refresh_all(&mut self) {
         self.details.clear();
         let core = self.core.clone();
@@ -209,4 +186,9 @@ impl App {
         }
         self.info("Refreshing everything…");
     }
+}
+
+/// The default library listing of a section entry.
+pub(super) fn library_view(section: &Item) -> Option<LibraryView> {
+    Some(LibraryView::new(section.key.as_deref()?, section.meta.kind.as_deref().unwrap_or("")))
 }

@@ -2,7 +2,7 @@
 
 use std::cmp::Ordering;
 
-use super::source::Source;
+use super::source::{LibraryView, Source};
 use crate::item::{Item, Kind};
 use crate::search::Fuzzy;
 
@@ -287,8 +287,31 @@ impl Column {
 
     /// Section id when this column lists something inside one section.
     pub fn section_id(&self) -> Option<&str> {
+        match &self.source {
+            Source::Library(v) => return Some(&v.section),
+            Source::SectionHubs(id) | Source::Folder { section: id, .. } => return Some(id),
+            _ => {}
+        }
         let rest = self.path.as_deref()?.strip_prefix("/library/sections/")?;
         rest.split(['/', '?']).next()
+    }
+
+    pub fn library(&self) -> Option<&LibraryView> {
+        match &self.source {
+            Source::Library(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    /// Change a library listing's query; it reloads from the top.
+    pub fn set_library(&mut self, view: LibraryView) {
+        self.path = Some(view.path());
+        self.source = Source::Library(view);
+        self.items.clear();
+        self.view.clear();
+        self.cursor = 0;
+        self.scroll = 0;
+        self.loaded = false;
     }
 
     pub fn is_sessions(&self) -> bool {

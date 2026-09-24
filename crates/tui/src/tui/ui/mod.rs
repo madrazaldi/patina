@@ -265,6 +265,9 @@ fn draw_footer(f: &mut Frame, app: &App, theme: &Theme, area: Rect) {
         if app.columns.len() > 1 {
             hints.push(("h", "back"));
         }
+        if app.columns.last().is_some_and(|c| c.library().is_some()) {
+            hints.push(("F", "filters"));
+        }
         hints.extend([
             ("f", "search"),
             ("/", "filter"),

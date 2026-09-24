@@ -146,10 +146,14 @@ impl App {
             KeyCode::Char('K') => self.move_in_playlist(false),
             KeyCode::Char('f') => self.open_search(),
             KeyCode::Char('/') => col.filtering = true,
+            KeyCode::Char('s') if col.library().is_some() => self.open_sort(),
             KeyCode::Char('s') => {
                 let cursor = SortKey::ALL.iter().position(|k| *k == col.sort).unwrap_or(0);
                 self.modal = Some(Modal::Sort { cursor });
             }
+            KeyCode::Char('F') => self.open_filters(),
+            KeyCode::Char('A') => self.open_letters(),
+            KeyCode::Char('t') => self.cycle_type(),
             KeyCode::Char('v') => self.open_browse(),
             KeyCode::Char('H') => {
                 col.hide_watched = !col.hide_watched;
@@ -231,22 +235,25 @@ impl App {
                     Some(Modal::Sort { cursor })
                 }
             }
-            Modal::Browse { section_id, section_title, mut cursor } => {
+            Modal::Browse { section_id, section_title, rows, mut cursor } => {
                 if down {
-                    cursor = (cursor + 1).min(BROWSE_VIEWS.len() - 1);
-                    Some(Modal::Browse { section_id, section_title, cursor })
+                    cursor = (cursor + 1).min(rows.len().saturating_sub(1));
+                    Some(Modal::Browse { section_id, section_title, rows, cursor })
                 } else if up {
                     cursor = cursor.saturating_sub(1);
-                    Some(Modal::Browse { section_id, section_title, cursor })
+                    Some(Modal::Browse { section_id, section_title, rows, cursor })
                 } else if enter {
-                    self.browse_to(&section_id, &section_title, cursor);
+                    if let Some((label, source)) = rows.into_iter().nth(cursor) {
+                        self.browse_to(&section_id, &section_title, &label, source);
+                    }
                     None
                 } else if esc {
                     None
                 } else {
-                    Some(Modal::Browse { section_id, section_title, cursor })
+                    Some(Modal::Browse { section_id, section_title, rows, cursor })
                 }
             }
+            Modal::Filter(p) => self.filter_modal_key(p, key),
             Modal::Menu(mut m) => {
                 if down {
                     m.cursor = (m.cursor + 1).min(m.rows.len().saturating_sub(1));
@@ -431,6 +438,16 @@ impl App {
                 }
             }
             Modal::Pick(mut p) => {
+                // Letters jump directly; arrows move.
+                if let (PickKind::Letters, KeyCode::Char(c)) = (&p.kind, key.code) {
+                    let letter = if c.is_alphabetic() { c.to_uppercase().collect() } else { "#".to_string() };
+                    if let Some(i) = p.rows.iter().position(|(e, _)| matches!(e, PickEntry::Letter(l, _) if *l == letter)) {
+                        p.cursor = i;
+                        self.pick_selected(p);
+                        return;
+                    }
+                    return self.modal = Some(Modal::Pick(p));
+                }
                 if down {
                     p.cursor = (p.cursor + 1).min(p.rows.len().saturating_sub(1));
                     Some(Modal::Pick(p))

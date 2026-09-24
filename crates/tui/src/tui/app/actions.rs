@@ -4,6 +4,7 @@ use patina_core::ops::edit;
 use patina_core::session;
 
 use crate::tui::column::SortKey;
+use crate::tui::source::section_types;
 
 impl App {
     pub(super) fn set_watched(&mut self, watched: bool) {
@@ -510,6 +511,10 @@ pub fn smart_playlist_path(col: &Column, sections: &[Item]) -> Option<(&'static 
         return None;
     }
     let section_kind = sections.iter().find(|s| s.key.as_deref() == Some(sid))?.meta.kind.clone()?;
+    // Filters on seasons or episodes don't map onto the leaf-level rules below.
+    if col.library().is_some_and(|v| v.kind != section_types(&section_kind).first().map(|t| t.0)) {
+        return None;
+    }
     // Playlists hold leaves, so show and music filters apply to the parent.
     let (type_num, prefix, kind) = match section_kind.as_str() {
         "movie" => (1, None, "video"),
@@ -552,6 +557,11 @@ mod tests {
         );
         assert!(smart_playlist_path(&col("/library/sections/1/genre"), &sections).is_none());
         assert!(smart_playlist_path(&col("/playlists/3/items"), &sections).is_none());
+        let mut shows = crate::tui::source::LibraryView::new("2", "show");
+        let lib = |v: &crate::tui::source::LibraryView| Column::new(9, "x", Source::Library(v.clone()));
+        assert!(smart_playlist_path(&lib(&shows), &sections).is_some());
+        shows.set_kind(4);
+        assert!(smart_playlist_path(&lib(&shows), &sections).is_none());
     }
 
     #[test]

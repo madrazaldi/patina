@@ -4,7 +4,7 @@
 //! entry for it is one line in `App::root_items` (via [`crate::item::Item::nav`]).
 
 use patina_core::AppState;
-use patina_core::ops::lists;
+use patina_core::ops::{library, lists};
 use patina_plex::Params;
 
 use crate::fetch::watchlist_items;
@@ -20,6 +20,12 @@ pub enum Source {
     Static,
     /// A server listing; big ones load in pages.
     Path(String),
+    /// A library section's items with server-side type, sort and filters.
+    Library(LibraryView),
+    /// A section's recommended hubs.
+    SectionHubs(String),
+    /// A section's folder tree at `key` (its top level when `None`).
+    Folder { section: String, key: Option<String> },
     /// The server's home hubs (Continue Watching, Recently Added, ...).
     Home,
     /// A hub's items, paged from its key.
@@ -34,6 +40,7 @@ impl Source {
     pub fn path(&self) -> Option<String> {
         match self {
             Source::Path(p) => Some(p.clone()),
+            Source::Library(v) => Some(v.path()),
             _ => None,
         }
     }
@@ -42,6 +49,134 @@ impl Source {
     pub fn loads(&self) -> bool {
         !matches!(self, Source::Root | Source::Static)
     }
+}
+
+/// Media types a section can list, as (Plex type id, label); the first is the default.
+pub fn section_types(section_kind: &str) -> &'static [(u32, &'static str)] {
+    match section_kind {
+        "show" => &[(2, "Shows"), (3, "Seasons"), (4, "Episodes")],
+        "artist" => &[(8, "Artists"), (9, "Albums"), (10, "Tracks")],
+        _ => &[],
+    }
+}
+
+/// One active server filter: `filter=value`, shown as `title: label`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Filter {
+    pub filter: String,
+    pub title: String,
+    pub value: String,
+    pub label: String,
+}
+
+/// A library listing as the GUI's Library page builds it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LibraryView {
+    pub section: String,
+    /// The section's type (`movie`, `show`, `artist`, ...).
+    pub section_kind: String,
+    /// Plex media type listed; `None` lists the section's default.
+    pub kind: Option<u32>,
+    pub sort: String,
+    pub sort_title: String,
+    pub desc: bool,
+    /// The server's descending key for `sort`, when it has one.
+    pub desc_key: Option<String>,
+    /// Active filters; booleans have the value `1`.
+    pub filters: Vec<Filter>,
+}
+
+impl LibraryView {
+    pub fn new(section: &str, section_kind: &str) -> Self {
+        Self {
+            section: section.into(),
+            section_kind: section_kind.into(),
+            kind: section_types(section_kind).first().map(|t| t.0),
+            sort: "titleSort".into(),
+            sort_title: "Title".into(),
+            desc: false,
+            desc_key: None,
+            filters: Vec::new(),
+        }
+    }
+
+    pub fn path(&self) -> String {
+        let sort = match (&self.desc_key, self.desc) {
+            (Some(k), true) => k.clone(),
+            (None, true) => format!("{}:desc", self.sort),
+            _ => self.sort.clone(),
+        };
+        let mut p = Params::new().opt("type", self.kind).set("sort", sort);
+        for f in &self.filters {
+            p.push(f.filter.clone(), &f.value);
+        }
+        format!("/library/sections/{}/all?{}", self.section, p.to_query_string())
+    }
+
+    /// Whether the section can be watched (so offers the Unwatched filter).
+    pub fn watchable(&self) -> bool {
+        !matches!(self.section_kind.as_str(), "artist" | "photo")
+    }
+
+    /// The label of the listed type, when the section has several.
+    pub fn type_label(&self) -> Option<&'static str> {
+        section_types(&self.section_kind).iter().find(|t| Some(t.0) == self.kind).map(|t| t.1)
+    }
+
+    /// Switch the listed type; filters belong to a type, so they are cleared.
+    pub fn set_kind(&mut self, kind: u32) {
+        self.kind = Some(kind);
+        self.filters.clear();
+    }
+
+    pub fn is_on(&self, filter: &str, value: &str) -> bool {
+        self.filters.iter().any(|f| f.filter == filter && f.value == value)
+    }
+
+    /// Add or remove `filter=value`.
+    pub fn toggle(&mut self, f: Filter) {
+        match self.filters.iter().position(|x| x.filter == f.filter && x.value == f.value) {
+            Some(i) => {
+                self.filters.remove(i);
+            }
+            None => self.filters.push(f),
+        }
+    }
+
+    /// Titles are listed A–Z by the server, so the letter index applies.
+    pub fn alphabetical(&self) -> bool {
+        self.sort.starts_with("titleSort") && !self.desc && self.filters.is_empty()
+    }
+
+    /// Seasons, episodes, albums and tracks are listed out of their parent.
+    pub fn leaves(&self) -> bool {
+        matches!(self.kind, Some(3 | 4 | 9 | 10))
+    }
+
+    /// `Title ↑ · Genre: Drama · HDR`
+    pub fn describe(&self) -> String {
+        let mut parts = vec![format!("{} {}", self.sort_title, if self.desc { "↓" } else { "↑" })];
+        for f in &self.filters {
+            parts.push(if f.value == "1" && f.label.is_empty() { f.title.clone() } else { format!("{}: {}", f.title, f.label) });
+        }
+        parts.join(" · ")
+    }
+}
+
+/// The row index of each letter in an A–Z listing, from the server's
+/// `firstCharacter` counts.
+pub fn letter_starts(chars: &[patina_plex::Directory]) -> Vec<(String, usize, usize)> {
+    let mut out: Vec<(String, usize, usize)> = Vec::new();
+    let mut n = 0;
+    for c in chars {
+        let letter = c.title.clone().or_else(|| c.key.clone()).unwrap_or_default().to_uppercase();
+        let size = c.size.unwrap_or(0).max(0) as usize;
+        if !out.iter().any(|(l, _, _)| *l == letter) {
+            out.push((letter, n, size));
+        }
+        n += size;
+    }
+    out
 }
 
 /// Where a synthetic entry (nav entry, hub, person, tag) leads.
@@ -69,6 +204,18 @@ pub async fn fetch(core: &AppState, source: &Source, progressive: bool, page: &m
         Source::Sessions => Ok(server.sessions().await?.into_iter().map(Item::from).collect()),
         Source::History => Ok(lists::history(core, 0).await?.items.into_iter().map(Item::from).collect()),
         Source::Watchlist => watchlist_items(core, &server).await,
+        Source::Library(v) => paged(&server, &v.path(), progressive, page).await,
+        Source::SectionHubs(id) => Ok(hubs(server.section_hubs(id, 18).await?)),
+        Source::Folder { section, key } => {
+            let view = library::section_folders(core, section, key.as_deref()).await?;
+            let folders = view.directories.into_iter().map(|d| {
+                let source = Source::Folder { section: section.clone(), key: d.key.clone() };
+                let mut it = Item::directory(d);
+                it.link = Some(Box::new(Link { source, items: Vec::new() }));
+                it
+            });
+            Ok(folders.chain(view.items.into_iter().map(Item::from)).collect())
+        }
         Source::Path(p) if is_paged(p) => paged(&server, p, progressive, page).await,
         Source::Path(p) => Ok(Item::listing(server.fetch(p, &Params::new()).await?)),
     }
@@ -143,6 +290,44 @@ mod tests {
         assert_eq!(link.source, Source::Static);
         assert_eq!(link.items.len(), 2);
         assert_eq!(items[1].link_source(), Some(&Source::Hub("/hubs/movie.recentlyadded".into())));
+    }
+
+    fn filter(filter: &str, value: &str, label: &str) -> Filter {
+        Filter { filter: filter.into(), title: filter.into(), value: value.into(), label: label.into() }
+    }
+
+    #[test]
+    fn library_paths() {
+        let mut v = LibraryView::new("2", "show");
+        assert_eq!(v.kind, Some(2));
+        assert_eq!(v.path(), "/library/sections/2/all?type=2&sort=titleSort");
+        assert!(v.alphabetical());
+        v.toggle(filter("genre", "12", "Drama"));
+        v.toggle(filter("genre", "13", "Comedy"));
+        v.toggle(filter("hdr", "1", ""));
+        v.desc = true;
+        assert_eq!(v.path(), "/library/sections/2/all?type=2&sort=titleSort%3Adesc&genre=12&genre=13&hdr=1");
+        assert!(v.is_on("genre", "13"));
+        v.toggle(filter("genre", "12", "Drama"));
+        assert!(!v.is_on("genre", "12"));
+        v.desc_key = Some("titleSort:reverse".into());
+        assert!(v.path().contains("sort=titleSort%3Areverse"));
+        assert_eq!(v.describe(), "Title ↓ · genre: Comedy · hdr");
+        assert!(!v.alphabetical());
+        v.set_kind(4);
+        assert!(v.filters.is_empty() && v.leaves());
+        assert_eq!(v.type_label(), Some("Episodes"));
+        let m = LibraryView::new("1", "movie");
+        assert_eq!(m.kind, None);
+        assert_eq!(m.path(), "/library/sections/1/all?sort=titleSort");
+        assert!(!LibraryView::new("3", "artist").watchable());
+    }
+
+    #[test]
+    fn letter_indices() {
+        let d = |t: &str, n: i64| patina_plex::Directory { title: Some(t.into()), size: Some(n), ..Default::default() };
+        let starts = letter_starts(&[d("#", 2), d("A", 3), d("b", 1), d("C", 4)]);
+        assert_eq!(starts, vec![("#".into(), 0, 2), ("A".into(), 2, 3), ("B".into(), 5, 1), ("C".into(), 6, 4)]);
     }
 
     #[test]
