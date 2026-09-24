@@ -42,7 +42,7 @@ def img(kind, n):
 
 
 def stream_list(part_id):
-    return [
+    streams = [
         {"id": part_id * 10 + 1, "streamType": 1, "codec": "h264", "index": 0, "height": 720, "width": 1280,
          "displayTitle": "720p (H.264)", "frameRate": 24.0},
         {"id": part_id * 10 + 2, "streamType": 2, "codec": "aac", "index": 1, "channels": 2, "language": "English",
@@ -54,6 +54,16 @@ def stream_list(part_id):
          "languageCode": "eng", "selected": True, "displayTitle": "English (SRT)",
          "extendedDisplayTitle": "English (SRT Embedded)"},
     ]
+    # Every show's S02E03 lacks the Japanese dub, to exercise "no matching track".
+    if 1000 <= part_id < 2000 and part_id % 100 == 23:
+        streams = [s for s in streams if s.get("languageCode") != "jpn" or s["streamType"] != 2]
+        streams[1]["selected"] = True
+    sel = SELECTED.get(part_id, {})
+    for s in streams:
+        kind = {2: "audio", 3: "subtitle"}.get(s["streamType"])
+        if kind in sel:
+            s["selected"] = s["id"] == sel[kind]
+    return streams
 
 
 def media_for(rk):
@@ -134,6 +144,8 @@ def episode(show_i, s, e):
 
 
 STATE = {}
+# part id -> {"audio": stream id, "subtitle": stream id or 0}, set through PUT /library/parts/<id>.
+SELECTED = {}
 
 
 def all_movies():
@@ -156,6 +168,17 @@ def find(rk):
     if 1000 <= n < 2000:
         return episode((n - 1000) // 100, (n % 100) // 10, n % 10)
     return None
+
+
+def leaves(rk):
+    item = find(rk)
+    if item is None:
+        return []
+    if item["type"] == "show":
+        return [e for s in children(rk) for e in children(s["ratingKey"])]
+    if item["type"] == "season":
+        return children(rk)
+    return [item]
 
 
 def children(rk):
@@ -258,6 +281,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(mc())
         if re.fullmatch(r"/library/parts/\d+", p):
             self.record("select_streams", q)
+            sel = SELECTED.setdefault(int(p.rsplit("/", 1)[1]), {})
+            for param, kind in (("audioStreamID", "audio"), ("subtitleStreamID", "subtitle")):
+                if param in q:
+                    sel[kind] = int(q[param][0])
             return self.send_json(mc())
         # --- media -----------------------------------------------------------------
         if re.fullmatch(r"/library/parts/\d+/\d+/file\.mkv", p):
@@ -326,9 +353,14 @@ class Handler(BaseHTTPRequestHandler):
                     "rating": lambda i: i.get("rating", 0)}.get(key, lambda i: i["title"])
             items = sorted(items, key=keyf, reverse=sort.endswith(":desc"))
             return self.send_json(page(items, q))
-        m = re.fullmatch(r"/library/metadata/(\d+)(/children|/related)?", p)
+        m = re.fullmatch(r"/library/metadata/(\d+(?:,\d+)+)", p)
+        if m:
+            return self.send_json(mc(Metadata=[i for i in map(find, m.group(1).split(",")) if i]))
+        m = re.fullmatch(r"/library/metadata/(\d+)(/children|/related|/allLeaves)?", p)
         if m:
             rk, sub = m.groups()
+            if sub == "/allLeaves":
+                return self.send_json(mc(Metadata=leaves(rk)))
             if sub == "/children":
                 return self.send_json(mc(Metadata=children(rk)))
             if sub == "/related":

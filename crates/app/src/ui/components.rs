@@ -304,6 +304,8 @@ pub fn ItemMenu() -> Element {
     let show_key = item.grandparent_rating_key.clone();
     let season_key = item.parent_rating_key.clone();
     let playlist_item = item.clone();
+    let tracks_item = item.clone();
+    let tracks_supported = crate::ui::tracks::supports(&item);
     let watchlist_id = item.discover_id().map(str::to_string);
     let web_url = session.as_ref().and_then(|s| s.server.machine_identifier().map(|m| {
         format!("https://app.plex.tv/desktop#!/server/{m}/details?key=%2Flibrary%2Fmetadata%2F{rk}")
@@ -388,6 +390,15 @@ pub fn ItemMenu() -> Element {
                         target.set(Some(playlist_item.clone()));
                     },
                     Icon { name: Ic::List, class: "sm" } "Add to playlist…"
+                }
+            }
+            if tracks_supported {
+                div { class: "menu-item", onclick: move |_| {
+                        menu.set(None);
+                        let mut target = app.tracks_target;
+                        target.set(Some(tracks_item.clone()));
+                    },
+                    Icon { name: Ic::Subtitles, class: "sm" } "Audio & subtitles…"
                 }
             }
             if has_tv {

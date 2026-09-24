@@ -69,6 +69,37 @@ impl PlexServer {
         self.get(&format!("/library/metadata/{rating_key}/allLeaves"), &Params::new()).await
     }
 
+    /// Every leaf under an item, with full stream details. `allLeaves` leaves
+    /// streams out, so the items are fetched again in batches; any the batch
+    /// endpoint still returns without streams are fetched one by one.
+    pub async fn all_leaves_with_streams(&self, rating_key: &str) -> Result<Vec<Metadata>> {
+        use futures::{StreamExt, TryStreamExt};
+
+        let keys: Vec<String> = self.all_leaves(rating_key).await?.metadata.iter().map(|m| m.rating_key().to_string()).collect();
+        let batches: Vec<Vec<Metadata>> = futures::stream::iter(keys.chunks(40))
+            .map(|chunk| async move {
+                let refs: Vec<&str> = chunk.iter().map(String::as_str).collect();
+                self.metadata_many(&refs).await
+            })
+            .buffered(4)
+            .try_collect()
+            .await?;
+        let mut items: Vec<Metadata> = futures::stream::iter(batches.into_iter().flatten())
+            .map(|item| async move {
+                let missing = item.media.iter().flat_map(|m| &m.parts).any(|p| p.streams.is_empty());
+                if !missing {
+                    return Ok::<_, crate::Error>(item);
+                }
+                Ok(self.metadata(item.rating_key(), MetadataOptions::default()).await?.unwrap_or(item))
+            })
+            .buffered(8)
+            .try_collect()
+            .await?;
+        // Keep allLeaves order even if the batch endpoint reorders.
+        items.sort_by_key(|m| keys.iter().position(|k| k == m.rating_key()));
+        Ok(items)
+    }
+
     pub async fn grandchildren(&self, rating_key: &str) -> Result<MediaContainer> {
         self.get(&format!("/library/metadata/{rating_key}/grandchildren"), &Params::new()).await
     }

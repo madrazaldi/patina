@@ -685,3 +685,16 @@ img { display: block; }
 .mt { margin-top: 16px; }
 .mt-lg { margin-top: 30px; }
 .hidden { display: none !important; }
+
+/* Bulk audio & subtitles dialog ---------------------------------------- */
+.modal.wide { width: min(680px, 92vw); }
+.track-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.track-grid .picker { max-width: none; min-width: 0; }
+.track-summary { display: flex; flex-direction: column; gap: 10px; margin-top: 18px; padding: 14px 16px; border-radius: 14px; background: rgba(255,255,255,.035); border: 1px solid var(--border); color: var(--text-2); }
+.track-summary > span { display: flex; align-items: center; gap: 6px; }
+.track-summary .icon { color: var(--accent); }
+.track-progress { height: 6px; border-radius: 6px; background: rgba(255,255,255,.08); overflow: hidden; }
+.track-progress i { display: block; height: 100%; background: var(--accent); transition: width .2s var(--ease); }
+.track-misses summary { cursor: pointer; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.track-misses summary .icon { color: var(--warn); }
+.track-misses ul { margin: 8px 0 0; padding-left: 26px; max-height: 160px; overflow: auto; color: var(--muted); font-size: 13px; }

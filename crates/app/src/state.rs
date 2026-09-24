@@ -64,6 +64,8 @@ pub struct AppState {
     pub menu: Signal<Option<MenuState>>,
     /// Item waiting for the "add to playlist" dialog.
     pub playlist_target: Signal<Option<Metadata>>,
+    /// Show, season or episode waiting for the bulk audio/subtitle dialog.
+    pub tracks_target: Signal<Option<Metadata>>,
     /// Bumped whenever watch state may have changed; views refetch.
     pub revision: Signal<u64>,
     pub search: Signal<String>,
@@ -80,6 +82,7 @@ impl AppState {
             toasts: Signal::new_in_scope(Vec::new(), ScopeId::ROOT),
             menu: Signal::new_in_scope(None, ScopeId::ROOT),
             playlist_target: Signal::new_in_scope(None, ScopeId::ROOT),
+            tracks_target: Signal::new_in_scope(None, ScopeId::ROOT),
             revision: Signal::new_in_scope(0, ScopeId::ROOT),
             search: Signal::new_in_scope(String::new(), ScopeId::ROOT),
         }

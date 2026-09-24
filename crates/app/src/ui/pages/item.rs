@@ -8,6 +8,7 @@ use crate::state::{AppState, use_app};
 use crate::ui::Route;
 use crate::ui::components::{Empty, ErrorView, HubRow, Img, MediaCard, Row, Shape, Spinner, browse, open_menu};
 use crate::ui::icons::{Ic, Icon};
+use crate::ui::tracks;
 
 #[component]
 pub fn ItemPage(rating_key: String) -> Element {
@@ -152,6 +153,7 @@ fn Detail(item: Metadata) -> Element {
     let shuffle_item = item.clone();
     let menu_item = item.clone();
     let playlist_item = item.clone();
+    let tracks_item = item.clone();
     let rk_watch = rk.clone();
     let rk_rate = rk.clone();
     let user_rating = item.user_rating.unwrap_or(0.0);
@@ -243,6 +245,12 @@ fn Detail(item: Metadata) -> Element {
                                             Icon { name: if on { Ic::BookmarkCheck } else { Ic::Bookmark } }
                                         }
                                     }
+                                }
+                            }
+                            if tracks::supports(&item) {
+                                button { class: "icon-btn big", title: "Audio & subtitles for many episodes",
+                                    onclick: move |_| { let mut t = app.tracks_target; t.set(Some(tracks_item.clone())); },
+                                    Icon { name: Ic::Subtitles }
                                 }
                             }
                             if !matches!(kind.as_str(), "collection" | "playlist") {

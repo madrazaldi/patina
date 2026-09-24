@@ -146,6 +146,21 @@ impl Part {
     pub fn selected_subtitle(&self) -> Option<&Stream> {
         self.subtitle_streams().find(|s| s.selected)
     }
+
+    /// The stream in this part that best corresponds to `template`, which
+    /// usually comes from another episode. Language must match (and for
+    /// subtitles, forced-ness too). Ties go to the stream that comes first.
+    pub fn matching_stream(&self, template: &Stream) -> Option<&Stream> {
+        let kind = template.stream_type?;
+        let mut best: Option<(u32, &Stream)> = None;
+        for s in self.streams_of(kind) {
+            let Some(score) = template.similarity(s) else { continue };
+            if best.is_none_or(|(b, _)| score > b) {
+                best = Some((score, s));
+            }
+        }
+        best.map(|(_, s)| s)
+    }
 }
 
 /// A video, audio, subtitle or lyrics stream inside a part.
@@ -237,6 +252,50 @@ impl Stream {
 
     pub fn is_external(&self) -> bool {
         self.key.is_some() && self.index.is_none()
+    }
+
+    /// Language identity used for matching: the code, else the tag, else the name.
+    fn language_key(&self) -> Option<String> {
+        self.language_code
+            .as_deref()
+            .or(self.language_tag.as_deref())
+            .or(self.language.as_deref())
+            .map(str::to_ascii_lowercase)
+    }
+
+    /// How closely `other` resembles this stream, or `None` if it can't stand in
+    /// for it at all (a different type or language, or forced vs. full subtitles).
+    pub fn similarity(&self, other: &Stream) -> Option<u32> {
+        if self.stream_type != other.stream_type || self.language_key() != other.language_key() {
+            return None;
+        }
+        let subtitle = self.stream_type == Some(crate::stream_type::SUBTITLE);
+        if subtitle && self.forced != other.forced {
+            return None;
+        }
+        let same = |a: &Option<String>, b: &Option<String>| a.is_some() && a.as_deref().map(str::to_lowercase) == b.as_deref().map(str::to_lowercase);
+        let mut score = 1;
+        if same(&self.title, &other.title) {
+            score += 8;
+        }
+        if same(&self.extended_display_title, &other.extended_display_title) {
+            score += 4;
+        } else if same(&self.display_title, &other.display_title) {
+            score += 2;
+        }
+        if same(&self.codec, &other.codec) {
+            score += 3;
+        }
+        if self.channels.is_some() && self.channels == other.channels {
+            score += 3;
+        }
+        if self.hearing_impaired == other.hearing_impaired {
+            score += 2;
+        }
+        if self.is_external() == other.is_external() {
+            score += 1;
+        }
+        Some(score)
     }
 
     pub fn hdr_label(&self) -> Option<&'static str> {

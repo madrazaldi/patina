@@ -1,6 +1,7 @@
 pub mod components;
 pub mod icons;
 mod pages;
+pub mod tracks;
 
 use dioxus::core::spawn_forever;
 use dioxus::prelude::*;
@@ -186,6 +187,7 @@ fn Shell() -> Element {
         }
         ItemMenu {}
         PlaylistDialog {}
+        tracks::TrackDialog {}
     }
 }
 

@@ -9,6 +9,7 @@ A Plex desktop client written in Rust. It gives you a polished interface for bro
 - **Home:** a rotating hero banner plus every hub the server offers (Continue Watching, Recently Added, and so on).
 - **Libraries:** a poster grid that keeps loading as you scroll. Sort by any server sort, filter by genre or unwatched, and switch between types (shows/seasons/episodes, artists/albums/tracks). Each library also has Recommended and Collections tabs.
 - **Detail pages:** backdrop art, ratings, cast, extras, related titles, seasons and episodes, albums and tracks. Pick the version, audio track and subtitle track; your choice is saved to Plex. Mark items watched, rate them, and add them to playlists or your watchlist.
+- **Audio & subtitles for whole shows** (like [PASTA](https://github.com/cglatot/pasta)): from a show, season or episode, pick an audio and/or subtitle track in one episode and Patina selects the closest match in every episode of the season or show. It matches on language first (and forced vs. full subtitles), then title, codec and channels. It shows which episodes have no match before you apply, and it leaves them unchanged. You can also turn subtitles off everywhere.
 - **Search** as you type, grouped by type, including people and tags.
 - **Playlists** (create, add, remove, delete) and your plex.tv **Watchlist**. Watchlist items link to the copy on your server when there is one.
 - **Activity:** live sessions (with transcode details and the option to stop a stream), watch history, and background tasks and transcoder sessions.
