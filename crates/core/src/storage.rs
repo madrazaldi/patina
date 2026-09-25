@@ -17,7 +17,8 @@ pub fn try_lock(path: &Path) -> Result<Option<File>> {
     let file = lock_file(path)?;
     match FileExt::try_lock_exclusive(&file) {
         Ok(()) => Ok(Some(file)),
-        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => Ok(None),
+        // Windows reports contention as ERROR_LOCK_VIOLATION, not WouldBlock.
+        Err(e) if e.raw_os_error() == fs2::lock_contended_error().raw_os_error() => Ok(None),
         Err(e) => Err(e.into()),
     }
 }
