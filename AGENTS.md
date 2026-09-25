@@ -32,6 +32,12 @@ XDG_CONFIG_HOME=$XDG_CONFIG_HOME pnpm tauri dev
 
 The mock logs every timeline, scrobble and stream-selection call. Downloads go to the real downloads folder (set in Settings), so remove test downloads afterwards. Logging: `PATINA_LOG=debug`. The TUI logs to `patina-tui.log` in the platform data dir, never to the terminal.
 
+## CI and releases
+
+`.github/workflows/ci.yml` runs on every push to `main` and every PR: clippy with `-D warnings` and `cargo test` on Linux, macOS and Windows (Windows runs unit tests only), the mpv smoke test on Linux, and `pnpm check`, `pnpm build` and Playwright for `web/`. `CI OK` is the single required check.
+
+To release, bump `version` in `[workspace.package]`, commit, and push a matching tag (`v0.2.0`). `release.yml` builds the desktop bundles and `patina-tui` archives for macOS (arm64 and x86_64), Linux (x86_64 and arm64) and Windows into a draft GitHub release. Publish it by hand. macOS builds are signed and notarized only when the `APPLE_*` secrets are set, and ad-hoc signed otherwise.
+
 ## Architecture
 
 | Crate | Role |

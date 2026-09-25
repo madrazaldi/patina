@@ -28,7 +28,7 @@ pub fn init(app: &AppHandle) {
     let hwnd = app
         .get_webview_window("main")
         .and_then(|w| w.hwnd().ok())
-        .map(|h| h.0 as *mut std::ffi::c_void);
+        .map(|h| h.0);
     #[cfg(not(target_os = "windows"))]
     let hwnd = None;
 

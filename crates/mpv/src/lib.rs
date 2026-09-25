@@ -112,6 +112,8 @@ pub struct Mpv {
     pending: Pending,
     next_id: AtomicU64,
     child: Mutex<Child>,
+    /// Only unix leaves a socket file to remove on drop; Windows named pipes vanish with mpv.
+    #[cfg_attr(windows, allow(dead_code))]
     socket: PathBuf,
 }
 
