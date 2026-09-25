@@ -279,6 +279,13 @@ fn response_offset(status: u16, range: Option<&str>, requested: u64) -> Result<(
     Ok((start, Some(total)))
 }
 
+/// Only a strong ETag or modification date can identify bytes in a saved partial file.
+fn response_validator(resp: &reqwest::Response) -> Option<String> {
+    resp.headers().get("ETag").and_then(|v| v.to_str().ok()).filter(|v| !v.starts_with("W/"))
+        .or_else(|| resp.headers().get("Last-Modified").and_then(|v| v.to_str().ok()))
+        .map(str::to_string)
+}
+
 async fn fetch(app: &AppState, server: &PlexServer, id: &str) -> Result<bool> {
     let Some(d) = entry(id) else { return Ok(false) };
     let item = server
@@ -297,29 +304,24 @@ async fn fetch(app: &AppState, server: &PlexServer, id: &str) -> Result<bool> {
     let partial = PathBuf::from(format!("{}.part", path.display()));
     let existing = tokio::fs::metadata(&partial).await.map(|m| m.len()).unwrap_or(0);
     // Without a validator a partial file cannot safely be matched to a changed source.
-    let requested = if d.source_key.as_deref() == Some(key) && d.validator.is_some() { existing } else { 0 };
-    let resp = match server.download_range(key, requested, d.validator.as_deref()).await {
-        Err(patina_plex::Error::Status { status: 416, .. }) => server.download_range(key, 0, None).await?,
+    let mut requested = if d.source_key.as_deref() == Some(key) && d.validator.is_some() { existing } else { 0 };
+    let mut resp = match server.download_range(key, requested, d.validator.as_deref()).await {
+        Err(patina_plex::Error::Status { status: 416, .. }) => {
+            requested = 0;
+            server.download_range(key, 0, None).await?
+        }
         other => other?,
     };
+    // A correctly aligned range alone cannot prove that the source is unchanged.
+    if requested > 0 && resp.status().as_u16() == 206 && response_validator(&resp) != d.validator {
+        drop(resp);
+        requested = 0;
+        resp = server.download_range(key, 0, None).await?;
+    }
     let (offset, range_total) =
         response_offset(resp.status().as_u16(), resp.headers().get("Content-Range").and_then(|v| v.to_str().ok()), requested)?;
     let total = range_total.or_else(|| resp.content_length().map(|n| offset + n)).or(part.size.and_then(|n| u64::try_from(n).ok()));
-    let validator = resp
-        .headers()
-        .get("ETag")
-        .and_then(|v| v.to_str().ok())
-        .filter(|v| !v.starts_with("W/"))
-        .or_else(|| resp.headers().get("Last-Modified").and_then(|v| v.to_str().ok()))
-        .map(str::to_string);
-    if offset > 0 && validator.is_some() && validator != d.validator {
-        update(|list| {
-            if let Some(d) = list.iter_mut().find(|d| d.id == id) {
-                d.validator = None;
-            }
-        })?;
-        return Err(anyhow!("The downloaded file changed; retry to restart it."));
-    }
+    let validator = response_validator(&resp);
     if let Some(total) = total {
         ensure!(fs2::available_space(parent)? >= total.saturating_sub(offset), "Not enough free disk space for this download.");
     }

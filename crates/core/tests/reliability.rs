@@ -11,6 +11,20 @@ use std::{
 
 #[test]
 fn interrupted_downloads_and_offline_sync() {
+    download_reliability("normal");
+}
+
+#[test]
+fn resumed_download_without_validator_restarts() {
+    download_reliability("missing");
+}
+
+#[test]
+fn resumed_download_with_changed_validator_restarts() {
+    download_reliability("changed");
+}
+
+fn download_reliability(validator: &str) {
     let temp = tempfile::tempdir().unwrap();
     let media = temp.path().join("media");
     std::fs::create_dir_all(&media).unwrap();
@@ -21,6 +35,7 @@ fn interrupted_downloads_and_offline_sync() {
     let mut server = Command::new("python3")
         .arg(script)
         .args(["--port", "0", "--download-delay", "0.012", "--drop-download-once"])
+        .args(["--resume-validator", validator, "--missing-metadata", "999998"])
         .arg("--media")
         .arg(&media)
         .stderr(Stdio::piped())
@@ -41,6 +56,7 @@ fn interrupted_downloads_and_offline_sync() {
         .env("PATINA_TEST_SERVER", &url)
         .env("XDG_CONFIG_HOME", temp.path().join("config"))
         .env("PATINA_TEST_DOWNLOADS", temp.path().join("files"))
+        .env("PATINA_TEST_RESUME_VALIDATOR", validator)
         .status()
         .unwrap();
     let recovery = Command::new(std::env::current_exe().unwrap())
@@ -91,6 +107,11 @@ async fn download_and_offline_worker() {
             assert_eq!(downloads::list()[0].state, downloads::State::Paused);
             let partial = format!("{}.part", d.file.unwrap());
             assert!(std::fs::metadata(&partial).unwrap().len() > 0);
+            if std::env::var("PATINA_TEST_RESUME_VALIDATOR").unwrap() != "normal" {
+                // Simulate a partial from a different source with the same length.
+                use std::io::Write;
+                std::fs::OpenOptions::new().write(true).open(&partial).unwrap().write_all(&[0; 1024]).unwrap();
+            }
             downloads::retry(&app, &d.id);
             break;
         }
@@ -107,19 +128,30 @@ async fn download_and_offline_worker() {
         tokio::time::sleep(Duration::from_millis(50)).await;
     };
     assert_eq!(std::fs::read(d.file.as_ref().unwrap()).unwrap(), vec![42u8; 8 * 1024 * 1024]);
+    app.set_session(Some(session("bob")), vec![]);
+    // Both a 404 and an empty metadata response must leave later outbox entries usable.
+    for key in ["999998", "999999"] {
+        let mut missing = d.clone();
+        missing.id = format!("{}:{key}", d.id);
+        missing.item.rating_key = Some(key.into());
+        offline::record(&missing, 45000, 180000, false, 0.9).unwrap();
+    }
     offline::record(&d, 90000, 180000, false, 0.9).unwrap();
     assert_eq!(offline::position(&d), 90000);
-    app.set_session(Some(session("bob")), vec![]);
     offline::sync(&app).await.unwrap();
     let server = session("alice").server;
     let item = server.metadata("100", MetadataOptions::default()).await.unwrap().unwrap();
     assert_eq!(item.view_offset, Some(61000), "other profile must not replay Alice's progress");
     app.set_session(Some(session("alice")), vec![]);
-    offline::sync(&app).await.unwrap();
-    assert_eq!(server.metadata("100", MetadataOptions::default()).await.unwrap().unwrap().view_offset, Some(90000));
+    sync_until(&app, &server, |item| item.view_offset == Some(90000)).await;
+    let progress: Vec<offline::Progress> = patina_core::storage::read_json(&patina_core::config::config_dir().join("offline-progress.json")).unwrap();
+    for key in ["999998", "999999"] {
+        let missing = progress.iter().find(|p| p.rating_key == key).unwrap();
+        assert!(!missing.pending, "missing titles must be retired from the outbox");
+        assert_eq!(missing.position, 45000, "local resume points must survive removal from Plex");
+    }
     offline::record(&d, 179000, 180000, true, 0.9).unwrap();
-    offline::sync(&app).await.unwrap();
-    assert!(server.metadata("100", MetadataOptions::default()).await.unwrap().unwrap().is_watched());
+    sync_until(&app, &server, |item| item.is_watched()).await;
     assert_eq!(offline::position(&d), 0);
     // Leave a second transfer unfinished, then exit this process entirely.
     downloads::enqueue(&app, "101").await.unwrap();
@@ -130,6 +162,19 @@ async fn download_and_offline_worker() {
         }
         assert!(began.elapsed() < Duration::from_secs(10));
         tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+/// The background synchronizer may own the lease; retry until the server acknowledges the change.
+async fn sync_until(app: &AppState, server: &PlexServer, expected: impl Fn(&patina_plex::Metadata) -> bool) {
+    let began = Instant::now();
+    loop {
+        offline::sync(app).await.unwrap();
+        if expected(&server.metadata("100", MetadataOptions::default()).await.unwrap().unwrap()) {
+            return;
+        }
+        assert!(began.elapsed() < Duration::from_secs(10), "offline progress was not replayed");
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }
 
@@ -222,12 +267,16 @@ async fn mpv_worker() {
         validator: None,
         source_key: None,
     };
+    let mut next = d.clone();
+    next.id = "mock:alice:next".into();
+    next.item.rating_key = Some("next".into());
     patina_core::storage::update_json::<Vec<downloads::Download>, _>(&patina_core::config::config_dir().join("downloads.json"), |list| {
-        list.push(d.clone())
+        list.extend([d.clone(), next.clone()]);
     })
     .unwrap();
     offline::record(&d, 8000, 20000, false, 0.9).unwrap();
-    patina_core::ops::playback::play_downloads(&app, std::slice::from_ref(&d.id)).unwrap();
+    offline::record(&next, 4000, 20000, false, 0.9).unwrap();
+    patina_core::ops::playback::play_downloads(&app, &[d.id.clone(), next.id.clone()]).unwrap();
     let start = Instant::now();
     loop {
         if app.now_playing().is_some_and(|n| n.position_ms > 8100 && n.position_ms < 14000) {
@@ -236,9 +285,18 @@ async fn mpv_worker() {
         assert!(start.elapsed() < Duration::from_secs(8), "mpv did not resume from the saved position");
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
+    patina_core::player::control(patina_core::player::Control::Next);
+    loop {
+        if app.now_playing().is_some_and(|n| n.queue_pos == 1 && n.position_ms > 5100) {
+            break;
+        }
+        assert!(start.elapsed() < Duration::from_secs(12), "skipping lost the new entry's now-playing state");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(offline::position(&d) > 8100, "skipping must checkpoint the previous entry");
     patina_core::player::control(patina_core::player::Control::SeekTo(18.0));
     loop {
-        if app.now_playing().is_none() && offline::position(&d) == 0 {
+        if app.now_playing().is_none() && offline::position(&next) == 0 {
             break;
         }
         assert!(start.elapsed() < Duration::from_secs(15), "mpv did not persist completion");

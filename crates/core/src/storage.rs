@@ -37,6 +37,8 @@ pub fn write(path: &Path, bytes: &[u8]) -> Result<()> {
     temp.write_all(bytes)?;
     temp.as_file().sync_all()?;
     temp.persist(path).map_err(|e| e.error).with_context(|| format!("saving {}", path.display()))?;
+    #[cfg(unix)]
+    File::open(parent)?.sync_all()?;
     Ok(())
 }
 
@@ -51,14 +53,28 @@ pub fn read_json<T: DeserializeOwned + Default>(path: &Path) -> Result<T> {
 pub fn update_json<T: DeserializeOwned + Serialize + Default, R>(path: &Path, update: impl FnOnce(&mut T) -> R) -> Result<R> {
     let _lock = lock(path)?;
     let mut value = read_json(path)?;
+    let before = serde_json::to_vec_pretty(&value)?;
     let result = update(&mut value);
-    write(path, &serde_json::to_vec_pretty(&value)?)?;
+    let after = serde_json::to_vec_pretty(&value)?;
+    // Polling workers often have nothing to claim or recover. Keep those transactions read-only.
+    if before != after || !path.exists() {
+        write(path, &after)?;
+    }
     Ok(result)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unchanged_transactions_do_not_replace_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state.json");
+        std::fs::write(&path, b"[1,2]").unwrap();
+        update_json::<Vec<u64>, _>(&path, |_| ()).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"[1,2]");
+    }
 
     #[test]
     fn concurrent_writers_preserve_every_update() {

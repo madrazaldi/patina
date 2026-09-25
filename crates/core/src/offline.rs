@@ -96,18 +96,30 @@ pub async fn sync(app: &AppState) -> Result<()> {
     };
     let account = account(&session);
     let list: Vec<Progress> = storage::read_json(&path())?;
+    let mut first_error = None;
     for p in list.into_iter().filter(|p| belongs(p, &session.server_id, &account)) {
         if !app.session().is_some_and(|s| s.server == session.server) {
             break;
         }
-        let Some(item) = session.server.metadata(&p.rating_key, MetadataOptions::default()).await? else { continue };
+        let item = match session.server.metadata(&p.rating_key, MetadataOptions::default()).await {
+            Ok(Some(item)) => item,
+            Ok(None) | Err(patina_plex::Error::Status { status: 404 | 410, .. }) => {
+                // Deleted titles keep their local resume point, but must not block the outbox.
+                storage::update_json::<Vec<Progress>, _>(&path(), |list| acknowledge(list, &p))?;
+                continue;
+            }
+            Err(e) => {
+                first_error.get_or_insert(e);
+                continue;
+            }
+        };
         // A newer online watch wins; replay must never rewind another device's newer progress.
         let server_is_newer = item.last_viewed_at.unwrap_or(0) > p.updated;
         let server_position = item.view_offset.unwrap_or(0);
         let server_watched = item.is_watched();
         if !server_is_newer {
-            if p.watched {
-                session.server.scrobble(&p.rating_key).await?;
+            let result = if p.watched {
+                session.server.scrobble(&p.rating_key).await
             } else {
                 session
                     .server
@@ -120,7 +132,11 @@ pub async fn sync(app: &AppState) -> Result<()> {
                         play_queue_item_id: None,
                         session: None,
                     })
-                    .await?;
+                    .await
+            };
+            if let Err(e) = result {
+                first_error.get_or_insert(e);
+                continue;
             }
         }
         storage::update_json::<Vec<Progress>, _>(&path(), |list| {
@@ -132,7 +148,10 @@ pub async fn sync(app: &AppState) -> Result<()> {
         })?;
         app.bump();
     }
-    Ok(())
+    match first_error {
+        Some(e) => Err(e.into()),
+        None => Ok(()),
+    }
 }
 
 #[cfg(test)]

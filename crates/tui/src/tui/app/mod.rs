@@ -669,7 +669,10 @@ impl App {
         match ev {
             CoreEvent::Connection(false) => self.info("Connection lost; reconnecting. Downloads remain available."),
             CoreEvent::Connection(true) => self.info("Connected"),
-            CoreEvent::SettingsChanged => self.tui = self.core.settings().tui,
+            CoreEvent::SettingsChanged => {
+                self.tui = self.core.settings().tui;
+                self.show_inspector = self.tui.show_inspector;
+            }
             CoreEvent::Stage(stage) => self.on_stage(stage),
             CoreEvent::Session { session, sections } => {
                 let server_changed = self.session.as_ref().map(|s| &s.server_id) != session.as_ref().map(|s| &s.server_id);

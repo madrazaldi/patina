@@ -1123,6 +1123,7 @@ async fn run_files(app: AppState, files: Vec<crate::downloads::Download>) -> Res
     let mut last_ui = Instant::now();
     let mut played_any = false;
     let mut checkpoint = Instant::now();
+    let mut current_entry_id = None;
     let save = |np: &Option<NowPlaying>, completed: bool| {
         if let Some(n) = np && let Some(d) = files.get(n.queue_pos)
             && let Err(e) = crate::offline::record(d, n.position_ms, n.duration_ms, completed, settings.watched_threshold) {
@@ -1133,12 +1134,23 @@ async fn run_files(app: AppState, files: Vec<crate::downloads::Download>) -> Res
         match ev {
             Event::Shutdown => { save(&np, false); break; },
             Event::FileLoaded => played_any = true,
-            Event::EndFile { reason, .. } => { save(&np, reason == "eof"); np = None; },
+            Event::EndFile { reason, playlist_entry_id, .. } => {
+                // A skip can publish the new playlist position before the old entry ends.
+                let stale = matches!((playlist_entry_id, current_entry_id), (Some(ended), Some(current)) if ended != current);
+                if !stale {
+                    save(&np, reason == "eof");
+                    np = None;
+                    current_entry_id = None;
+                }
+            },
             Event::PropertyChange { name, data, .. } => {
                 match name.as_str() {
                     "playlist-pos" => {
                         save(&np, false);
                         let pos = data.as_i64().unwrap_or(-1);
+                        current_entry_id = if pos >= 0 {
+                            mpv.get_property(&format!("playlist/{pos}/id")).await.ok().and_then(|v| v.as_i64())
+                        } else { None };
                         np = (pos >= 0).then(|| files.get(pos as usize)).flatten().map(|d| NowPlaying {
                             item: d.item.clone(),
                             position_ms: crate::offline::position(d),

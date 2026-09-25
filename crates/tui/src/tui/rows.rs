@@ -232,22 +232,33 @@ fn pct(n: f64) -> String {
 // ---- downloads -------------------------------------------------------------
 
 /// The group a download is listed under, as the GUI's Downloads page groups them.
-pub fn download_group(d: &Download) -> (u8, String) {
-    match d.item.kind() {
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+pub struct DownloadGroup {
+    rank: u8,
+    title: String,
+    kind: String,
+    server: String,
+    account: String,
+}
+
+/// A playback group never crosses a media kind, server or profile boundary.
+pub fn download_group(d: &Download) -> DownloadGroup {
+    let (rank, title) = match d.item.kind() {
         "episode" | "track" => (1, d.item.grandparent_title.clone().unwrap_or_else(|| "Unknown".into())),
         "movie" => (0, "Movies".into()),
         _ => (2, "Other".into()),
-    }
+    };
+    DownloadGroup { rank, title, kind: d.item.kind().into(), server: d.server_id.clone(), account: d.account.clone() }
 }
 
-fn download_order(d: &Download) -> (u8, String, String, i64, i64) {
-    let (rank, group) = download_group(d);
+fn download_order(d: &Download) -> (DownloadGroup, String, i64, i64) {
+    let group = download_group(d);
     let m = &d.item;
     let title = m.title_sort.clone().unwrap_or_else(|| m.title().to_string());
     match m.kind() {
-        "episode" => (rank, group, String::new(), m.parent_index.unwrap_or(0), m.index.unwrap_or(0)),
-        "track" => (rank, group, m.parent_title.clone().unwrap_or_default(), m.parent_index.unwrap_or(0), m.index.unwrap_or(0)),
-        _ => (rank, group, title, 0, 0),
+        "episode" => (group, String::new(), m.parent_index.unwrap_or(0), m.index.unwrap_or(0)),
+        "track" => (group, m.parent_title.clone().unwrap_or_default(), m.parent_index.unwrap_or(0), m.index.unwrap_or(0)),
+        _ => (group, title, 0, 0),
     }
 }
 
@@ -256,11 +267,11 @@ pub fn downloads(list: &[Download]) -> Vec<Item> {
     let mut list: Vec<&Download> = list.iter().collect();
     list.sort_by_key(|d| download_order(d));
     let mut out = Vec::new();
-    let mut last: Option<String> = None;
+    let mut last = None;
     for d in list {
-        let (_, group) = download_group(d);
+        let group = download_group(d);
         if last.as_ref() != Some(&group) {
-            out.push(heading(&group));
+            out.push(heading(&group.title));
             last = Some(group);
         }
         let m = &d.item;
@@ -812,6 +823,23 @@ mod tests {
         assert_eq!(titles, ["Movies", "m", "Show", "S01E01 · e1", "S01E02 · e2"]);
         assert_eq!(rows[1].row.as_ref().unwrap().note, "40%");
         assert_eq!(rows[3].row.as_ref().unwrap().note, "failed");
+    }
+
+    #[test]
+    fn playback_groups_separate_accounts_servers_and_media_kinds() {
+        let mut alice = dl("e1", "episode", "Show", 1, 1, State::Done);
+        alice.account = "alice".into();
+        let mut bob = alice.clone();
+        bob.account = "bob".into();
+        let mut other_server = alice.clone();
+        other_server.server_id = "other".into();
+        let mut music = alice.clone();
+        music.item.kind = Some("track".into());
+        for other in [&bob, &other_server, &music] {
+            assert!(download_group(&alice) != download_group(other));
+        }
+        let rows = downloads(&[alice, bob]);
+        assert_eq!(rows.iter().filter(|i| i.title() == "Show").count(), 2);
     }
 
     #[test]

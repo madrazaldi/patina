@@ -24,10 +24,15 @@
     start = Math.max(0, Math.floor(top / rowHeight) - 2) * columns;
     end = Math.min(total, (Math.ceil((top + scroller.clientHeight) / rowHeight) + 2) * columns);
   }
-  export async function jump(index: number) {
+  export async function jump(index: number, onlyIfHidden = false) {
     if (!scroller || !root) return;
     const top = root.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
-    scroller.scrollTop = top + Math.floor(index / columns) * rowHeight;
+    const rowTop = top + Math.floor(index / columns) * rowHeight;
+    const rowBottom = rowTop + rowHeight;
+    if (!onlyIfHidden || rowTop < scroller.scrollTop) scroller.scrollTop = rowTop;
+    else if (rowBottom > scroller.scrollTop + scroller.clientHeight) {
+      scroller.scrollTop = Math.min(rowTop, rowBottom - scroller.clientHeight);
+    }
     measure();
     await tick();
   }
@@ -60,7 +65,7 @@
     e.preventDefault();
     const next = Math.max(0, Math.min(total - 1, index + delta));
     pendingFocus = next;
-    await jump(next);
+    await jump(next, true);
     root.querySelector<HTMLElement>(`[data-index="${next}"] .card`)?.focus({ preventScroll: true });
   }
 </script>

@@ -127,9 +127,19 @@ class Navigator {
     const generation = ++this.#restoreGeneration;
     const started = performance.now();
     const stop = () => { if (generation === this.#restoreGeneration) this.#restoreGeneration++; };
-    const cleanup = () => { document.removeEventListener("wheel", stop); document.removeEventListener("pointerdown", stop); };
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target;
+      if (target instanceof HTMLElement && (target.isContentEditable || target.closest("input, textarea, select"))) return;
+      if (["PageDown", "PageUp", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End", " "].includes(event.key)) stop();
+    };
+    const cleanup = () => {
+      document.removeEventListener("wheel", stop);
+      document.removeEventListener("pointerdown", stop);
+      document.removeEventListener("keydown", onKey);
+    };
     document.addEventListener("wheel", stop, { once: true, passive: true });
     document.addEventListener("pointerdown", stop, { once: true });
+    document.addEventListener("keydown", onKey);
     const step = () => {
       if (generation !== this.#restoreGeneration) { cleanup(); return; }
       const el = scroller();

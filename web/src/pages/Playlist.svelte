@@ -85,8 +85,8 @@
   }
 </script>
 
-{#if data.error && data.data !== undefined}<Status error={data.error} retry={() => data.reload()} stale />{/if}
-  {#if data.data === undefined}
+{#if data.error && data.data != null}<Status error={data.error} retry={() => data.reload()} stale />{/if}
+{#if data.data === undefined || (data.data === null && data.error)}
   <Status loading={!data.error} error={data.error} retry={() => data.reload()} fill />
 {:else if data.data === null}
   <Status title="Playlist not found" fill />

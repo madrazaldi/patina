@@ -27,6 +27,8 @@ MACHINE = "mock-machine-0001"
 MEDIA = "."
 EVENTS = []
 DOWNLOAD_DELAY = 0
+RESUME_VALIDATOR = "normal"
+MISSING_METADATA = set()
 DROP_DOWNLOAD_ONCE = False
 DROPPED_DOWNLOAD = False
 
@@ -542,7 +544,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
         self.send_header("Content-Type", ctype)
         self.send_header("Accept-Ranges", "bytes")
-        self.send_header("ETag", etag)
+        if not rng or RESUME_VALIDATOR != "missing":
+            self.send_header("ETag", '"changed"' if rng and RESUME_VALIDATOR == "changed" else etag)
         self.send_header("Content-Length", str(end - start + 1))
         self.end_headers()
         with open(path, "rb") as f:
@@ -777,6 +780,8 @@ class Handler(BaseHTTPRequestHandler):
         m = re.fullmatch(r"/library/metadata/(\d+)(/children|/related|/allLeaves)?", p)
         if m:
             rk, sub = m.groups()
+            if rk in MISSING_METADATA:
+                return self.send_json(mc(), status=404)
             if sub == "/allLeaves":
                 return self.send_json(mc(Metadata=leaves(rk)))
             if sub == "/children":
@@ -877,15 +882,19 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    global MEDIA, DOWNLOAD_DELAY, DROP_DOWNLOAD_ONCE
+    global MEDIA, DOWNLOAD_DELAY, DROP_DOWNLOAD_ONCE, RESUME_VALIDATOR, MISSING_METADATA
     ap = argparse.ArgumentParser()
     ap.add_argument("--media", default=".")
     ap.add_argument("--port", type=int, default=32499)
     ap.add_argument("--download-delay", type=float, default=0, help="Delay each media chunk for pause/resume testing")
     ap.add_argument("--drop-download-once", action="store_true", help="Interrupt the first media transfer")
+    ap.add_argument("--resume-validator", choices=["normal", "missing", "changed"], default="normal", help="Simulate unverified range responses")
+    ap.add_argument("--missing-metadata", action="append", default=[], help="Return 404 for this rating key")
     a = ap.parse_args()
     DOWNLOAD_DELAY = a.download_delay
     DROP_DOWNLOAD_ONCE = a.drop_download_once
+    RESUME_VALIDATOR = a.resume_validator
+    MISSING_METADATA = set(a.missing_metadata)
     MEDIA = a.media
     srv = ThreadingHTTPServer(("127.0.0.1", a.port), Handler)
     print(f"mock PMS on http://127.0.0.1:{srv.server_address[1]}", file=sys.stderr, flush=True)

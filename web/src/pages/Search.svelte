@@ -16,6 +16,7 @@
   // Debounced: a newer keystroke cancels the pending search.
   $effect(() => {
     retry;
+    let cancelled = false;
     const q = query;
     if (q.length < 2) {
       results = null;
@@ -23,11 +24,11 @@
     }
     const timer = setTimeout(() => {
       api.search(q).then(
-        (hubs) => query === q && (results = { q, hubs: hubs.filter((h) => h.Metadata.length || h.Directory.length) }),
-        (e) => query === q && (results = { q, error: message(e) }),
+        (hubs) => !cancelled && query === q && (results = { q, hubs: hubs.filter((h) => h.Metadata.length || h.Directory.length) }),
+        (e) => !cancelled && query === q && (results = { q, error: message(e) }),
       );
     }, 220);
-    return () => clearTimeout(timer);
+    return () => { cancelled = true; clearTimeout(timer); };
   });
 
   const people = ["actor", "director", "writer", "producer", "person", "tag"];
