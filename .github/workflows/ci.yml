@@ -25,7 +25,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-latest, windows-latest]
+        # 26.04 for mpv 0.38+ (the smoke test needs the newer loadfile signature).
+        os: [ubuntu-26.04, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v5
 
@@ -40,6 +41,8 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev mpv ffmpeg
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
 
       # tauri::generate_context! needs frontendDist to exist; the Rust jobs don't need the real bundle.
       - name: Stub frontend dist
