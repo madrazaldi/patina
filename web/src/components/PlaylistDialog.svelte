@@ -25,11 +25,11 @@
     );
   });
 
-  const close = () => (app.playlistTarget = null);
+  const close = () => { app.playlistTarget = null; app.playlistItems = []; };
 
   function add(target: { playlist?: string; title?: string }, ok: string) {
     if (!item) return;
-    const rk = item.ratingKey ?? "";
+    const rk = app.playlistItems.length ? app.playlistItems.map((m) => m.ratingKey).join(",") : item.ratingKey ?? "";
     const kind = plex.playlistKind(item);
     close();
     act(api.addToPlaylist(rk, kind, target), ok);
@@ -45,7 +45,7 @@
   <div class="modal-backdrop" role="presentation" onclick={close}>
     <div class="modal" role="dialog" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.key === "Escape" && close()}>
       <h2>Add to playlist</h2>
-      <p class="desc">{plex.fullTitle(item)}</p>
+      <p class="desc">{app.playlistItems.length ? `${app.playlistItems.length} selected titles` : plex.fullTitle(item)}</p>
 
       {#if error}
         <div class="error-box">{error}</div>

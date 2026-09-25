@@ -192,6 +192,18 @@ impl PlexServer {
         self.http.send(rb).await
     }
 
+    /// Resume a media transfer. Identity encoding keeps byte offsets meaningful.
+    pub async fn download_range(&self, path: &str, offset: u64, validator: Option<&str>) -> Result<reqwest::Response> {
+        let mut rb = self.http.request(Method::GET, self.url(path)?, Some(&self.token), &Params::new().set("download", 1))
+            .header("Accept-Encoding", "identity")
+            .timeout(std::time::Duration::from_secs(60 * 60 * 24));
+        if offset > 0 {
+            rb = rb.header("Range", format!("bytes={offset}-"));
+            if let Some(v) = validator { rb = rb.header("If-Range", v); }
+        }
+        self.http.send(rb).await
+    }
+
     // ----- server info ---------------------------------------------------
 
     /// Server root: capabilities, version, flags (in `extra`) and feature directories.

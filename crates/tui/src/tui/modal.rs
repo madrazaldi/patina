@@ -112,6 +112,7 @@ pub enum MenuAction {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RowOp {
+    PauseDownload,
     Play,
     PlayGroup,
     Retry,

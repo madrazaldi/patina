@@ -359,7 +359,8 @@ pub(super) fn row_hints(item: &Item) -> Vec<(&'static str, &'static str)> {
         Act::Download(d) => match d.state {
             State::Done => vec![("enter", "play"), ("a", "play group"), ("x", "delete")],
             State::Failed => vec![("enter", "retry"), ("x", "remove")],
-            _ => vec![("x", "cancel")],
+            State::Paused => vec![("enter", "resume"), ("x", "remove")],
+            _ => vec![("enter", "pause"), ("x", "cancel")],
         },
         Act::Channel(_) => vec![("enter", "watch"), ("l", "later programs")],
         Act::Program { program } if program.guid.is_some() => vec![("enter", "record")],

@@ -10,10 +10,12 @@
   import type { Directory, Hub } from "../lib/types";
 
   let query = $derived(app.search.trim());
+  let retry = $state(0);
   let results = $state<{ q: string; hubs?: Hub[]; error?: string } | null>(null);
 
   // Debounced: a newer keystroke cancels the pending search.
   $effect(() => {
+    retry;
     const q = query;
     if (q.length < 2) {
       results = null;
@@ -45,7 +47,7 @@
   {:else if !results || results.q !== query}
     <Status loading />
   {:else if results.error}
-    <Status error={results.error} />
+    <Status error={results.error} retry={() => retry++} />
   {:else if !results.hubs?.length}
     <Status title="No results" text="Check the spelling or try another word." />
   {:else}

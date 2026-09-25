@@ -274,6 +274,7 @@ pub fn downloads(list: &[Download]) -> Vec<Item> {
             State::Done => ("✓", Tone::Dim, format::bytes(d.size)),
             State::Downloading => ("↓", Tone::Accent, format!("{pct}%")),
             State::Queued => ("…", Tone::Dim, "queued".into()),
+            State::Paused => ("Ⅱ", Tone::Dim, "paused".into()),
             State::Failed => ("!", Tone::Error, "failed".into()),
         };
         let size = match d.state {
@@ -285,6 +286,7 @@ pub fn downloads(list: &[Download]) -> Vec<Item> {
             State::Done => "Downloaded".to_string(),
             State::Downloading => format!("Downloading · {pct}%"),
             State::Queued => "Waiting".into(),
+            State::Paused => "Paused".into(),
             State::Failed => "Failed".into(),
         };
         let row = Row::new(d.id.clone(), Act::Download(Box::new(d.clone())))
@@ -794,6 +796,7 @@ mod tests {
             state,
             error: None,
             added_at: 0,
+            account: String::new(), validator: None, source_key: None,
         }
     }
 

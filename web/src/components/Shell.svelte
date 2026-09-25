@@ -5,7 +5,6 @@
   import type { Snippet } from "svelte";
   import ArtworkDialog from "./ArtworkDialog.svelte";
   import CollectionDialog from "./CollectionDialog.svelte";
-  import ConfirmDialog from "./ConfirmDialog.svelte";
   import EditDialog from "./EditDialog.svelte";
   import Img from "./Img.svelte";
   import ItemMenu from "./ItemMenu.svelte";
@@ -41,6 +40,7 @@
   }
 
   function onKey(e: KeyboardEvent) {
+    if (document.querySelector("dialog[open]")) return;
     const t = e.target as HTMLElement | null;
     const typing = t && ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName);
     const mod = e.metaKey || e.ctrlKey;
@@ -162,6 +162,11 @@
         <kbd>/</kbd>
       </label>
     </header>
+    {#if !app.connected}
+      <div class="connection" role="status">Connection lost. Reconnecting… Saved results and downloads remain available.
+        <button class="btn sm" onclick={() => { app.refresh(); api.reloadSections().catch((e) => app.error(e)); }}>Retry</button>
+      </div>
+    {/if}
     <div id="content" class="content">
       {@render children()}
     </div>
@@ -207,9 +212,9 @@
 <ArtworkDialog />
 <MatchDialog />
 <SubtitleDialog />
-<ConfirmDialog />
 
 <style>
+  .connection { padding: 8px var(--gutter); background: var(--surface); border-bottom: 1px solid var(--line); }
   .app {
     display: grid;
     grid-template-columns: var(--sidebar) minmax(0, 1fr);

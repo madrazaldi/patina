@@ -17,6 +17,8 @@
   let error = $state<string>();
 
   function load() {
+    if (loading) return;
+    error = undefined;
     loading = true;
     api.listing(path, items.length, PAGE).then(
       (mc) => {
@@ -39,13 +41,14 @@
 <div class="page">
   <div class="page-head"><h1>{title}</h1></div>
   {#if error}
-    <Status {error} />
-  {:else if items.length === 0}
+    <Status {error} retry={load} stale={items.length > 0} />
+  {/if}
+  {#if items.length === 0 && !error}
     <Status loading={loading} title="Nothing here" />
-  {:else}
+  {:else if items.length > 0}
     <div class={["grid", { wide }]}>
       {#each items as item, i (`${item.ratingKey}:${item.key}:${i}`)}<Card {item} />{/each}
     </div>
-    {#if !done}<More {loading} onmore={load} />{/if}
+    {#if !done && !error}<More {loading} onmore={load} />{/if}
   {/if}
 </div>

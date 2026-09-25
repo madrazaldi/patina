@@ -78,13 +78,14 @@
   function downloadLabel(d: Saved | undefined) {
     if (!d) return "Download";
     if (d.state === "done") return "Downloaded — show downloads";
+    if (d.state === "paused") return "Download paused — resume";
     if (d.state === "failed") return `Download failed${d.error ? `: ${d.error}` : ""} — retry`;
     return d.state === "queued" ? "Waiting to download" : "Downloading";
   }
 
   function onDownload(item: Metadata, d: Saved | undefined) {
     if (d?.state === "done") nav.push({ name: "downloads" });
-    else if (d?.state === "failed") act(api.retryDownload(d.id));
+    else if (d?.state === "failed" || d?.state === "paused") act(api.retryDownload(d.id));
     else if (!d) download(item);
   }
 
@@ -180,8 +181,9 @@
   }
 </script>
 
-{#if data.data === undefined}
-  <Status loading={!data.error} error={data.error} fill />
+{#if data.error && data.data !== undefined}<Status error={data.error} retry={() => data.reload()} stale />{/if}
+  {#if data.data === undefined}
+  <Status loading={!data.error} error={data.error} retry={() => data.reload()} fill />
 {:else if data.data === null}
   <Status title="Not found" text="This item no longer exists on the server." fill />
 {:else}

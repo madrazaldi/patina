@@ -2,7 +2,7 @@
   // Downloaded items for offline playback, grouped by show / artist. Works
   // without a server session (the Gate renders it when the server is down),
   // so it only ever talks to the download commands.
-  import { FolderOpen, Play, RotateCw, Trash } from "@lucide/svelte";
+  import { FolderOpen, Pause, Play, RotateCw, Trash } from "@lucide/svelte";
   import Img from "../components/Img.svelte";
   import Status from "../components/Status.svelte";
   import { api } from "../lib/api";
@@ -173,13 +173,19 @@
               {/if}
             </div>
             <div class="end">
+              {#if d.state === "queued" || d.state === "downloading"}
+                <button class="icon-btn" title="Pause download" onclick={() => act(api.pauseDownload(d.id))}><Pause /></button>
+              {:else if d.state === "paused"}
+                <span class="faint">Paused</span>
+                <button class="icon-btn" title="Resume download" onclick={() => act(api.retryDownload(d.id))}><Play /></button>
+              {/if}
               {#if d.state === "downloading"}
                 <span class="state num">{pct(d)}%</span>
               {:else if d.state === "queued"}
                 <span class="state">Waiting</span>
               {:else if d.state === "failed"}
                 <button class="btn sm quiet" onclick={() => act(api.retryDownload(d.id))}><RotateCw size={13} />Retry</button>
-              {:else}
+              {:else if d.state === "done"}
                 <button class="icon-btn" title="Play" onclick={() => playIds([d.id])}><Play size={15} /></button>
               {/if}
               <button class="icon-btn" title={d.state === "done" ? "Delete download" : "Remove"} onclick={() => remove(d)}>

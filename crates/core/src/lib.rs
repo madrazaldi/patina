@@ -17,6 +17,8 @@ pub mod player;
 pub mod presence;
 pub mod session;
 pub mod state;
+pub mod storage;
+pub mod offline;
 pub mod tracks;
 
 pub use state::{AppState, CoreEvent, EventSink};

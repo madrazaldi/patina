@@ -111,6 +111,11 @@
     }
   }
 </script>
+{#if people.error && people.data}<Status error={people.error} retry={() => people.reload()} stale />{/if}
+{#if prefs.error && prefs.data}<Status error={prefs.error} retry={() => prefs.reload()} stale />{/if}
+{#if butler.error && butler.data}<Status error={butler.error} retry={() => butler.reload()} stale />{/if}
+{#if stats.error && stats.data}<Status error={stats.error} retry={() => stats.reload()} stale />{/if}
+{#if overview.error && overview.data}<Status error={overview.error} retry={() => overview.reload()} stale />{/if}
 
 <svelte:window onkeydown={(e) => e.key === "Escape" && (menu = null)} />
 
@@ -133,7 +138,7 @@
     {#if tab === "overview"}
       {@const o = overview.data}
       {#if !o}
-        <Status loading={!overview.error} error={overview.error} />
+        <Status loading={!overview.error} error={overview.error} retry={() => overview.reload()} />
       {:else}
         <div class="stats num">
           <div><b>{o.hostCpu.toFixed(0)}%</b><span>Host CPU</span></div>
@@ -186,7 +191,7 @@
           </div>
         </div>
         {#if !stats.data}
-          <Status loading={!stats.error} error={stats.error} />
+          <Status loading={!stats.error} error={stats.error} retry={() => stats.reload()} />
         {:else}
           {@const { s, since, step } = stats.data}
           <div class={["streaming", { stale: stats.loading }]}>
@@ -298,7 +303,7 @@
       </div>
       <p class="muted intro">Plex's butler runs these during the maintenance window. You can start any of them now.</p>
       {#if !butler.data}
-        <Status loading={!butler.error} error={butler.error} />
+        <Status loading={!butler.error} error={butler.error} retry={() => butler.reload()} />
       {:else}
         <div class="rows">
           {#each butler.data as t, i (t.name ?? i)}
@@ -316,7 +321,7 @@
       {/if}
     {:else if tab === "settings"}
       {#if !prefs.data}
-        <Status loading={!prefs.error} error={prefs.error} />
+        <Status loading={!prefs.error} error={prefs.error} retry={() => prefs.reload()} />
       {:else}
         <div class="toolbar">
           <label class="filter">
@@ -335,7 +340,7 @@
     {:else}
       {@const d = people.data}
       {#if !d}
-        <Status loading={!people.error} error={people.error} />
+        <Status loading={!people.error} error={people.error} retry={() => people.reload()} />
       {:else}
         <div class="columns">
           <section>

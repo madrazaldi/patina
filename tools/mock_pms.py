@@ -26,6 +26,9 @@ from urllib.parse import parse_qs, urlparse
 MACHINE = "mock-machine-0001"
 MEDIA = "."
 EVENTS = []
+DOWNLOAD_DELAY = 0
+DROP_DOWNLOAD_ONCE = False
+DROPPED_DOWNLOAD = False
 
 GENRES = ["Drama", "Science Fiction", "Thriller", "Comedy", "Animation", "Mystery"]
 MOVIE_TITLES = [
@@ -513,20 +516,33 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def send_file(self, path, ctype):
+        global DROPPED_DOWNLOAD
         size = os.path.getsize(path)
+        etag = f'"mock-{size}-{os.stat(path).st_mtime_ns}"'
         rng = self.headers.get("Range")
+        if self.headers.get("If-Range") not in (None, etag):
+            rng = None
+        if path.endswith("movie.mkv"):
+            self.record("download", {"range": [rng or "full"]})
         start, end = 0, size - 1
         if rng:
             m = re.match(r"bytes=(\d*)-(\d*)", rng)
             if m:
                 start = int(m.group(1) or 0)
                 end = int(m.group(2)) if m.group(2) else size - 1
+            if start >= size:
+                self.send_response(416)
+                self.send_header("Content-Range", f"bytes */{size}")
+                self.end_headers()
+                return
+            end = min(end, size - 1)
             self.send_response(206)
             self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
         else:
             self.send_response(200)
         self.send_header("Content-Type", ctype)
         self.send_header("Accept-Ranges", "bytes")
+        self.send_header("ETag", etag)
         self.send_header("Content-Length", str(end - start + 1))
         self.end_headers()
         with open(path, "rb") as f:
@@ -539,6 +555,14 @@ class Handler(BaseHTTPRequestHandler):
                         break
                     self.wfile.write(chunk)
                     left -= len(chunk)
+                    if path.endswith("movie.mkv"):
+                        self.wfile.flush()
+                        if DOWNLOAD_DELAY:
+                            time.sleep(DOWNLOAD_DELAY)
+                        if DROP_DOWNLOAD_ONCE and not DROPPED_DOWNLOAD and left < size - 262144:
+                            DROPPED_DOWNLOAD = True
+                            self.close_connection = True
+                            return
             except (BrokenPipeError, ConnectionResetError):
                 pass
 
@@ -853,14 +877,18 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    global MEDIA
+    global MEDIA, DOWNLOAD_DELAY, DROP_DOWNLOAD_ONCE
     ap = argparse.ArgumentParser()
     ap.add_argument("--media", default=".")
     ap.add_argument("--port", type=int, default=32499)
+    ap.add_argument("--download-delay", type=float, default=0, help="Delay each media chunk for pause/resume testing")
+    ap.add_argument("--drop-download-once", action="store_true", help="Interrupt the first media transfer")
     a = ap.parse_args()
+    DOWNLOAD_DELAY = a.download_delay
+    DROP_DOWNLOAD_ONCE = a.drop_download_once
     MEDIA = a.media
     srv = ThreadingHTTPServer(("127.0.0.1", a.port), Handler)
-    print(f"mock PMS on http://127.0.0.1:{a.port}", file=sys.stderr, flush=True)
+    print(f"mock PMS on http://127.0.0.1:{srv.server_address[1]}", file=sys.stderr, flush=True)
     srv.serve_forever()
 
 

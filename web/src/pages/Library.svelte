@@ -10,21 +10,37 @@
     RefreshCw,
     X,
   } from "@lucide/svelte";
-  import { tick } from "svelte";
+  import { onDestroy, untrack } from "svelte";
+  import { LibraryPages, libraryMemory, rememberLibrary } from "../lib/library.svelte";
+  import VirtualGrid from "../components/VirtualGrid.svelte";
+  import BulkActions from "../components/BulkActions.svelte";
   import Card from "../components/Card.svelte";
   import HubRow from "../components/HubRow.svelte";
-  import More from "../components/More.svelte";
   import Status from "../components/Status.svelte";
   import { api } from "../lib/api";
   import { plural } from "../lib/format";
   import type { Shape } from "../lib/plex";
   import { resource } from "../lib/resource.svelte";
-  import { act, app, message } from "../lib/state.svelte";
-  import type { FilterView, Metadata } from "../lib/types";
+  import { act, app } from "../lib/state.svelte";
+  import type { FilterView, Metadata, SavedView } from "../lib/types";
 
   let { id }: { id: string } = $props();
 
-  const PAGE = 120;
+  const scope = `${app.session?.accountId}:${app.session?.serverId}`;
+  const cacheKey = untrack(() => `${scope}:${id}`);
+  const saved = libraryMemory.get(cacheKey);
+  const pages = saved?.pages ?? new LibraryPages();
+  let focused = saved?.focus;
+  let grid = $state<VirtualGrid>();
+  let selecting = $state(false);
+  let selection = $state<Metadata[]>([]);
+  let selected = $derived(new Set(selection.map((m) => m.ratingKey ?? "")));
+  function toggleItem(item: Metadata) {
+    selection = selected.has(item.ratingKey ?? "") ? selection.filter((m) => m.ratingKey !== item.ratingKey) : [...selection, item];
+  }
+  let viewName = $state("");
+  let savedViews = $derived((app.settings?.ui.saved_views ?? []).filter((v) => v.scope === scope && v.library === id));
+
   const TYPES: Record<string, [number, string][]> = {
     show: [
       [2, "Shows"],
@@ -45,18 +61,18 @@
   let watchable = $derived(kind !== "artist" && kind !== "photo");
   let scan = $derived(app.activities.find((a) => a.sectionId === id));
 
-  let tab = $state<"browse" | "recommended" | "collections" | "folders">("browse");
+  let tab = $state<"browse" | "recommended" | "collections" | "folders">(saved?.tab ?? "browse");
 
   // Browse state
   const firstType = () => TYPES[app.sections.find((s) => s.key === id)?.type ?? ""]?.[0]?.[0];
-  let mediaType = $state<number | undefined>(firstType());
-  let sort = $state("titleSort");
-  let desc = $state(false);
-  let unwatched = $state(false);
+  let mediaType = $state<number | undefined>(saved?.query.mediaType || firstType());
+  let sort = $state(saved?.query.sort ?? "titleSort");
+  let desc = $state(saved?.query.desc ?? false);
+  let unwatched = $state(saved?.query.unwatched ?? false);
   /** Active boolean filters, by key. */
-  let toggles = $state<string[]>([]);
+  let toggles = $state<string[]>(saved?.query.toggles ?? []);
   /** Active value filters ("Genre: Drama"). */
-  let picked = $state<{ filter: string; title: string; value: string; label: string }[]>([]);
+  let picked = $state<{ filter: string; title: string; value: string; label: string }[]>(saved?.query.picked ?? []);
 
   const sorts = resource(() => api.sectionSorts(id));
   const filterDefs = resource(() => api.sectionFilters(id, mediaType));
@@ -69,12 +85,9 @@
   ]);
   let filtered = $derived(unwatched || pairs.length > 0);
 
-  let items = $state<Metadata[]>([]);
-  let total = $state<number | null>(null);
-  let loading = $state(false);
-  let error = $state<string>();
-  let generation = 0;
-  let pending: Promise<void> = Promise.resolve();
+  let total = $derived(pages.total);
+  let loading = $derived(pages.loading > 0);
+  let error = $derived(pages.error);
 
   let sortValue = $derived.by(() => {
     if (!desc) return sort;
@@ -82,36 +95,31 @@
     return s?.descKey ?? `${sort}:desc`;
   });
 
-  function load(start: number, size = PAGE) {
-    const gen = generation;
-    loading = true;
-    pending = api
-      .sectionItems(id, { kind: mediaType, sort: sortValue, unwatched, filters: pairs, start, size })
-      .then(
-        (mc) => {
-          if (gen !== generation) return;
-          total = mc.totalSize ?? mc.size ?? null;
-          items.push(...mc.Metadata);
-          loading = false;
-        },
-        (e) => {
-          if (gen !== generation) return;
-          error = message(e);
-          loading = false;
-        },
-      );
-    return pending;
-  }
-
-  // Reload from the top whenever the query (or watch state) changes.
+  let request = $derived({ kind: mediaType, sort: sortValue, unwatched, filters: pairs });
   $effect(() => {
     if (tab !== "browse") return;
-    [mediaType, sortValue, unwatched, pairs, app.revision];
-    generation++;
-    items = [];
-    total = null;
-    error = undefined;
-    load(0);
+    const q = request, revision = app.revision;
+    untrack(() => {
+      const key = JSON.stringify(q);
+      if (pages.key && pages.key !== key) { selection = []; focused = undefined; }
+      pages.configure(key, revision, (start, size) => api.sectionItems(id, { ...q, start, size }));
+    });
+  });
+  function viewQuery() { return { mediaType: mediaType ?? 0, sort, desc, unwatched, toggles: $state.snapshot(toggles), picked: $state.snapshot(picked) }; }
+  function saveView() {
+    if (!viewName.trim()) return;
+    const view: SavedView = { ...viewQuery(), id: crypto.randomUUID(), name: viewName.trim(), scope, library: id };
+    app.updateUi({ saved_views: [...(app.settings?.ui.saved_views ?? []), view] });
+    viewName = "";
+  }
+  function useView(view: SavedView) {
+    mediaType = view.mediaType || undefined; sort = view.sort; desc = view.desc; unwatched = view.unwatched;
+    toggles = [...view.toggles]; picked = view.picked.map((p) => ({ ...p })); selection = [];
+    document.getElementById("content")?.scrollTo({ top: 0 });
+  }
+  onDestroy(() => {
+    pages.detach();
+    rememberLibrary(cacheKey, { pages, query: viewQuery(), tab, trail: $state.snapshot(trail), focus: focused });
   });
 
   function setType(t: number) {
@@ -174,18 +182,7 @@
     }
     return out;
   });
-  let grid: HTMLDivElement | undefined = $state();
-
-  async function jump(index: number) {
-    await pending;
-    const gen = generation;
-    if (index >= items.length && (total == null || items.length < total)) {
-      await load(items.length, index - items.length + PAGE);
-    }
-    if (gen !== generation) return;
-    await tick();
-    grid?.children[Math.min(index, items.length - 1)]?.scrollIntoView({ block: "start", behavior: "smooth" });
-  }
+  function jump(index: number) { void grid?.jump(index); }
 
   const hubs = resource(() => {
     app.revision;
@@ -194,12 +191,13 @@
   const collections = resource(() => (tab === "collections" ? api.collections(id) : Promise.resolve([])));
 
   // Folders: the trail below the section root; the last step is shown.
-  let trail = $state<{ key?: string; title: string }[]>([]);
+  let trail = $state<{ key?: string; title: string }[]>(saved?.trail ?? []);
   const folders = resource(() => {
     app.revision;
     return tab === "folders" ? api.sectionFolders(id, trail.at(-1)?.key) : Promise.resolve(null);
   });
 </script>
+{#if folders.error && folders.data}<Status error={folders.error} retry={() => folders.reload()} stale />{/if}
 
 <svelte:window onkeydown={(e) => e.key === "Escape" && (picker = null)} />
 
@@ -266,6 +264,7 @@
         {#each booleans as f (f.filter)}
           <button class={["chip", { active: toggles.includes(f.filter) }]} onclick={() => toggle(f)}>{f.title}</button>
         {/each}
+        <button class="btn sm" aria-pressed={selecting} onclick={() => { selecting = !selecting; if (!selecting) selection = []; }}>Select titles</button>
         <span class="grow"></span>
         {#if total != null}<span class="faint num">{plural(total, noun)}</span>{/if}
 
@@ -285,22 +284,25 @@
         {/if}
       </div>
 
-      {#if error}
-        <Status {error} />
-      {:else if items.length === 0 && !loading}
+      <div class="saved-views">
+        <input class="input" aria-label="Saved view name" placeholder="Name this view" bind:value={viewName} onkeydown={(e) => e.key === "Enter" && saveView()} />
+        <button class="btn sm" disabled={!viewName.trim()} onclick={saveView}>Save view</button>
+        {#each savedViews as view (view.id)}
+          <span class="row-flex">
+            <button class="chip" onclick={() => useView(view)}>{view.name}</button>
+            <button class="icon-btn" title={`Remove saved view ${view.name}`} onclick={() => app.updateUi({ saved_views: app.settings!.ui.saved_views.filter((v) => v.id !== view.id) })}><X size={12} /></button>
+          </span>
+        {/each}
+      </div>
+      {#if selecting}<BulkActions items={selection} clear={() => (selection = [])} />{/if}
+      {#if error}<Status {error} retry={() => pages.refresh()} stale={total !== null && total > 0} />{/if}
+      {#if total === 0 && !loading}
         <Status title="No matches" text="Try a different filter." />
+      {:else if total === null}
+        {#if !error}<Status loading />{/if}
       {:else}
-        <div class={["browse", { railed: railOn }]}>
-          <div>
-            <div class={["grid", { wide: shape === "landscape" }]} bind:this={grid}>
-              {#each items as item, i (`${item.ratingKey}:${i}`)}
-                <Card {item} {shape} />
-              {/each}
-            </div>
-            {#if loading || (total != null && items.length < total)}
-              <More {loading} onmore={() => load(items.length)} />
-            {/if}
-          </div>
+        <div class={["browse", { railed: railOn }]} aria-busy={loading}>
+          <VirtualGrid bind:this={grid} total={total ?? 0} at={(index) => pages.at(index)} load={(start, end) => pages.ensure(start, end)} {shape} {selecting} {selected} toggle={toggleItem} onfocus={(index) => (focused = index)} restoreFocus={saved?.focus} />
           {#if railOn && chars.data?.length}
             <nav class="rail" aria-label="Jump to letter">
               {#each LETTERS as l (l)}
@@ -312,8 +314,9 @@
         </div>
       {/if}
     {:else if tab === "recommended"}
-      {#if hubs.data === undefined || hubs.loading}
-        <Status loading={!hubs.error} error={hubs.error} />
+      {#if hubs.error && hubs.data !== undefined}<Status error={hubs.error} retry={() => hubs.reload()} stale />{/if}
+      {#if hubs.data === undefined}
+        <Status loading={!hubs.error} error={hubs.error} retry={() => hubs.reload()} />
       {:else if !hubs.data.some((h) => h.Metadata.length)}
         <Status title="No recommendations yet" />
       {:else}
@@ -322,8 +325,9 @@
         {/each}
       {/if}
     {:else if tab === "collections"}
-      {#if collections.data === undefined || collections.loading}
-        <Status loading={!collections.error} error={collections.error} />
+      {#if collections.error && collections.data !== undefined}<Status error={collections.error} retry={() => collections.reload()} stale />{/if}
+      {#if collections.data === undefined}
+        <Status loading={!collections.error} error={collections.error} retry={() => collections.reload()} />
       {:else if collections.data.length === 0}
         <Status title="No collections" text="Collections you create in Plex show up here." />
       {:else}
@@ -341,8 +345,8 @@
           >
         {/each}
       </nav>
-      {#if !folders.data || folders.loading}
-        <Status loading={!folders.error} error={folders.error} />
+      {#if !folders.data}
+        <Status loading={!folders.error} error={folders.error} retry={() => folders.reload()} />
       {:else if folders.data.directories.length === 0 && folders.data.items.length === 0}
         <Status title="Empty folder" />
       {:else}
@@ -411,6 +415,7 @@
 {/if}
 
 <style>
+  .saved-views { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 18px; }
   .title {
     display: flex;
     align-items: baseline;

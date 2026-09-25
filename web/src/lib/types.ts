@@ -298,6 +298,7 @@ export type Stage =
   | { kind: "failed"; message: string };
 
 export interface SessionView {
+  accountId: string;
   serverName: string;
   serverId: string;
   machineIdentifier?: string;
@@ -353,6 +354,7 @@ export interface ServerActivity {
 }
 
 export interface Snapshot {
+  connected: boolean;
   stage: Stage;
   session?: SessionView;
   sections: Directory[];
@@ -397,7 +399,22 @@ export interface PlayerSettings {
   downloads_dir: string;
 }
 
+export interface SavedView {
+  id: string;
+  name: string;
+  scope: string;
+  library: string;
+  mediaType: number;
+  sort: string;
+  desc: boolean;
+  unwatched: boolean;
+  toggles: string[];
+  picked: { filter: string; title: string; value: string; label: string }[];
+}
+export interface HomeLayout { order: string[]; hidden: string[]; compact_continue: boolean; }
 export interface UiSettings {
+  saved_views: SavedView[];
+  home_layouts: Record<string, HomeLayout>;
   accent: string;
   poster_size: number;
   hide_spoilers: boolean;
@@ -538,9 +555,10 @@ export interface MatchResult {
   matched: boolean;
 }
 
-export type DownloadState = "queued" | "downloading" | "done" | "failed";
+export type DownloadState = "queued" | "downloading" | "paused" | "done" | "failed";
 
 export interface Download {
+  account: string;
   /** "<server id>:<ratingKey>" */
   id: string;
   serverId: string;

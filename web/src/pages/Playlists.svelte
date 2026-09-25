@@ -18,8 +18,9 @@
       <div class="sub">Right-click anything and choose “Add to playlist…” to build one.</div>
     </div>
   </div>
+  {#if lists.error && lists.data !== undefined}<Status error={lists.error} retry={() => lists.reload()} stale />{/if}
   {#if lists.data === undefined}
-    <Status loading={!lists.error} error={lists.error} />
+    <Status loading={!lists.error} error={lists.error} retry={() => lists.reload()} />
   {:else if lists.data.length === 0}
     <Status title="No playlists yet" />
   {:else}

@@ -11,7 +11,6 @@
 //! play queue where it has the items.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -42,6 +41,8 @@ fn uid() -> u64 {
 #[serde(rename_all = "camelCase", default)]
 pub struct PlayRequest {
     pub item: Metadata,
+    /// Explicit bulk selection; disables automatic episode expansion.
+    pub selection: Vec<Metadata>,
     /// Resume from the saved position (otherwise start from the beginning).
     pub resume: bool,
     pub shuffle: bool,
@@ -58,7 +59,7 @@ pub struct PlayRequest {
 
 impl Default for PlayRequest {
     fn default() -> Self {
-        Self { item: Metadata::default(), resume: true, shuffle: false, media_index: 0, radio: false, live: false, quality: None }
+        Self { item: Metadata::default(), selection: Vec::new(), resume: true, shuffle: false, media_index: 0, radio: false, live: false, quality: None }
     }
 }
 
@@ -120,6 +121,19 @@ pub fn control(cmd: Control) {
     });
 }
 
+/// Enqueue a selection together, including when no player is running yet.
+pub fn queue_items(app: AppState, items: Vec<Metadata>) -> Result<()> {
+    let Some(first) = items.first().cloned() else { return Ok(()); };
+    anyhow::ensure!(items.iter().all(|m| queue_kind(m) == queue_kind(&first)), "Select only video or only music for a queue.");
+    let sender = COMMANDS.lock().unwrap().clone().filter(|tx| !tx.is_closed());
+    if let Some(tx) = sender {
+        for item in items { tx.send(QueueCommand::Add { item: Box::new(item), next: false }).map_err(|_| anyhow!("Playback ended; try again."))?; }
+    } else {
+        play(app, PlayRequest { item: first, selection: items, ..Default::default() });
+    }
+    Ok(())
+}
+
 /// Edit the running queue. Adding with nothing playing starts playback.
 pub fn queue(app: AppState, cmd: QueueCommand) {
     let tx = COMMANDS.lock().unwrap().clone();
@@ -171,7 +185,10 @@ async fn build_queue(server: &PlexServer, req: &PlayRequest, settings: &PlayerSe
     let rk = item.rating_key().to_string();
     let kind = queue_kind(item);
     let mut pq = PlayQueueRequest { kind: kind.into(), shuffle: req.shuffle, ..Default::default() };
-    if req.radio {
+    if !req.selection.is_empty() {
+        let keys: Vec<&str> = req.selection.iter().map(|m| m.rating_key()).collect();
+        pq.uri = Some(server.item_uri(&keys));
+    } else if req.radio {
         let station = server.station(&rk).await.ok().flatten().and_then(|s| s.key);
         match station {
             Some(key) => pq.uri = Some(server.library_uri(&key)),
@@ -218,6 +235,12 @@ async fn build_queue(server: &PlexServer, req: &PlayRequest, settings: &PlayerSe
                 .unwrap_or(0);
             Ok(Queue { items: mc.metadata, start, kind, id: mc.play_queue_id })
         }
+        Ok(_) | Err(_) if !req.selection.is_empty() => {
+            let mut items = Vec::new();
+            for item in &req.selection { items.extend(leaves(server, item).await?); }
+            if items.is_empty() { return Err(anyhow!("nothing to play")); }
+            Ok(Queue { items, start: 0, kind, id: None })
+        },
         Ok(_) | Err(_) if item.is_playable() => Ok(Queue { items: vec![item.clone()], start: 0, kind, id: None }),
         Ok(_) => Err(anyhow!("nothing to play")),
         Err(e) => Err(e).context("creating play queue"),
@@ -1072,8 +1095,8 @@ async fn sync_stream_choice(server: &PlexServer, mpv: &Mpv, c: &Current, prop: &
 
 // Offline playback -----------------------------------------------------------
 
-/// Play downloaded files. Nothing is reported to Plex.
-pub fn play_files(app: AppState, files: Vec<(Metadata, PathBuf)>) {
+/// Play downloaded files with local checkpoints; the outbox reconciles them when connected.
+pub fn play_files(app: AppState, files: Vec<crate::downloads::Download>) {
     app.clone().spawn(async move {
         if let Err(e) = run_files(app.clone(), files).await {
             app.error(format!("Playback failed: {e:#}"));
@@ -1082,33 +1105,44 @@ pub fn play_files(app: AppState, files: Vec<(Metadata, PathBuf)>) {
     });
 }
 
-async fn run_files(app: AppState, files: Vec<(Metadata, PathBuf)>) -> Result<()> {
+async fn run_files(app: AppState, files: Vec<crate::downloads::Download>) -> Result<()> {
     let settings = app.settings().player;
     let (mpv, mut events) = spawn_mpv(&settings, Vec::new()).await?;
     *COMMANDS.lock().unwrap() = None;
     for (i, name) in ["playlist-pos", "time-pos", "pause", "duration", "idle-active"].iter().enumerate() {
         mpv.observe_property(i as u64 + 1, name).await?;
     }
-    for (item, path) in &files {
-        mpv.loadfile(&path.to_string_lossy(), "append", &[("force-media-title", item.full_title())]).await?;
+    for download in &files {
+        let path = download.file.as_deref().ok_or_else(|| anyhow!("Downloaded file is missing"))?;
+        mpv.loadfile(path, "append", &[("force-media-title", download.item.full_title()),
+            ("start", format!("{:.3}", crate::offline::position(download) as f64 / 1000.0))]).await?;
     }
     mpv.set_property("playlist-pos", 0).await?;
 
     let mut np: Option<NowPlaying> = None;
     let mut last_ui = Instant::now();
     let mut played_any = false;
+    let mut checkpoint = Instant::now();
+    let save = |np: &Option<NowPlaying>, completed: bool| {
+        if let Some(n) = np && let Some(d) = files.get(n.queue_pos)
+            && let Err(e) = crate::offline::record(d, n.position_ms, n.duration_ms, completed, settings.watched_threshold) {
+            app.error(format!("Could not save offline progress: {e:#}"));
+        }
+    };
     while let Some(ev) = events.recv().await {
         match ev {
-            Event::Shutdown => break,
+            Event::Shutdown => { save(&np, false); break; },
             Event::FileLoaded => played_any = true,
+            Event::EndFile { reason, .. } => { save(&np, reason == "eof"); np = None; },
             Event::PropertyChange { name, data, .. } => {
                 match name.as_str() {
                     "playlist-pos" => {
+                        save(&np, false);
                         let pos = data.as_i64().unwrap_or(-1);
-                        np = (pos >= 0).then(|| files.get(pos as usize)).flatten().map(|(item, _)| NowPlaying {
-                            item: item.clone(),
-                            position_ms: 0,
-                            duration_ms: item.duration.unwrap_or(0),
+                        np = (pos >= 0).then(|| files.get(pos as usize)).flatten().map(|d| NowPlaying {
+                            item: d.item.clone(),
+                            position_ms: crate::offline::position(d),
+                            duration_ms: d.item.duration.unwrap_or(0),
                             paused: false,
                             transcoding: false,
                             queue_len: files.len(),
@@ -1143,12 +1177,17 @@ async fn run_files(app: AppState, files: Vec<(Metadata, PathBuf)>) -> Result<()>
                     }
                     _ => continue,
                 }
+                if checkpoint.elapsed() >= Duration::from_secs(5) || name == "pause" {
+                    save(&np, false);
+                    checkpoint = Instant::now();
+                }
                 last_ui = Instant::now();
                 app.set_now_playing(np.clone());
             }
             _ => {}
         }
     }
+    save(&np, false);
     let ours = release(&mpv);
     mpv.wait(Duration::from_secs(2)).await;
     if ours && ACTIVE.lock().unwrap().is_none() {
