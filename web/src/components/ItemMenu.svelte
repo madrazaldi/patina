@@ -164,7 +164,9 @@
     {#if ["movie", "episode", "track", "show", "season", "album", "artist"].includes(kind)}
       {#if saved?.state === "done"}
         <button disabled><ArrowDownToLine />Downloaded</button>
-      {:else if saved && saved.state !== "failed"}
+      {:else if saved?.state === "paused" || saved?.state === "failed"}
+        <button onclick={run(() => act(api.retryDownload(saved!.id)))}><Download />Resume / retry download</button>
+      {:else if saved}
         <button disabled><Download />Downloading…</button>
       {:else}
         <button onclick={run(() => download(item))}><Download />Download</button>

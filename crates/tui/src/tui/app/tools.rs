@@ -120,7 +120,8 @@ impl App {
         use RowOp::*;
         let op = match &r.act {
             Act::Download(d) if d.state == State::Done => Play,
-            Act::Download(d) if d.state == State::Failed => Retry,
+            Act::Download(d) if matches!(d.state, State::Failed | State::Paused) => Retry,
+            Act::Download(d) if matches!(d.state, State::Queued | State::Downloading) => PauseDownload,
             Act::Channel(_) => Watch,
             Act::Program { .. } => Record,
             Act::MoreHistory => Later,
@@ -159,8 +160,11 @@ impl App {
                     rows.push((Play, "Play", "enter"));
                     rows.push((PlayGroup, "Play the group", "a"));
                 }
-                if d.state == State::Failed {
-                    rows.push((Retry, "Retry", "enter"));
+                if matches!(d.state, State::Failed | State::Paused) {
+                    rows.push((Retry, "Resume / retry", "enter"));
+                }
+                if matches!(d.state, State::Queued | State::Downloading) {
+                    rows.push((PauseDownload, "Pause download", "enter"));
                 }
                 if self.download_on_server(d).is_some() {
                     rows.push((GoToItem, "Go to the item", ""));
@@ -244,6 +248,7 @@ impl App {
                 self.play_downloads(ids);
             }
             (Retry, Act::Download(d)) => downloads::retry(&self.core, &d.id),
+            (PauseDownload, Act::Download(d)) => downloads::pause(&self.core, &d.id),
             (Remove, Act::Download(d)) => {
                 let message = if d.state == State::Done {
                     format!("Delete the download of {title}? The file is removed from this computer.")

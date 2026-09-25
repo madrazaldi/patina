@@ -55,7 +55,7 @@ pub const HELP: &[(&str, &str)] = &[
     ("b / B", "go to the season or album / the show or artist"),
     ("m  .", "actions menu (more options)"),
     ("", "Downloads, Live TV, Activity, Server, Settings"),
-    ("enter", "a row's main action: play, retry, watch, record, run, change"),
+    ("enter", "a row's main action: play, pause/resume download, retry, watch, record, run, change"),
     ("x", "remove a download · delete a rule · cancel a task · stop a transcode"),
     ("a", "play a downloaded show, album or all movies"),
     ("l", "a channel's later programs · a library's settings"),

@@ -54,13 +54,13 @@ pub fn settings(app: App) -> PublicSettings {
 }
 
 #[tauri::command]
-pub fn set_player_settings(app: App, player: PlayerSettings) {
-    app.update_settings(|s| s.player = player);
+pub fn set_player_settings(app: App, player: serde_json::Value) -> Res {
+    Ok(app.try_update_settings(|s| config::patch(&mut s.player, player))?)
 }
 
 #[tauri::command]
-pub fn set_ui_settings(app: App, ui: UiSettings) {
-    app.update_settings(|s| s.ui = ui);
+pub fn set_ui_settings(app: App, ui: serde_json::Value) -> Res {
+    Ok(app.try_update_settings(|s| config::patch(&mut s.ui, ui))?)
 }
 
 #[tauri::command]
@@ -636,6 +636,9 @@ pub fn remove_download(app: App, id: String) {
 }
 
 #[tauri::command]
+pub fn pause_download(app: App, id: String) { downloads::pause(&app, &id); }
+
+#[tauri::command]
 pub fn retry_download(app: App, id: String) {
     downloads::retry(&app, &id);
 }
@@ -747,4 +750,9 @@ pub async fn save_diagnostics(app: App<'_>, what: String) -> Res<String> {
         let _ = open::that(dir);
     }
     Ok(path.display().to_string())
+}
+
+#[tauri::command]
+pub fn queue_items(app: App, items: Vec<Metadata>) -> Res {
+    Ok(player::queue_items(app.inner().clone(), items)?)
 }

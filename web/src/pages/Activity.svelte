@@ -52,6 +52,9 @@
 
   const up = (s?: string | null) => (s ?? "").toUpperCase();
 </script>
+{#if transcodes.error && transcodes.data}<Status error={transcodes.error} retry={() => transcodes.reload()} stale />{/if}
+{#if history.error && history.data}<Status error={history.error} retry={() => history.reload()} stale />{/if}
+{#if sessions.error && sessions.data}<Status error={sessions.error} retry={() => sessions.reload()} stale />{/if}
 
 <div class="page">
   <div class="page-head">
@@ -69,7 +72,7 @@
   {#if tab === "playing"}
     {@const list = sessions.data}
     {#if !list}
-      <Status loading={!sessions.error} error={sessions.error} />
+      <Status loading={!sessions.error} error={sessions.error} retry={() => sessions.reload()} />
     {:else if list.length === 0}
       <Status title="Nothing is playing" text="Streams from every Plex app on this server show up here live." />
     {:else}
@@ -117,7 +120,7 @@
   {:else if tab === "history"}
     {@const h = history.data}
     {#if !h}
-      <Status loading={!history.error} error={history.error} />
+      <Status loading={!history.error} error={history.error} retry={() => history.reload()} />
     {:else if h.items.length === 0 && page === 0}
       <Status title="No history yet" />
     {:else}
@@ -172,7 +175,7 @@
     <div class="section-head"><h2>Transcoder sessions</h2></div>
     {@const list = transcodes.data}
     {#if !list}
-      <Status loading={!transcodes.error} error={transcodes.error} />
+      <Status loading={!transcodes.error} error={transcodes.error} retry={() => transcodes.reload()} />
     {:else}
       {#if list.length === 0}<p class="faint">No transcodes running.</p>{/if}
       <div class="rows">

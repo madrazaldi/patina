@@ -2,7 +2,7 @@
   // Downloaded items for offline playback, grouped by show / artist. Works
   // without a server session (the Gate renders it when the server is down),
   // so it only ever talks to the download commands.
-  import { FolderOpen, Play, RotateCw, Trash } from "@lucide/svelte";
+  import { FolderOpen, Pause, Play, RotateCw, Trash } from "@lucide/svelte";
   import Img from "../components/Img.svelte";
   import Status from "../components/Status.svelte";
   import { api } from "../lib/api";
@@ -25,11 +25,12 @@
 
   function groupOf(d: Download): [key: string, title: string] {
     const k = plex.kind(d.item);
+    const scope = [d.account, d.serverId, k];
     if (k === "episode" || k === "track") {
       const t = d.item.grandparentTitle ?? "Unknown";
-      return [`${k}:${t}`, t];
+      return [JSON.stringify([...scope, t]), t];
     }
-    return k === "movie" ? ["movie", "Movies"] : ["other", "Other"];
+    return [JSON.stringify(scope), k === "movie" ? "Movies" : "Other"];
   }
 
   // Episodes by season/episode, tracks by album/disc/track, the rest by title.
@@ -55,7 +56,7 @@
   }
 
   // Movies first, then shows and artists by name, anything else last.
-  const rank = (g: Group) => (g.key === "movie" ? 0 : g.key === "other" ? 2 : 1);
+  const rank = (g: Group) => (g.kind === "movie" ? 0 : ["episode", "track"].includes(g.kind) ? 1 : 2);
 
   let groups = $derived.by(() => {
     const map = new Map<string, Group>();
@@ -95,7 +96,7 @@
   function groupSub(g: Group) {
     const n = g.items.length;
     const size = g.items.reduce((s, d) => s + d.size, 0);
-    const what = g.kind === "episode" ? "episode" : g.kind === "track" ? "track" : g.key === "movie" ? "movie" : "item";
+    const what = g.kind === "episode" ? "episode" : g.kind === "track" ? "track" : g.kind === "movie" ? "movie" : "item";
     return `${plural(n, what)} · ${bytes(size)}`;
   }
 
@@ -144,7 +145,7 @@
         <h2>{g.title}</h2>
         <div class="row-flex">
           <span class="faint small num">{groupSub(g)}</span>
-          {#if g.key !== "movie" && g.key !== "other" && done.length}
+          {#if (g.kind === "episode" || g.kind === "track") && done.length}
             <button class="more" onclick={() => playIds(done)}>Play all</button>
           {/if}
         </div>
@@ -173,13 +174,19 @@
               {/if}
             </div>
             <div class="end">
+              {#if d.state === "queued" || d.state === "downloading"}
+                <button class="icon-btn" title="Pause download" onclick={() => act(api.pauseDownload(d.id))}><Pause /></button>
+              {:else if d.state === "paused"}
+                <span class="faint">Paused</span>
+                <button class="icon-btn" title="Resume download" onclick={() => act(api.retryDownload(d.id))}><Play /></button>
+              {/if}
               {#if d.state === "downloading"}
                 <span class="state num">{pct(d)}%</span>
               {:else if d.state === "queued"}
                 <span class="state">Waiting</span>
               {:else if d.state === "failed"}
                 <button class="btn sm quiet" onclick={() => act(api.retryDownload(d.id))}><RotateCw size={13} />Retry</button>
-              {:else}
+              {:else if d.state === "done"}
                 <button class="icon-btn" title="Play" onclick={() => playIds([d.id])}><Play size={15} /></button>
               {/if}
               <button class="icon-btn" title={d.state === "done" ? "Delete download" : "Remove"} onclick={() => remove(d)}>

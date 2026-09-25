@@ -66,6 +66,7 @@ const scroller = () => document.getElementById("content");
 class Navigator {
   #stack = $state<Entry[]>([{ route: { name: "home" }, scroll: 0 }]);
   #index = $state(0);
+  #restoreGeneration = 0;
 
   get route(): Route {
     return this.#stack[this.#index].route;
@@ -123,19 +124,37 @@ class Navigator {
   // Content loads asynchronously, so keep trying until the page is tall
   // enough (or give up after a couple of seconds, or when the user scrolls).
   #restore(target: number) {
+    const generation = ++this.#restoreGeneration;
     const started = performance.now();
+    const stop = () => { if (generation === this.#restoreGeneration) this.#restoreGeneration++; };
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target;
+      if (target instanceof HTMLElement && (target.isContentEditable || target.closest("input, textarea, select"))) return;
+      if (["PageDown", "PageUp", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End", " "].includes(event.key)) stop();
+    };
+    const cleanup = () => {
+      document.removeEventListener("wheel", stop);
+      document.removeEventListener("pointerdown", stop);
+      document.removeEventListener("keydown", onKey);
+    };
+    document.addEventListener("wheel", stop, { once: true, passive: true });
+    document.addEventListener("pointerdown", stop, { once: true });
+    document.addEventListener("keydown", onKey);
     const step = () => {
+      if (generation !== this.#restoreGeneration) { cleanup(); return; }
       const el = scroller();
-      if (!el) return;
+      if (!el) { cleanup(); return; }
       if (target === 0) {
         el.scrollTop = 0;
+        cleanup();
         return;
       }
       if (el.scrollHeight - el.clientHeight >= target) {
         el.scrollTop = target;
+        cleanup();
       } else if (performance.now() - started < 2000) {
         requestAnimationFrame(step);
-      }
+      } else cleanup();
     };
     queueMicrotask(() => requestAnimationFrame(step));
   }

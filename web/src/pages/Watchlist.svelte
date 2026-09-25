@@ -45,8 +45,9 @@
       <div class="sub">Synced with your Plex account. Titles this server doesn't have are dimmed.</div>
     </div>
   </div>
+  {#if list.error && list.data !== undefined}<Status error={list.error} retry={() => list.reload()} stale />{/if}
   {#if list.data === undefined}
-    <Status loading={!list.error} error={list.error} />
+    <Status loading={!list.error} error={list.error} retry={() => list.reload()} />
   {:else if list.data.length === 0}
     <Status title="Your watchlist is empty" text="Add movies and shows from their detail page." />
   {:else}

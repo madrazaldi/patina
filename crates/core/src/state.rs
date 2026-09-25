@@ -2,7 +2,7 @@
 //! Changes are pushed to the front end as [`CoreEvent`]s; it asks for a
 //! [`Snapshot`] once on startup and follows the events from then on.
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 use patina_plex::{ClientInfo, Directory, Metadata, PlexServer, PlexTv, Resource, User};
@@ -91,6 +91,7 @@ impl From<&Resource> for ServerView {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionView {
+    pub account_id: String,
     pub server_name: String,
     pub server_id: String,
     pub machine_identifier: Option<String>,
@@ -104,6 +105,7 @@ pub struct SessionView {
 impl From<&Session> for SessionView {
     fn from(s: &Session) -> Self {
         Self {
+            account_id: crate::offline::account(s),
             server_name: s.server_name.clone(),
             server_id: s.server_id.clone(),
             machine_identifier: s.server.machine_identifier().map(str::to_string),
@@ -176,6 +178,7 @@ pub struct Toast {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
+    pub connected: bool,
     pub stage: Stage,
     pub session: Option<SessionView>,
     pub sections: Vec<Directory>,
@@ -188,6 +191,8 @@ pub struct Snapshot {
 /// A state change for the front end.
 #[derive(Clone, Debug)]
 pub enum CoreEvent {
+    Connection(bool),
+    SettingsChanged,
     Stage(Stage),
     Session { session: Option<SessionView>, sections: Vec<Directory> },
     NowPlaying(Option<Box<NowPlaying>>),
@@ -205,6 +210,8 @@ impl CoreEvent {
     /// The event name the GUI's webview listens for.
     pub fn name(&self) -> &'static str {
         match self {
+            Self::Connection(_) => "connection",
+            Self::SettingsChanged => "settings-changed",
             Self::Stage(_) => "stage",
             Self::Session { .. } => "session",
             Self::NowPlaying(_) => "now-playing",
@@ -220,6 +227,8 @@ impl CoreEvent {
     /// The event payload as the webview receives it.
     pub fn payload(&self) -> Value {
         let v = match self {
+            Self::Connection(online) => Ok(json!(online)),
+            Self::SettingsChanged => Ok(Value::Null),
             Self::Stage(s) => serde_json::to_value(s),
             Self::Session { session, sections } => Ok(json!({ "session": session, "sections": sections })),
             Self::NowPlaying(np) => serde_json::to_value(np),
@@ -253,6 +262,7 @@ pub struct Inner {
     queue: RwLock<Option<QueueView>>,
     activities: RwLock<Vec<ServerActivity>>,
     revision: AtomicU64,
+    connected: AtomicBool,
     /// Bumped whenever the session changes, which stops the previous
     /// server's notification listener.
     pub live_generation: AtomicU64,
@@ -279,7 +289,7 @@ impl AppState {
     /// Load the settings; background work runs on `runtime`.
     pub fn new(sink: Arc<dyn EventSink>, runtime: tokio::runtime::Handle) -> Self {
         let _ = crate::RUNTIME.set(runtime.clone());
-        Self(Arc::new(Inner {
+        let app = Self(Arc::new(Inner {
             sink,
             runtime,
             settings: RwLock::new(Settings::load()),
@@ -290,11 +300,42 @@ impl AppState {
             queue: RwLock::new(None),
             activities: RwLock::new(Vec::new()),
             revision: AtomicU64::new(0),
+            connected: AtomicBool::new(true),
             live_generation: AtomicU64::new(0),
             login_attempt: AtomicU64::new(0),
             pending: Mutex::new(None),
             tracks: Mutex::new(None),
-        }))
+        }));
+        let weak = Arc::downgrade(&app.0);
+        app.spawn(async move {
+            let mut downloads = String::new();
+            let mut settings = String::new();
+            let mut ticks = 0;
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                let Some(inner) = weak.upgrade() else { break };
+                let app = Self(inner);
+                let list = crate::downloads::list();
+                let next = serde_json::to_string(&list).unwrap_or_default();
+                if next != downloads { downloads = next; app.emit(CoreEvent::Downloads(list.clone())); }
+                if list.iter().any(|d| matches!(d.state, crate::downloads::State::Queued | crate::downloads::State::Downloading)) {
+                    crate::downloads::resume(&app);
+                }
+                let s = app.settings();
+                let next = serde_json::to_string(&(&s.player, &s.ui, &s.tui)).unwrap_or_default();
+                if next != settings { settings = next; app.emit(CoreEvent::SettingsChanged); }
+                ticks += 1;
+                if ticks % 15 == 1 {
+                    let syncing = app.clone();
+                    app.spawn(async move {
+                        if let Err(e) = crate::offline::sync(&syncing).await {
+                            tracing::debug!("offline progress remains queued: {e:#}");
+                        }
+                    });
+                }
+            }
+        });
+        app
     }
 
     pub fn emit(&self, event: CoreEvent) {
@@ -315,6 +356,7 @@ impl AppState {
 
     pub fn snapshot(&self) -> Snapshot {
         Snapshot {
+            connected: self.connected.load(Ordering::Relaxed),
             stage: self.stage.read().unwrap().clone(),
             session: self.session.read().unwrap().as_ref().map(SessionView::from),
             sections: self.sections.read().unwrap().clone(),
@@ -330,16 +372,21 @@ impl AppState {
     }
 
     pub fn settings(&self) -> Settings {
-        self.settings.read().unwrap().clone()
+        self.settings.read().unwrap().reload()
     }
 
     /// Change and save the settings. The file is re-read first so changes
     /// made by another Patina process are kept.
     pub fn update_settings(&self, f: impl FnOnce(&mut Settings)) {
+        if let Err(e) = self.try_update_settings(|s| { f(s); Ok(()) }) {
+            self.error(format!("Could not save settings: {e:#}"));
+        }
+    }
+
+    pub fn try_update_settings(&self, f: impl FnOnce(&mut Settings) -> anyhow::Result<()>) -> anyhow::Result<()> {
         let mut s = self.settings.write().unwrap();
-        *s = s.reload();
-        f(&mut s);
-        s.save();
+        *s = s.update(f)?;
+        Ok(())
     }
 
     pub fn session(&self) -> Option<Session> {
@@ -358,6 +405,14 @@ impl AppState {
     /// The plex.tv client, or an error when not signed in to plex.tv.
     pub fn plex_tv(&self) -> anyhow::Result<PlexTv> {
         self.tv().ok_or_else(|| anyhow::anyhow!("Not signed in to plex.tv."))
+    }
+
+    pub fn set_connected(&self, online: bool) {
+        let was = self.connected.swap(online, Ordering::Relaxed);
+        if was != online {
+            self.emit(CoreEvent::Connection(online));
+            if online { self.bump(); }
+        }
     }
 
     pub fn set_stage(&self, stage: Stage) {

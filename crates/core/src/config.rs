@@ -38,6 +38,7 @@ impl Default for Settings {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AuthSettings {
+    pub account_id: Option<String>,
     /// plex.tv account token (or the active Plex Home user's token).
     pub token: Option<String>,
 }
@@ -126,6 +127,9 @@ impl PlayerSettings {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct UiSettings {
+    /// Named library queries and home layouts, scoped by account and server in the GUI.
+    pub saved_views: Vec<serde_json::Value>,
+    pub home_layouts: std::collections::BTreeMap<String, HomeLayout>,
     pub accent: String,
     /// Poster width in px.
     pub poster_size: u32,
@@ -135,8 +139,16 @@ pub struct UiSettings {
 
 impl Default for UiSettings {
     fn default() -> Self {
-        Self { accent: "paper".into(), poster_size: 160, hide_spoilers: false }
+        Self { accent: "paper".into(), poster_size: 160, hide_spoilers: false, saved_views: Vec::new(), home_layouts: Default::default() }
     }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HomeLayout {
+    pub order: Vec<String>,
+    pub hidden: Vec<String>,
+    pub compact_continue: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -248,14 +260,13 @@ fn config_file() -> PathBuf {
 
 impl Settings {
     pub fn load() -> Settings {
+        let _lock = crate::storage::lock(&config_file()).ok();
         let (settings, persist) = match Self::read() {
             Some(l) => (l.settings, !l.client_id_saved),
             None => (Settings::default(), !config_file().exists()),
         };
         // Persist so the generated client id stays stable.
-        if persist {
-            settings.save();
-        }
+        if persist && let Err(e) = settings.save() { tracing::error!("could not save settings: {e:#}"); }
         settings
     }
 
@@ -293,20 +304,22 @@ impl Settings {
         }
     }
 
-    pub fn save(&self) {
-        let path = config_file();
-        if let Some(dir) = path.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        match toml::to_string_pretty(self) {
-            Ok(text) => {
-                if let Err(e) = write_private(&path, &text) {
-                    tracing::error!("could not save settings: {e}");
-                }
-            }
-            Err(e) => tracing::error!("could not encode settings: {e}"),
-        }
+    pub fn save(&self) -> anyhow::Result<()> {
+        crate::storage::write(&config_file(), toml::to_string_pretty(self)?.as_bytes())
     }
+
+    /// Hold an OS lock across the entire read–modify–write transaction.
+    pub fn update(&self, f: impl FnOnce(&mut Self) -> anyhow::Result<()>) -> anyhow::Result<Self> {
+        let _lock = crate::storage::lock(&config_file())?;
+        // Never overwrite an existing unreadable file with defaults.
+        let mut latest = if config_file().exists() {
+            Self::read().ok_or_else(|| anyhow::anyhow!("Settings could not be read; the existing file was preserved."))?.settings
+        } else { self.clone() };
+        f(&mut latest)?;
+        latest.save()?;
+        Ok(latest)
+    }
+
 }
 
 struct Loaded {
@@ -314,14 +327,42 @@ struct Loaded {
     client_id_saved: bool,
 }
 
-/// The file holds the auth token, so keep it readable only by the user.
-fn write_private(path: &std::path::Path, text: &str) -> std::io::Result<()> {
-    let tmp = path.with_extension("toml.tmp");
-    std::fs::write(&tmp, text)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600))?;
+/// Apply only fields actually changed by the front end, preserving other writers' fields.
+pub fn patch<T: Serialize + serde::de::DeserializeOwned>(value: &mut T, patch: serde_json::Value) -> anyhow::Result<()> {
+    let mut json = serde_json::to_value(&*value)?;
+    let fields = patch.as_object().ok_or_else(|| anyhow::anyhow!("Settings patch must be an object"))?;
+    let object = json.as_object_mut().ok_or_else(|| anyhow::anyhow!("Settings must be an object"))?;
+    for (key, value) in fields {
+        anyhow::ensure!(object.contains_key(key), "Unknown setting: {key}");
+        object.insert(key.clone(), value.clone());
     }
-    std::fs::rename(tmp, path)
+    *value = serde_json::from_value(json)?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn old_settings_and_saved_views_round_trip() {
+        let mut settings: Settings = toml::from_str("[ui]\nposter_size = 180\n").unwrap();
+        assert!(settings.ui.saved_views.is_empty());
+        settings.ui.saved_views.push(serde_json::json!({
+            "id": "view-1", "name": "Unwatched drama", "scope": "alice:home", "library": "1",
+            "mediaType": 0, "sort": "titleSort", "desc": false, "unwatched": true,
+            "toggles": [], "picked": [{"filter": "genre", "title": "Genre", "value": "10", "label": "Drama"}]
+        }));
+        settings.ui.home_layouts.insert("alice:home".into(), HomeLayout { compact_continue: true, ..Default::default() });
+        let text = toml::to_string_pretty(&settings).unwrap();
+        assert_eq!(settings, toml::from_str::<Settings>(&text).unwrap());
+    }
+    #[test]
+    fn partial_settings_update_preserves_other_fields() {
+        let mut player = PlayerSettings { quality: "4m-720".into(), ..Default::default() };
+        patch(&mut player, serde_json::json!({"continuous": false})).unwrap();
+        assert_eq!(player.quality, "4m-720");
+        assert!(!player.continuous);
+        assert!(patch(&mut player, serde_json::json!({"continuous": "wrong"})).is_err());
+        assert!(!player.continuous);
+    }
 }

@@ -146,7 +146,10 @@ pub async fn sign_in_manual(app: &AppState, url: &str, token: &str) -> Result<()
 }
 
 async fn activate(app: &AppState, session: Session) -> Result<()> {
+    let account = crate::offline::account(&session);
     let sections = session.server.sections().await.context("loading libraries")?;
+    app.update_settings(|s| s.auth.account_id = Some(account));
+    app.set_connected(true);
     images::set_server(Some(session.server.clone()));
     *app.pending.lock().unwrap() = None;
     app.set_session(Some(session), sections.into_iter().filter(|d| !d.hidden).collect());
@@ -158,8 +161,12 @@ async fn activate(app: &AppState, session: Session) -> Result<()> {
 }
 
 pub async fn reload_sections(app: &AppState) -> Result<()> {
-    let sections = app.server()?.sections().await?;
-    app.set_sections(sections.into_iter().filter(|d| !d.hidden).collect());
+    let server = app.server()?;
+    let sections = server.sections().await?;
+    if app.session().is_some_and(|s| s.server == server) {
+        app.set_connected(true);
+        app.set_sections(sections.into_iter().filter(|d| !d.hidden).collect());
+    }
     Ok(())
 }
 
@@ -183,6 +190,7 @@ pub async fn switch_user(app: &AppState, uuid: &str, pin: Option<&str>) -> Resul
     let tv = app.tv().ok_or_else(|| anyhow!("Not signed in to plex.tv."))?;
     let user = tv.switch_home_user(uuid, pin).await.context("switching user")?;
     let token = user.auth_token.clone().ok_or_else(|| anyhow!("plex.tv returned no token"))?;
+    app.update_settings(|s| s.auth.account_id = user.uuid.clone().or_else(|| Some(crate::offline::digest(&token))));
     app.set_session(None, Vec::new());
     run(app, sign_in(app, token)).await;
     Ok(())
@@ -193,6 +201,7 @@ pub fn sign_out(app: &AppState) {
     crate::live::stop(app);
     app.update_settings(|s| {
         s.auth.token = None;
+        s.auth.account_id = None;
         s.server = Default::default();
     });
     images::set_server(None);

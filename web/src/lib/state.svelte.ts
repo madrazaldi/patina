@@ -2,6 +2,7 @@
 // its events, plus UI-only state such as menus and dialogs.
 
 import { listen } from "@tauri-apps/api/event";
+import { nav } from "./router.svelte";
 import { api } from "./api";
 import type {
   Directory,
@@ -44,6 +45,9 @@ let toastId = 0;
 export const message = (e: unknown) => (typeof e === "string" ? e : e instanceof Error ? e.message : String(e));
 
 class App {
+  connected = $state(true);
+  playlistItems = $state<Metadata[]>([]);
+  get scope() { return `${this.session?.accountId}:${this.session?.serverId}`; }
   stage = $state<Stage>({ kind: "booting" });
   session = $state<SessionView | null>(null);
   sections = $state<Directory[]>([]);
@@ -95,9 +99,16 @@ class App {
 
   async init() {
     await Promise.all([
+      listen<boolean>("connection", (e) => (this.connected = e.payload)),
+      listen("settings-changed", () => this.reloadSettings()),
       listen<Stage>("stage", (e) => (this.stage = e.payload)),
       listen<{ session: SessionView | null; sections: Directory[] }>("session", (e) => {
+        const before = this.scope;
         this.session = e.payload.session;
+        if (before !== this.scope) {
+          nav.reset(); this.search = ""; this.menu = null; this.playlistTarget = null; this.playlistItems = [];
+          this.confirming?.resolve(false); this.confirming = null;
+        }
         this.sections = e.payload.sections;
       }),
       listen<NowPlaying | null>("now-playing", (e) => (this.nowPlaying = e.payload)),
@@ -118,6 +129,7 @@ class App {
       api.info(),
       api.downloads(),
     ]);
+    this.connected = snap.connected;
     this.stage = snap.stage;
     this.session = snap.session ?? null;
     this.sections = snap.sections;
@@ -157,28 +169,50 @@ class App {
   }
 
   #saveTimer: ReturnType<typeof setTimeout> | undefined;
-
-  /** Change settings locally at once; write them to disk shortly after. */
+  #playerPatch: Partial<PlayerSettings> = {};
+  #uiPatch: Partial<UiSettings> = {};
+  #saving = false;
+  #settingsGeneration = 0;
+  async reloadSettings() {
+    const generation = this.#settingsGeneration;
+    try {
+      const next = await api.settings();
+      if (!this.#saving && generation === this.#settingsGeneration && !Object.keys(this.#playerPatch).length && !Object.keys(this.#uiPatch).length) this.settings = next;
+    } catch (e) { this.error(e); }
+  }
   updatePlayer(patch: Partial<PlayerSettings>) {
     if (!this.settings) return;
     Object.assign(this.settings.player, patch);
+    Object.assign(this.#playerPatch, patch);
     this.#save();
   }
-
   updateUi(patch: Partial<UiSettings>) {
     if (!this.settings) return;
     Object.assign(this.settings.ui, patch);
+    Object.assign(this.#uiPatch, patch);
     this.#save();
   }
-
   #save() {
+    this.#settingsGeneration++;
     clearTimeout(this.#saveTimer);
-    this.#saveTimer = setTimeout(() => {
-      const s = $state.snapshot(this.settings);
-      if (!s) return;
-      Promise.all([api.setPlayerSettings(s.player), api.setUiSettings(s.ui)]).catch((e) => this.error(e));
-    }, 250);
+    this.#saveTimer = setTimeout(() => this.#flush(), 250);
   }
+  async #flush() {
+    if (this.#saving) return;
+    this.#saving = true;
+    const player = this.#playerPatch, ui = this.#uiPatch;
+    this.#playerPatch = {}; this.#uiPatch = {};
+    try {
+      if (Object.keys(player).length) await api.setPlayerSettings(player);
+      if (Object.keys(ui).length) await api.setUiSettings(ui);
+    } catch (e) { this.error(`Could not save settings: ${message(e)}`); }
+    finally {
+      this.#saving = false;
+      if (Object.keys(this.#playerPatch).length || Object.keys(this.#uiPatch).length) this.#save();
+      else await this.reloadSettings();
+    }
+  }
+
 }
 
 export const app = new App();

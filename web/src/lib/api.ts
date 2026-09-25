@@ -78,8 +78,8 @@ export const api = {
   snapshot: () => call<Snapshot>("snapshot"),
   info: () => call<Info>("info"),
   settings: () => call<Settings>("settings"),
-  setPlayerSettings: (player: PlayerSettings) => call("set_player_settings", { player }),
-  setUiSettings: (ui: UiSettings) => call("set_ui_settings", { ui }),
+  setPlayerSettings: (player: Partial<PlayerSettings>) => call("set_player_settings", { player }),
+  setUiSettings: (ui: Partial<UiSettings>) => call("set_ui_settings", { ui }),
   probeMpv: () => call<string>("probe_mpv"),
   openUrl: (url: string) => call("open_url", { url }),
   openMpvConfig: () => call("open_mpv_config"),
@@ -189,6 +189,7 @@ export const api = {
     }),
   control: (command: Control) => call("control", { command }),
   /** Adding while nothing plays starts playback. */
+  queueItems: (items: Metadata[]) => call("queue_items", { items }),
   queue: (command: QueueCommand) => call("queue", { command }),
   lyrics: (ratingKey: string) => call<Lyrics | null>("lyrics", { ratingKey }),
 
@@ -197,6 +198,7 @@ export const api = {
   /** Queue an item (or every episode/track below it); resolves to how many were added. */
   download: (ratingKey: string) => call<number>("download", { ratingKey }),
   removeDownload: (id: string) => call("remove_download", { id }),
+  pauseDownload: (id: string) => call("pause_download", { id }),
   retryDownload: (id: string) => call("retry_download", { id }),
   playDownloads: (ids: string[]) => call("play_downloads", { ids }),
   openDownloadsFolder: () => call("open_downloads_folder"),

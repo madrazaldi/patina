@@ -61,6 +61,8 @@
     if (ok && (await act(api.deleteRecordingRule(id), "Recording rule deleted"))) recordings.reload();
   }
 </script>
+{#if recordings.error && recordings.data}<Status error={recordings.error} retry={() => recordings.reload()} stale />{/if}
+{#if guide.error && guide.data}<Status error={guide.error} retry={() => guide.reload()} stale />{/if}
 
 {#snippet recordBtn(p: LiveProgram)}
   {@const guid = p.guid}
@@ -91,7 +93,7 @@
   {#if tab === "guide"}
     {@const channels = guide.data}
     {#if !channels}
-      <Status loading={!guide.error} error={guide.error} />
+      <Status loading={!guide.error} error={guide.error} retry={() => guide.reload()} />
     {:else if channels.length === 0}
       <Status title="No channels" text="Set up a tuner and scan for channels in Plex's Live TV & DVR settings." />
     {:else}
@@ -178,7 +180,7 @@
   {:else}
     {@const r = recordings.data}
     {#if !r}
-      <Status loading={!recordings.error} error={recordings.error} />
+      <Status loading={!recordings.error} error={recordings.error} retry={() => recordings.reload()} />
     {:else}
       <div class="section-head"><h2>Upcoming</h2></div>
       {#if r.upcoming.length === 0}

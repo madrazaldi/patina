@@ -9,6 +9,10 @@ use crate::{downloads, livetv};
 /// Play downloads offline, in the order given.
 pub fn play_downloads(app: &AppState, ids: &[String]) -> Result<()> {
     let files = downloads::files(ids);
+    let account = app.session().map(|s| crate::offline::account(&s)).or_else(|| app.settings().auth.account_id);
+    if files.iter().any(|d| !d.account.is_empty() && Some(d.account.as_str()) != account.as_deref()) {
+        return Err(anyhow!("These downloads belong to another Plex profile. Switch to that profile to play them."));
+    }
     if files.is_empty() {
         return Err(anyhow!("The downloaded file is missing."));
     }

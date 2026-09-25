@@ -24,10 +24,14 @@ pub fn watch(app: AppState) {
         while current() {
             let Ok(server) = app.server() else { return };
             if let Ok(list) = server.activities().await {
+                if !current() { return; }
+                app.set_connected(true);
                 app.set_activities(list.iter().filter_map(activity_view).collect());
             }
             match server.notifications(&[]).await {
                 Ok(stream) => {
+                    if !current() { return; }
+                    app.set_connected(true);
                     backoff = Duration::from_secs(2);
                     let mut stream = std::pin::pin!(stream);
                     let mut last_sessions = Instant::now() - Duration::from_secs(5);
@@ -44,6 +48,9 @@ pub fn watch(app: AppState) {
             if !current() {
                 return;
             }
+            let reachable = server.capabilities().await.is_ok();
+            if !current() { return; }
+            app.set_connected(reachable);
             tokio::time::sleep(backoff).await;
             backoff = (backoff * 2).min(Duration::from_secs(60));
         }

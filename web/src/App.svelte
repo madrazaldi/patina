@@ -1,5 +1,6 @@
 <script lang="ts">
   import { setLucideProps } from "@lucide/svelte";
+  import ConfirmDialog from "./components/ConfirmDialog.svelte";
   import Shell from "./components/Shell.svelte";
   import Toasts from "./components/Toasts.svelte";
   import { api } from "./lib/api";
@@ -62,7 +63,7 @@
   {#if app.stage.kind === "ready" && app.session}
     {@const route = nav.route}
     <Shell>
-      {#key routeKey(route)}
+      {#key `${app.scope}:${routeKey(route)}`}
         <div class="fade-in">
           {#if route.name === "home"}
             <Home />
@@ -98,4 +99,5 @@
     <Gate />
   {/if}
 {/if}
+<ConfirmDialog />
 <Toasts />

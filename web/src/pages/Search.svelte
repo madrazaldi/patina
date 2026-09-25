@@ -10,10 +10,13 @@
   import type { Directory, Hub } from "../lib/types";
 
   let query = $derived(app.search.trim());
+  let retry = $state(0);
   let results = $state<{ q: string; hubs?: Hub[]; error?: string } | null>(null);
 
   // Debounced: a newer keystroke cancels the pending search.
   $effect(() => {
+    retry;
+    let cancelled = false;
     const q = query;
     if (q.length < 2) {
       results = null;
@@ -21,11 +24,11 @@
     }
     const timer = setTimeout(() => {
       api.search(q).then(
-        (hubs) => query === q && (results = { q, hubs: hubs.filter((h) => h.Metadata.length || h.Directory.length) }),
-        (e) => query === q && (results = { q, error: message(e) }),
+        (hubs) => !cancelled && query === q && (results = { q, hubs: hubs.filter((h) => h.Metadata.length || h.Directory.length) }),
+        (e) => !cancelled && query === q && (results = { q, error: message(e) }),
       );
     }, 220);
-    return () => clearTimeout(timer);
+    return () => { cancelled = true; clearTimeout(timer); };
   });
 
   const people = ["actor", "director", "writer", "producer", "person", "tag"];
@@ -45,7 +48,7 @@
   {:else if !results || results.q !== query}
     <Status loading />
   {:else if results.error}
-    <Status error={results.error} />
+    <Status error={results.error} retry={() => retry++} />
   {:else if !results.hubs?.length}
     <Status title="No results" text="Check the spelling or try another word." />
   {:else}

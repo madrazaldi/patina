@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ChevronLeft, ChevronRight, Play } from "@lucide/svelte";
+  import { ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Play } from "@lucide/svelte";
   import HubRow from "../components/HubRow.svelte";
   import Img from "../components/Img.svelte";
   import Status from "../components/Status.svelte";
@@ -18,7 +18,23 @@
     return api.homeHubs();
   });
 
-  let rows = $derived((hubs.data ?? []).filter((h) => h.Metadata.length || h.Directory.length));
+  let customizing = $state(false);
+  const hubKey = (h: Hub) => h.hubIdentifier ?? h.key ?? h.title ?? "";
+  let layout = $derived(app.settings?.ui.home_layouts?.[app.scope] ?? { order: [], hidden: [], compact_continue: false });
+  let allRows = $derived((hubs.data ?? []).filter((h) => h.Metadata.length || h.Directory.length).sort((a, b) => {
+    const ai = layout.order.indexOf(hubKey(a)), bi = layout.order.indexOf(hubKey(b));
+    return (ai < 0 ? 100000 : ai) - (bi < 0 ? 100000 : bi);
+  }));
+  let rows = $derived(allRows.filter((h) => !layout.hidden.includes(hubKey(h))));
+  function saveLayout(patch: Partial<typeof layout>) {
+    app.updateUi({ home_layouts: { ...app.settings?.ui.home_layouts, [app.scope]: { ...layout, ...patch } } });
+  }
+  function move(index: number, delta: number) {
+    const order = allRows.map(hubKey), target = index + delta;
+    if (target < 0 || target >= order.length) return;
+    [order[index], order[target]] = [order[target], order[index]];
+    saveLayout({ order });
+  }
 
   /** Featured items: recent or in-progress movies and shows with backdrop art. */
   function featured(list: Hub[]) {
@@ -42,10 +58,27 @@
   const pad = (n: number) => String(n).padStart(2, "0");
 </script>
 
+<div class="home-controls">
+  <button class="btn quiet sm" aria-expanded={customizing} onclick={() => (customizing = !customizing)}>Customize Home</button>
+</div>
+{#if customizing}
+  <div class="customize">
+    <label><input type="checkbox" checked={layout.compact_continue} onchange={(e) => saveLayout({ compact_continue: e.currentTarget.checked })} /> Compact Continue Watching</label>
+    {#each allRows as hub, index (hubKey(hub))}
+      <div class="row-flex">
+        <label class="grow"><input type="checkbox" checked={!layout.hidden.includes(hubKey(hub))} onchange={(e) => saveLayout({ hidden: e.currentTarget.checked ? layout.hidden.filter((k) => k !== hubKey(hub)) : [...layout.hidden, hubKey(hub)] })} /> {hub.title}</label>
+        <button class="icon-btn" title={`Move ${hub.title} up`} disabled={index === 0} onclick={() => move(index, -1)}><ChevronUp /></button>
+        <button class="icon-btn" title={`Move ${hub.title} down`} disabled={index === allRows.length - 1} onclick={() => move(index, 1)}><ChevronDown /></button>
+      </div>
+    {/each}
+    <button class="btn quiet sm" onclick={() => saveLayout({ order: [], hidden: [], compact_continue: false })}>Reset layout</button>
+  </div>
+{/if}
+{#if hubs.error && hubs.data !== undefined}<Status error={hubs.error} retry={() => hubs.reload()} stale />{/if}
 {#if hubs.data === undefined}
-  <Status loading={!hubs.error} error={hubs.error} fill />
+  <Status loading={!hubs.error} error={hubs.error} retry={() => hubs.reload()} fill />
 {:else if rows.length === 0}
-  <Status title="Nothing here yet" text="Your libraries are empty or still scanning." fill />
+  <Status title="Nothing here yet" text={allRows.length ? "Your Home rows are hidden. Use Customize Home to show them." : "Your libraries are empty or still scanning."} fill />
 {:else}
   {#if current}
     {@const [item, label] = current}
@@ -88,12 +121,14 @@
   {/if}
   <div class="page hubs" class:flush={!current}>
     {#each rows as hub, i (`${hub.hubIdentifier}:${hub.key}:${i}`)}
-      <HubRow {hub} />
+      <HubRow {hub} compact={layout.compact_continue} />
     {/each}
   </div>
 {/if}
 
 <style>
+  .home-controls { display: flex; justify-content: flex-end; padding: 8px var(--gutter); }
+  .customize { margin: 0 var(--gutter) 16px; padding: 16px; background: var(--surface); border: 1px solid var(--line); }
   .hero {
     position: relative;
     height: min(56vh, 560px);

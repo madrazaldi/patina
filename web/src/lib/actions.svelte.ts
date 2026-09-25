@@ -41,6 +41,5 @@ export async function download(item: Metadata) {
 
 /** The finished download of an item on the current server, if any. */
 export function downloaded(item: Metadata) {
-  const id = `${app.session?.serverId}:${item.ratingKey}`;
-  return app.downloads.find((d) => d.id === id);
+  return app.downloads.find((d) => d.serverId === app.session?.serverId && (!d.account || d.account === app.session?.accountId) && d.item.ratingKey === item.ratingKey);
 }

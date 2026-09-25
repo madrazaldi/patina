@@ -75,8 +75,10 @@ impl App {
             rows.push((CopyUrl, "Copy stream URL", "y"));
         }
         if item.rating_key.is_some() && (item.is_playable() || matches!(kind, Kind::Show | Kind::Season | Kind::Album | Kind::Artist)) {
-            let id = self.session.as_ref().zip(item.rating_key.as_ref()).map(|(s, k)| format!("{}:{k}", s.server_id));
-            let saved = self.downloads.iter().find(|d| Some(&d.id) == id.as_ref()).map(|d| d.state);
+            let saved = self.session.as_ref().and_then(|s| self.downloads.iter().find(|d|
+                d.server_id == s.server_id && (d.account.is_empty() || d.account == s.account_id)
+                    && d.item.rating_key == item.rating_key
+            )).map(|d| d.state);
             use patina_core::downloads::State;
             rows.push((
                 Download,

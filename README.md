@@ -13,16 +13,19 @@ The desktop app and the terminal client have the same features; the terminal cli
 
 - **Sign in** with the plex.tv browser flow, a plex.tv/link code, email and password (with 2FA), or a direct server URL and token. Switch between Plex Home users (PIN-protected profiles supported) and between servers.
 - **Server connections:** Patina tries every connection a server advertises at the same time. It prefers local, then remote, then relay.
+- **Home layout:** choose Customize Home to reorder or hide rows and use a compact Continue Watching list. Layouts are saved per account and server.
+- **Saved views and bulk actions (desktop):** name and save a library filter/sort combination, then restore it in one click. Select several titles to queue, download, mark watched, or add to a playlist.
 - **Home:** a featured banner (step through recent and in-progress titles) plus every hub the server offers (Continue Watching, Recently Added, and so on).
+- **Connection recovery:** a connection indicator reports reconnection, and failed page refreshes keep saved results visible with a Retry action.
 - **Live updates:** Patina follows the server's notification stream. New and changed items appear without reloading, watch state played on other devices updates, and library scans show their progress in the sidebar.
-- **Libraries:** a poster grid that keeps loading as you scroll. Sort by any server sort, combine any of the server's filters (genre, year, resolution, actor, unwatched, HDR, and so on), jump to a letter with the A–Z rail, and switch between types (shows/seasons/episodes, artists/albums/tracks). Each library also has Recommended, Collections and Folders tabs.
+- **Libraries:** a poster grid that keeps loading as you scroll. Sort by any server sort, combine any of the server's filters (genre, year, resolution, actor, unwatched, HDR, and so on), jump to a letter with the A–Z rail, and switch between types (shows/seasons/episodes, artists/albums/tracks). Each library also has Recommended, Collections and Folders tabs. Returning from details preserves filters, loaded results, scroll and keyboard focus. Large desktop libraries render only the visible cards and fetch the pages needed for A–Z jumps.
 - **Detail pages:** backdrop art, ratings, cast, extras, related and similar titles (sonically similar music, too), seasons and episodes, albums and tracks. Pick the version, audio track and subtitle track; your choice is saved to Plex. Search for subtitles online and download them. Mark items watched, clear progress, remove them from Continue Watching, rate them, and add them to playlists, collections or your watchlist.
 - **Editing (owners only):** edit titles, summaries, dates, genres and labels (edited fields are locked), choose posters and backgrounds, fix matches, and delete items.
 - **Collections:** create them, add and remove items, reorder custom-sorted ones, and set how they show in the library.
 - **Audio & subtitles for whole shows** (like [PASTA](https://github.com/cglatot/pasta)): from a show, season or episode, pick an audio and/or subtitle track in one episode and Patina selects the closest match in every episode of the season or show. It matches on language first (and forced vs. full subtitles), then title, codec and channels. It shows which episodes have no match before you apply, and it leaves them unchanged. You can also turn subtitles off everywhere.
 - **Search** as you type, grouped by type, including people and tags.
 - **Playlists** (create, add, remove, reorder by dragging, rename, clear, delete) and your plex.tv **Watchlist**. Watchlist items link to the copy on your server when there is one.
-- **Downloads:** download a movie, episode, season, show, album or artist for offline playback. Downloads play in mpv even when the server can't be reached.
+- **Downloads:** download a movie, episode, season, show, album or artist for offline playback. Downloads play in mpv even when the server can't be reached. Pause and resume in either client; interrupted transfers retry and resume after restart when the server supplies a file validator and supports byte ranges (otherwise they safely restart). Patina checks free space before transferring. Offline resume points are saved locally; watch progress syncs on reconnect to the original account/server, with newer server watch activity taking precedence. Older downloads without an account identity retain local resume points but do not sync automatically.
 - **Live TV & DVR** (with a tuner): a channel guide with what's on now and next, watching channels, recording programs, and managing upcoming recordings and recording rules.
 - **Activity:** live sessions (with transcode details and the option to stop a stream), watch history, and background tasks and transcoder sessions.
 - **Server tools (owners only):** scan (and cancel scans), refresh, analyze or empty the trash per library, and add, edit or delete libraries and their settings. Also bandwidth and play statistics, butler tasks, database maintenance, updates, CPU and memory stats, downloading logs and database backups, a searchable editor for all server settings, and lists of accounts, friends and devices.
@@ -65,7 +68,7 @@ cargo run -p patina-tui -- libraries     # a CLI subcommand
 cargo install --path crates/tui          # installs `patina-tui` into ~/.cargo/bin
 ```
 
-Settings are stored in `~/.config/patina/config.toml` (or `$XDG_CONFIG_HOME/patina`; Windows: the platform config dir). Both front ends use this file, so signing in once signs in both, and settings changed in one show up in the other. The file holds your auth token, so it is written with mode 0600. Downloads are listed in `downloads.json` next to it and show up in both front ends. Artwork is cached in the platform cache directory.
+Settings are stored in `~/.config/patina/config.toml` (or `$XDG_CONFIG_HOME/patina`; Windows: the platform config dir). Both front ends use this file, so signing in once signs in both, and settings changed in one show up in the other. Cross-process locks and atomic replacement protect settings, download state and offline progress; one process owns the download worker at a time. The file holds your auth token, so it is written with mode 0600. Downloads are listed in `downloads.json` next to it and show up in both front ends. Artwork is cached in the platform cache directory.
 
 Logging: `PATINA_LOG=debug pnpm tauri dev`. The terminal client logs to `patina-tui.log` in the platform data directory, never to the terminal, and reads the same `PATINA_LOG`.
 
@@ -141,7 +144,7 @@ When the server can't be reached, `d` browses and plays your downloads offline.
 | `b` / `B` | Go to the season or album / the show or artist |
 | `m` or `.` | Actions menu (more options) |
 | **Downloads, Live TV, Activity, Server, Settings** | |
-| `Enter` | A row's main action: play, retry, watch, record, run, change |
+| `Enter` | A row's main action: play, pause/resume download, retry, watch, record, run, change |
 | `x` | Remove a download · delete a rule · cancel a task · stop a transcode |
 | `a` | Play a downloaded show, album or all movies |
 | `l` | A channel's later programs · a library's settings |
@@ -194,6 +197,22 @@ patina-tui config-path
 ```
 
 The listing commands (`libraries`, `ls`, `search`, `continue`, `recent`, `sessions`, `history`, `playlists`, `watchlist`) accept `--json` to print Plex's JSON instead of a table.
+
+## Regression checks
+
+```sh
+cargo build --workspace
+cargo test --workspace                 # includes an isolated Python mock-server download/reconnect test
+cargo clippy --workspace --all-targets -- -D warnings
+pnpm check
+pnpm build
+pnpm exec playwright install chromium # first time only
+pnpm test                             # browser journeys using a development-only mock IPC fixture
+# Optional: real mpv resume/completion check (also requires ffmpeg)
+cargo test -p patina-core --test reliability mpv_playback_smoke -- --ignored
+```
+
+The Rust integration test starts `tools/mock_pms.py` on an ephemeral localhost port and uses a temporary config and download directory. It interrupts a transfer, pauses/resumes it, restarts the client process, and checks account-scoped offline progress replay. No real Plex server or user sign-in is used. The browser fixture at `/test/` is served by Vite during development and is not included in the production build.
 
 ## Workspace
 

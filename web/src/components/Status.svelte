@@ -5,16 +5,17 @@
     error,
     title,
     text,
-    fill = false,
-  }: { loading?: boolean; error?: string; title?: string; text?: string; fill?: boolean } = $props();
+    fill = false, retry, stale = false,
+  }: { loading?: boolean; error?: string; title?: string; text?: string; fill?: boolean; retry?: () => void; stale?: boolean } = $props();
 </script>
 
-<div class={["status", { fill }]}>
+<div class={["status", { fill, stale }]} role="status">
   {#if loading}
     <div class="spinner"></div>
   {:else if error}
-    <h3>Something went wrong</h3>
+    <h3>{stale ? "Showing saved results" : "Could not load this page"}</h3>
     <div class="error-box">{error}</div>
+    {#if retry}<button class="btn" onclick={retry}>Retry</button>{/if}
   {:else}
     {#if title}<h3>{title}</h3>{/if}
     {#if text}<p>{text}</p>{/if}
@@ -22,6 +23,7 @@
 </div>
 
 <style>
+  .status.stale { min-height: 0; padding: 12px; margin-bottom: 16px; border: 1px solid var(--line); }
   .status {
     display: flex;
     flex-direction: column;

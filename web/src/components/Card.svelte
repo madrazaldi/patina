@@ -11,11 +11,13 @@
 
   let {
     item,
+    selecting = false, selected = false, ontoggle,
     shape: forced,
     useArt = false,
     fixed = false,
   }: {
     item: Metadata;
+    selecting?: boolean; selected?: boolean; ontoggle?: () => void;
     shape?: plex.Shape;
     /** Continue-watching style: backdrop art, show name as the title. */
     useArt?: boolean;
@@ -47,15 +49,17 @@
   let progress = $derived(plex.progress(item));
   let spoiler = $derived(app.spoilers && kind === "episode" && !plex.isWatched(item));
 
-  const open = () => nav.push(routeFor(item));
+  const open = () => selecting ? ontoggle?.() : nav.push(routeFor(item));
 </script>
 
 <div
   class={["card", shape, { fixed }]}
   role="button"
+  aria-label={plex.fullTitle(item)}
+  aria-pressed={selecting ? selected : undefined}
   tabindex="0"
   onclick={open}
-  onkeydown={(e) => e.key === "Enter" && open()}
+  onkeydown={(e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); open(); } }}
   oncontextmenu={(e) => openMenu(item, e)}
 >
   <div class="art">
@@ -72,7 +76,8 @@
     {#if progress != null}
       <div class="progress"><i style:width="{progress * 100}%"></i></div>
     {/if}
-    <div class="hover">
+    {#if selecting}<span class="selection" class:checked={selected}>{selected ? "✓" : "○"}</span>{/if}
+    <div class="hover" class:selecting>
       {#if plex.canPlay(item)}
         <button
           class="play"
@@ -91,6 +96,9 @@
 </div>
 
 <style>
+  .selection { position: absolute; left: 8px; top: 8px; background: var(--bg); border: 1px solid var(--line-2); padding: 2px 7px; border-radius: 4px; }
+  .selection.checked { background: var(--accent); color: var(--bg); }
+  .hover.selecting { display: none; }
   .card {
     min-width: 0;
     cursor: pointer;
