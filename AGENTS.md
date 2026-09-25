@@ -38,6 +38,8 @@ The mock logs every timeline, scrobble and stream-selection call. Downloads go t
 
 To release, bump `version` in `[workspace.package]`, commit, and push a matching tag (`v0.2.0`). `release.yml` builds the desktop bundles and `patina-tui` archives for macOS (arm64 and x86_64), Linux (x86_64 and arm64) and Windows into a draft GitHub release. Publish it by hand. macOS builds are signed and notarized only when the `APPLE_*` secrets are set, and ad-hoc signed otherwise.
 
+macOS jobs run on `macos-latest` unless the `MACOS_RUNNER` repo variable names a self-hosted runner label (`patina-mac`, the maintainer's Mac). Delete the variable to fall back to GitHub's runners when that Mac is offline, or jobs queue until it returns.
+
 ## Architecture
 
 | Crate | Role |
