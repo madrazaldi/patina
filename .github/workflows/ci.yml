@@ -68,6 +68,24 @@ jobs:
         if: runner.os == 'Linux'
         run: cargo test -p patina-core --test reliability --locked -- --ignored mpv_playback_smoke
 
+  # The native macOS app (macos/): builds the backend library and the SwiftUI app.
+  macos:
+    name: macOS app
+    runs-on: ${{ vars.MACOS_RUNNER || 'macos-latest' }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        if: runner.environment == 'github-hosted'
+        with:
+          key: macos-app
+          cache-on-failure: true
+
+      - name: Build
+        run: macos/build.sh
+
   web:
     name: Web
     runs-on: ubuntu-24.04
@@ -110,7 +128,7 @@ jobs:
   ok:
     name: CI OK
     if: always()
-    needs: [rust, web]
+    needs: [rust, macos, web]
     runs-on: ubuntu-24.04
     steps:
       - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')

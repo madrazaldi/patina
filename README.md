@@ -1,11 +1,14 @@
+<img src="assets/mark.svg" alt="" width="48">
+
 # Patina
 
-A Plex client written in Rust, with two front ends on one shared backend:
+A Plex client written in Rust, with its front ends on one shared backend:
 
-- **Patina**, a desktop app (Tauri and Svelte) with a polished interface for browsing your libraries.
+- **Patina for macOS**, a native SwiftUI app (`macos/`).
+- **Patina for Windows and Linux**, a desktop app built with Tauri and Svelte (`web/`).
 - **patina-tui**, a keyboard-driven terminal client with Miller columns, plus a scriptable CLI with `--json` output. See [Terminal client](#terminal-client-patina-tui).
 
-Both play everything in **mpv**. mpv starts normally, so it reads your own `mpv.conf`, `input.conf`, scripts and shaders from mpv's default config directory (`~/.config/mpv` on macOS/Linux, `%APPDATA%\mpv` on Windows). They share one config file, sign-in and downloads, and can run at the same time.
+All of them play everything in **mpv**. mpv starts normally, so it reads your own `mpv.conf`, `input.conf`, scripts and shaders from mpv's default config directory (`~/.config/mpv` on macOS/Linux, `%APPDATA%\mpv` on Windows). They share one config file, sign-in and downloads, and can run at the same time.
 
 ## Features
 
@@ -46,13 +49,23 @@ The desktop app and the terminal client have the same features; the terminal cli
 ## Requirements
 
 - Rust 1.85+ (edition 2024)
-- Node.js 20+ and pnpm (desktop app only, for the web frontend)
-- mpv 0.38+ on `PATH`, or set its path in **Settings → Player**
-- macOS or Linux (Windows should work, but hasn't been tested)
+- macOS app: macOS 14+ to run; Xcode 16+ to build (the Command Line Tools alone lack SwiftUI's macros)
+- Windows/Linux desktop app: Node.js 20+ and pnpm, for the web frontend
+- mpv 0.38+ on `PATH` (or installed with Homebrew or as `/Applications/mpv.app`), or set its path in **Settings → Player**
 
 ## Build & run
 
-Desktop app:
+macOS app:
+
+```sh
+macos/build.sh                              # debug build → macos/build/Patina.app
+macos/build.sh --release --universal --dmg  # what releases ship
+open macos/build/Patina.app
+```
+
+The script builds the backend as a static library (`crates/ffi`), then the Swift package in `macos/` against it, and bundles and signs the app (ad hoc unless `APPLE_SIGNING_IDENTITY` is set). You can also open `macos/Package.swift` in Xcode once the library is built.
+
+Windows and Linux desktop app:
 
 ```sh
 pnpm install
@@ -70,7 +83,7 @@ cargo install --path crates/tui          # installs `patina-tui` into ~/.cargo/b
 
 Settings are stored in `~/.config/patina/config.toml` (or `$XDG_CONFIG_HOME/patina`; Windows: the platform config dir). Both front ends use this file, so signing in once signs in both, and settings changed in one show up in the other. Cross-process locks and atomic replacement protect settings, download state and offline progress; one process owns the download worker at a time. The file holds your auth token, so it is written with mode 0600. Downloads are listed in `downloads.json` next to it and show up in both front ends. Artwork is cached in the platform cache directory.
 
-Logging: `PATINA_LOG=debug pnpm tauri dev`. The terminal client logs to `patina-tui.log` in the platform data directory, never to the terminal, and reads the same `PATINA_LOG`.
+Logging: `PATINA_LOG=debug pnpm tauri dev`. The macOS app logs to `patina.log` in the platform data directory (`~/Library/Application Support/patina`). The terminal client logs to `patina-tui.log` in the platform data directory, never to the terminal, and reads the same `PATINA_LOG`.
 
 ## Terminal client (patina-tui)
 
@@ -221,8 +234,10 @@ The Rust integration test starts `tools/mock_pms.py` on an ephemeral localhost p
 | `crates/plex` (`patina-plex`) | Async client for the Plex Media Server and plex.tv APIs. It covers auth and PINs, resources, Plex Home, watchlist and discover, libraries, metadata editing and matching, artwork, hubs, search, playlists, collections, play queues, timeline, scrobbling and rating, stream selection, subtitles, transcoding, sessions, history, activities, butler, preferences, statistics, updates, logs and live notifications (SSE). `raw()` escape hatches cover anything else. |
 | `crates/mpv` (`patina-mpv`) | Starts mpv and controls it over JSON IPC (commands, property observation, events, key bindings). |
 | `crates/core` (`patina-core`) | The backend both front ends share, with no UI code: settings, sign-in and sessions, mpv playback and play queues, downloads, live server updates, Live TV, lyrics, and the heavier server queries. Front ends receive its events through an `EventSink`. |
-| `crates/app` (`patina`) | The Tauri desktop app: a thin layer that exposes core to the frontend as typed commands and forwards its events to the webview. It also handles OS media controls. Tokens never reach the webview; artwork is served through the `plximg` URI scheme. |
+| `crates/app` (`patina`) | The Tauri desktop app for Windows and Linux: a thin layer that exposes core to the frontend as typed commands and forwards its events to the webview. It also handles OS media controls. Tokens never reach the webview; artwork is served through the `plximg` URI scheme. |
 | `web/` | The Svelte 5 + TypeScript frontend. `pnpm check` type-checks it. |
+| `crates/ffi` (`patina-ffi`) | A C interface to core for the macOS app: the same commands as `crates/app`, called by name with JSON, plus core events and artwork. |
+| `macos/` | The native macOS app (SwiftUI). It links `patina-ffi` and handles the OS media controls itself. |
 | `crates/tui` (`patina-tui`) | The terminal client (ratatui) and its CLI. |
 
 ## Developing without a Plex server
@@ -232,7 +247,10 @@ The Rust integration test starts `tools/mock_pms.py` on an ephemeral localhost p
 ```sh
 python3 tools/mock_pms.py --media /path/to/media --port 32499
 
-# Desktop app: choose "Connect to a server directly"
+# macOS app: choose "Connect to a server directly"
+XDG_CONFIG_HOME=/tmp/patina-dev macos/build/Patina.app/Contents/MacOS/Patina
+
+# Windows/Linux desktop app: the same
 XDG_CONFIG_HOME=/tmp/patina-dev pnpm tauri dev
 
 # Terminal client

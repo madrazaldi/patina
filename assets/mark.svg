@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="500" viewBox="340 262 360 500">
+  <!-- The Patina mark alone. The triangle is cut out, so it shows whatever is behind. -->
+  <path fill="#7fb3a0" fill-rule="evenodd" d="M340 262 H540 A160 160 0 0 1 540 582 H408 V762 H340 Z M478 344 L626 422 L478 500 Z"/>
+</svg>
