@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Patina's app icon (macOS grid): a verdigris P whose counter is a play triangle. -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#131313"/>
+  <g transform="translate(-8 0)">
+    <path d="M340 262 H540 A160 160 0 0 1 540 582 H408 V762 H340 Z" fill="#7fb3a0"/>
+    <path d="M478 344 L626 422 L478 500 Z" fill="#131313" stroke="#131313" stroke-width="14" stroke-linejoin="round"/>
+  </g>
+</svg>

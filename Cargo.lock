@@ -3603,6 +3603,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "patina-ffi"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "open",
+ "patina-core",
+ "patina-plex",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "patina-mpv"
 version = "0.1.0"
 dependencies = [
