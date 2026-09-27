@@ -9,6 +9,7 @@ struct BrowsePage: View {
     @Environment(AppModel.self) private var app
     @State private var items: [Metadata] = []
     @State private var total: Int?
+    @State private var offset = 0
     @State private var done = false
     @State private var loading = false
     @State private var error: String?
@@ -59,14 +60,19 @@ struct BrowsePage: View {
         guard !loading, !done else { return }
         loading = true
         error = nil
-        let start = items.count
+        let start = offset
         Task {
             do {
                 let mc = try await API.listing(path, start: start, size: Self.page)
-                items.append(contentsOf: mc.metadata)
+                offset += mc.metadata.count
+                let seen = Set(items.compactMap(\.ratingKey))
+                let fresh = mc.metadata.filter { $0.ratingKey.map { !seen.contains($0) } ?? true }
+                items.append(contentsOf: fresh)
                 total = mc.totalSize ?? (mc.metadata.count < Self.page ? items.count : nil)
-                // Some endpoints ignore paging; stop when a page comes back short.
-                done = mc.metadata.count < Self.page || (mc.totalSize.map { items.count >= $0 } ?? false)
+                // Some endpoints ignore paging; stop when a page comes back short,
+                // oversized, or with nothing new.
+                done = mc.metadata.count != Self.page || fresh.isEmpty
+                    || (mc.totalSize.map { items.count >= $0 } ?? false)
             } catch {
                 self.error = error.localizedDescription
             }

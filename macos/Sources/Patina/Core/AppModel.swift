@@ -98,6 +98,9 @@ final class AppModel {
     var settingsRequest = 0
 
     private var started = false
+    /// Events that arrive before the startup snapshot is applied, replayed after it
+    /// so the snapshot can't overwrite newer state. Nil once replayed.
+    private var pendingEvents: [(String, Data)]? = []
 
     var owned: Bool { session?.owned ?? false }
     var hasTv: Bool { session?.hasTv ?? false }
@@ -126,8 +129,9 @@ final class AppModel {
     func start() {
         guard !started else { return }
         started = true
-        Core.start { [weak self] name, payload in self?.handle(name, payload) }
+        Core.start { [weak self] name, payload in self?.receive(name, payload) }
         Task {
+            defer { replayPendingEvents() }
             do {
                 async let snap = API.snapshot()
                 async let settings = API.settings()
@@ -157,6 +161,20 @@ final class AppModel {
             NSLog("Patina: bad event payload for %@: %@", String(describing: T.self), String(describing: error))
             return nil
         }
+    }
+
+    private func receive(_ name: String, _ data: Data) {
+        if pendingEvents != nil {
+            pendingEvents?.append((name, data))
+        } else {
+            handle(name, data)
+        }
+    }
+
+    private func replayPendingEvents() {
+        let events = pendingEvents ?? []
+        pendingEvents = nil
+        for (name, data) in events { handle(name, data) }
     }
 
     private func handle(_ name: String, _ data: Data) {

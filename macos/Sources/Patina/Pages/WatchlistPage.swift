@@ -95,8 +95,9 @@ private struct WatchlistEntry: View {
         guard let guid = item.guid else { local = .some(nil); return }
         if WatchlistLocal.scope != app.scope { WatchlistLocal.known = [:]; WatchlistLocal.scope = app.scope }
         if let hit = WatchlistLocal.known[guid] { local = .some(hit); return }
+        // Only cache real answers; a failed lookup retries next time the card appears.
         let rk: String?
-        do { rk = try await API.findByGuid(guid) } catch is CancellationError { return } catch { rk = nil }
+        do { rk = try await API.findByGuid(guid) } catch { return }
         WatchlistLocal.known[guid] = .some(rk)
         local = .some(rk)
     }

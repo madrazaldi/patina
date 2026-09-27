@@ -56,6 +56,7 @@ final class MediaRemote {
         center.playbackState = enabled ? .stopped : .unknown
         artwork = nil
         artworkLoading = nil
+        artworkFailed = nil
     }
 
     private func publish(_ np: NowPlaying) {

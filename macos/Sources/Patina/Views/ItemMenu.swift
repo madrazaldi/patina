@@ -91,8 +91,10 @@ struct ItemMenu: View {
             switch saved?.state {
             case .done: Button("Downloaded", systemImage: "arrow.down.circle") {}.disabled(true)
             case .paused, .failed:
-                Button("Resume Download", systemImage: "arrow.down.circle") {
-                    app.perform { try await API.retryDownload(saved!.id) }
+                if let id = saved?.id {
+                    Button("Resume Download", systemImage: "arrow.down.circle") {
+                        app.perform { try await API.retryDownload(id) }
+                    }
                 }
             case .queued, .downloading: Button("Downloading…", systemImage: "arrow.down.circle") {}.disabled(true)
             case nil: Button("Download", systemImage: "arrow.down.circle") { Actions.download(item) }

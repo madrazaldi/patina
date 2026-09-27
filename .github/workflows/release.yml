@@ -135,6 +135,12 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain" >/dev/null
           security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
           rm "$RUNNER_TEMP/cert.p12"
+          if [ -z "$APPLE_SIGNING_IDENTITY" ]; then
+            echo "::error::APPLE_SIGNING_IDENTITY is empty"; exit 1
+          fi
+          if ! security find-identity -v -p codesigning "$keychain" | grep -qF "$APPLE_SIGNING_IDENTITY"; then
+            echo "::error::Signing identity not found in the imported keychain"; exit 1
+          fi
           echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY" >> "$GITHUB_ENV"
           echo "PATINA_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
 

@@ -163,11 +163,14 @@ struct TrackSheet: View {
         app.tracksProgress = (0, v.plan.changes.count)
         applying = true
         Task {
-            do { try await API.tracksApply(v.plan.changes) } catch { app.error(error) }
-            applying = false
-            app.tracksProgress = nil
-            app.refresh()
-            dismiss()
+            // Refresh either way: a failed run may have applied some changes.
+            defer { applying = false; app.tracksProgress = nil; app.refresh() }
+            do {
+                try await API.tracksApply(v.plan.changes)
+                dismiss()
+            } catch {
+                app.error(error)
+            }
         }
     }
 }
