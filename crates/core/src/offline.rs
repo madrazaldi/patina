@@ -32,7 +32,7 @@ pub fn now() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64
 }
 pub fn digest(value: &str) -> String {
-    format!("{:x}", Sha256::digest(value.as_bytes()))
+    Sha256::digest(value.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
 }
 pub fn account(session: &Session) -> String {
     session.user.as_ref().and_then(|u| u.uuid.clone()).unwrap_or_else(|| digest(session.server.token()))
