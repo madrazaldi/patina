@@ -170,6 +170,8 @@ struct TrackSheet: View {
                 dismiss()
             } catch {
                 app.error(error)
+                // Some changes may have landed; reload and replan so a retry only sends the rest.
+                if let rk = show.0, (try? await API.tracksLoad(show: rk)) != nil { await plan() }
             }
         }
     }
