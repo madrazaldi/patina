@@ -41,7 +41,7 @@ private struct HomeContent: View {
         }.map(\.element)
     }
 
-    private var rows: [Hub] { allRows.filter { !layout.hidden.contains(hubKey($0)) } }
+    private var rows: [Hub] { allRows.filter { !layout.isHidden(hubKey($0)) } }
 
     var body: some View {
         let rows = rows
@@ -326,7 +326,7 @@ private struct CustomizeHome: View {
             HStack {
                 Button("Reset Layout") {
                     order = rows.map(hubKey)
-                    hidden = []
+                    hidden = HomeLayout.hiddenByDefault
                     compact = false
                     save(HomeLayout())
                 }
@@ -339,14 +339,21 @@ private struct CustomizeHome: View {
         .frame(width: 440, height: 520)
         .onAppear {
             order = rows.map(hubKey)
-            hidden = Set(layout.hidden)
+            hidden = Set(order.filter(layout.isHidden))
             compact = layout.compact_continue
         }
     }
 
     private func commit() {
-        // Keep hidden keys for hubs that aren't showing right now.
-        let extra = layout.hidden.filter { !order.contains($0) }
-        save(HomeLayout(order: order, hidden: order.filter(hidden.contains) + extra, compact_continue: compact))
+        // Keep the choices for hubs that aren't showing right now.
+        let hiddenExtra = layout.hidden.filter { !order.contains($0) }
+        let shownExtra = layout.shown.filter { !order.contains($0) }
+        let shown = order.filter { HomeLayout.hiddenByDefault.contains($0) && !hidden.contains($0) }
+        save(HomeLayout(
+            order: order,
+            hidden: order.filter { hidden.contains($0) && !HomeLayout.hiddenByDefault.contains($0) } + hiddenExtra,
+            shown: shown + shownExtra,
+            compact_continue: compact
+        ))
     }
 }

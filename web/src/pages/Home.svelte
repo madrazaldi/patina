@@ -11,7 +11,7 @@
   import { resource } from "../lib/resource.svelte";
   import { nav, routeFor } from "../lib/router.svelte";
   import { app } from "../lib/state.svelte";
-  import type { Hub, Metadata } from "../lib/types";
+  import type { HomeLayout, Hub, Metadata } from "../lib/types";
 
   const hubs = resource(() => {
     app.revision;
@@ -20,12 +20,22 @@
 
   let customizing = $state(false);
   const hubKey = (h: Hub) => h.hubIdentifier ?? h.key ?? h.title ?? "";
-  let layout = $derived(app.settings?.ui.home_layouts?.[app.scope] ?? { order: [], hidden: [], compact_continue: false });
+  /** Hubs hidden until turned on: Plex's legacy On Deck, which Continue Watching replaces. */
+  const HIDDEN_BY_DEFAULT = ["home.ondeck"];
+  const EMPTY: HomeLayout = { order: [], hidden: [], shown: [], compact_continue: false };
+  let layout = $derived({ ...EMPTY, ...app.settings?.ui.home_layouts?.[app.scope] });
+  const isHidden = (key: string) =>
+    layout.hidden.includes(key) || (HIDDEN_BY_DEFAULT.includes(key) && !layout.shown.includes(key));
+  function setShown(key: string, on: boolean) {
+    const hidden = layout.hidden.filter((k) => k !== key), shown = layout.shown.filter((k) => k !== key);
+    if (HIDDEN_BY_DEFAULT.includes(key)) saveLayout({ hidden, shown: on ? [...shown, key] : shown });
+    else saveLayout({ hidden: on ? hidden : [...hidden, key], shown });
+  }
   let allRows = $derived((hubs.data ?? []).filter((h) => h.Metadata.length || h.Directory.length).sort((a, b) => {
     const ai = layout.order.indexOf(hubKey(a)), bi = layout.order.indexOf(hubKey(b));
     return (ai < 0 ? 100000 : ai) - (bi < 0 ? 100000 : bi);
   }));
-  let rows = $derived(allRows.filter((h) => !layout.hidden.includes(hubKey(h))));
+  let rows = $derived(allRows.filter((h) => !isHidden(hubKey(h))));
   function saveLayout(patch: Partial<typeof layout>) {
     app.updateUi({ home_layouts: { ...app.settings?.ui.home_layouts, [app.scope]: { ...layout, ...patch } } });
   }
@@ -66,12 +76,12 @@
     <label><input type="checkbox" checked={layout.compact_continue} onchange={(e) => saveLayout({ compact_continue: e.currentTarget.checked })} /> Compact Continue Watching</label>
     {#each allRows as hub, index (hubKey(hub))}
       <div class="row-flex">
-        <label class="grow"><input type="checkbox" checked={!layout.hidden.includes(hubKey(hub))} onchange={(e) => saveLayout({ hidden: e.currentTarget.checked ? layout.hidden.filter((k) => k !== hubKey(hub)) : [...layout.hidden, hubKey(hub)] })} /> {hub.title}</label>
+        <label class="grow"><input type="checkbox" checked={!isHidden(hubKey(hub))} onchange={(e) => setShown(hubKey(hub), e.currentTarget.checked)} /> {hub.title}</label>
         <button class="icon-btn" title={`Move ${hub.title} up`} disabled={index === 0} onclick={() => move(index, -1)}><ChevronUp /></button>
         <button class="icon-btn" title={`Move ${hub.title} down`} disabled={index === allRows.length - 1} onclick={() => move(index, 1)}><ChevronDown /></button>
       </div>
     {/each}
-    <button class="btn quiet sm" onclick={() => saveLayout({ order: [], hidden: [], compact_continue: false })}>Reset layout</button>
+    <button class="btn quiet sm" onclick={() => saveLayout(EMPTY)}>Reset layout</button>
   </div>
 {/if}
 {#if hubs.error && hubs.data !== undefined}<Status error={hubs.error} retry={() => hubs.reload()} stale />{/if}

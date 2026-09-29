@@ -411,7 +411,7 @@ export interface SavedView {
   toggles: string[];
   picked: { filter: string; title: string; value: string; label: string }[];
 }
-export interface HomeLayout { order: string[]; hidden: string[]; compact_continue: boolean; }
+export interface HomeLayout { order: string[]; hidden: string[]; shown: string[]; compact_continue: boolean; }
 export interface UiSettings {
   saved_views: SavedView[];
   home_layouts: Record<string, HomeLayout>;

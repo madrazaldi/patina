@@ -158,7 +158,15 @@ struct SavedView: Codable, Equatable, Identifiable {
 struct HomeLayout: Codable, Equatable {
     var order: [String] = []
     var hidden: [String] = []
+    var shown: [String] = []
     var compact_continue: Bool = false
+
+    /// Hubs hidden until turned on: Plex's legacy On Deck, which Continue Watching replaces.
+    static let hiddenByDefault: Set<String> = ["home.ondeck"]
+
+    func isHidden(_ key: String) -> Bool {
+        hidden.contains(key) || (Self.hiddenByDefault.contains(key) && !shown.contains(key))
+    }
 }
 
 struct UiSettings: Codable, Equatable {

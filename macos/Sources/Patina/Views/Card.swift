@@ -151,10 +151,7 @@ struct HubRow: View {
 
     @Environment(AppModel.self) private var app
 
-    private var shape: CardShape {
-        if useArt { return .landscape }
-        return items.first?.shape ?? .poster
-    }
+    private var shape: CardShape { useArt ? .landscape : CardShape.common(items) }
 
     private var cardWidth: CGFloat {
         switch shape {
@@ -180,7 +177,7 @@ struct HubRow: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(alignment: .top, spacing: 14) {
                     ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                        Card(item: item, shape: useArt ? .landscape : nil, useArt: useArt, width: cardWidth)
+                        Card(item: item, shape: shape, useArt: useArt, width: cardWidth)
                     }
                 }
                 .padding(.horizontal, Theme.gutter)

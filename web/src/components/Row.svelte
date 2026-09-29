@@ -2,7 +2,7 @@
   // A titled, horizontally scrolling row of cards.
   import { ChevronLeft, ChevronRight } from "@lucide/svelte";
   import Card from "./Card.svelte";
-  import type { Shape } from "../lib/plex";
+  import { commonShape, type Shape } from "../lib/plex";
   import { nav, type Route } from "../lib/router.svelte";
   import type { Metadata } from "../lib/types";
 
@@ -13,6 +13,8 @@
     useArt = false,
     more,
   }: { title: string; items: Metadata[]; shape?: Shape; useArt?: boolean; more?: Route } = $props();
+
+  let rowShape = $derived(shape ?? commonShape(items));
 
   let scroller: HTMLDivElement | undefined = $state();
   let atStart = $state(true);
@@ -50,7 +52,7 @@
     </div>
     <div class="row" bind:this={scroller} onscroll={update}>
       {#each items as item, i (`${item.ratingKey}:${item.key}:${i}`)}
-        <Card {item} {shape} {useArt} fixed />
+        <Card {item} shape={rowShape} {useArt} fixed />
       {/each}
     </div>
   </section>

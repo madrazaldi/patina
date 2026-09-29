@@ -135,6 +135,14 @@ export function shapeFor(m: Metadata): Shape {
   return "poster";
 }
 
+/** One shape for a row of mixed items, so the cards line up: theirs if they
+ *  agree, else posters (episodes show their show's poster). */
+export function commonShape(items: Metadata[]): Shape {
+  const shapes = new Set(items.map(shapeFor));
+  if (shapes.size === 1) return [...shapes][0];
+  return shapes.has("poster") || shapes.size === 0 ? "poster" : "square";
+}
+
 /** Playlist type an item can be added to. */
 export function playlistKind(m: Metadata) {
   const k = kind(m);

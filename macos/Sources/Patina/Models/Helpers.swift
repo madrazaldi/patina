@@ -126,6 +126,14 @@ extension Metadata {
 enum CardShape {
     case poster, landscape, square
 
+    /// One shape for a row of mixed items, so the cards line up: theirs if
+    /// they agree, else posters (episodes show their show's poster).
+    static func common(_ items: [Metadata]) -> CardShape {
+        let shapes = Set(items.map(\.shape))
+        if shapes.count == 1, let only = shapes.first { return only }
+        return shapes.contains(.poster) || shapes.isEmpty ? .poster : .square
+    }
+
     /// Height over width.
     var ratio: CGFloat {
         switch self {

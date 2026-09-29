@@ -148,6 +148,8 @@ impl Default for UiSettings {
 pub struct HomeLayout {
     pub order: Vec<String>,
     pub hidden: Vec<String>,
+    /// Hubs that are hidden by default (the legacy On Deck) but turned on.
+    pub shown: Vec<String>,
     pub compact_continue: bool,
 }
 
