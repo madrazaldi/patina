@@ -187,3 +187,25 @@ for (const typing of [false, true]) {
     else expect(await page.locator("#content").evaluate((el) => el.scrollTop)).toBe(0);
   });
 }
+
+test("server settings are grouped and task schedules live in Maintenance", async ({ page }, testInfo) => {
+  await page.getByRole("button", { name: "Server", exact: true }).click();
+  await page.getByRole("button", { name: "Settings", exact: true }).last().click();
+  await expect(page.getByRole("heading", { name: "General" })).toBeVisible();
+  await expect(page.getByText("Secure connections")).toHaveCount(0);
+  await expect(page.getByText("Debug logging")).toHaveCount(0);
+  await page.locator(".groups").getByRole("button", { name: /Network/ }).click();
+  await expect(page.getByText("Secure connections")).toBeVisible();
+  await page.getByPlaceholder("Search all settings").fill("quality");
+  await expect(page.getByRole("heading", { name: "Transcoder" })).toBeVisible();
+  await expect(page.getByText("Secure connections")).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath("server-settings.png"), animations: "disabled" });
+
+  await page.getByRole("button", { name: "Maintenance", exact: true }).click();
+  await page.getByRole("button", { name: "Run Clean Old Bundles on schedule" }).click();
+  const saved = await page.evaluate(() => (window as any).__PATINA_TEST__.calls.filter((c: any) => c.cmd === "set_pref").map((c: any) => c.args));
+  expect(saved).toEqual([{ id: "ButlerTaskCleanOldBundles", value: "true" }]);
+  await expect(page.getByRole("button", { name: "Run Clean Old Bundles on schedule" })).toHaveClass(/on/);
+  await expect(page.getByText("Every 3 days", { exact: true })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("server-maintenance.png"), animations: "disabled", fullPage: true });
+});

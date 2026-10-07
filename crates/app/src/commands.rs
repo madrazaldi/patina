@@ -6,7 +6,7 @@ use patina_core::ops::{edit, library, lists, playback, server, setup};
 use patina_core::player::{self, Control, PlayRequest, QueueCommand};
 use patina_core::state::{AppState, Snapshot};
 use patina_core::{downloads, livetv, session, tracks};
-use patina_plex::{ButlerTask, Directory, Hub, LibraryQuery, MatchResult, MediaContainer, Metadata, MetadataOptions, Params, Stream};
+use patina_plex::{Directory, Hub, LibraryQuery, MatchResult, MediaContainer, Metadata, MetadataOptions, Params, Stream};
 use serde::{Serialize, Serializer};
 use tauri::State;
 use tauri::ipc::Channel;
@@ -434,8 +434,8 @@ pub async fn server_action(app: App<'_>, action: String) -> Res {
 }
 
 #[tauri::command]
-pub async fn butler_tasks(app: App<'_>) -> Res<Vec<ButlerTask>> {
-    Ok(app.server()?.butler_tasks().await?)
+pub async fn maintenance(app: App<'_>) -> Res<server::Maintenance> {
+    Ok(server::maintenance(&app).await?)
 }
 
 #[tauri::command]
@@ -446,8 +446,8 @@ pub async fn butler_task(app: App<'_>, name: String, start: bool) -> Res {
 }
 
 #[tauri::command]
-pub async fn prefs(app: App<'_>) -> Res<Vec<server::Pref>> {
-    Ok(server::prefs(&app).await?)
+pub async fn prefs(app: App<'_>) -> Res<Vec<server::PrefGroup>> {
+    Ok(server::settings(&app).await?)
 }
 
 #[tauri::command]

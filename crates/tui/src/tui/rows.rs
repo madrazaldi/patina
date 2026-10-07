@@ -4,9 +4,9 @@
 use patina_core::config::{ACCENTS, QUALITIES, Settings};
 use patina_core::downloads::{Download, State};
 use patina_core::livetv::{Channel, Program, Recordings};
-use patina_core::ops::server::{Overview, Pref, Stats, Tasks, UsersDevices};
+use patina_core::ops::server::{Maintenance, Overview, Pref, PrefGroup, Stats, Tasks, UsersDevices};
 use patina_core::state::{ServerActivity, SessionView};
-use patina_plex::{ButlerTask, Directory};
+use patina_plex::Directory;
 
 use super::source::{Link, Source};
 use crate::format;
@@ -48,7 +48,8 @@ pub enum Act {
     Transcode(String),
     /// Load older history.
     MoreHistory,
-    Butler(String),
+    /// A scheduled task, with the setting that switches its scheduled runs.
+    Butler { name: String, pref: Option<Box<Pref>> },
     Server(ServerOp),
     OpenUrl(String),
     Library(Box<Directory>),
@@ -535,28 +536,40 @@ pub fn stats(s: &Stats, month: bool) -> Vec<Item> {
     out
 }
 
-pub fn maintenance(butler: &[ButlerTask]) -> Vec<Item> {
+/// Database jobs to run now, the butler's schedule and tasks, then diagnostics.
+pub fn maintenance(m: &Maintenance) -> Vec<Item> {
     let mut out = vec![
         heading("Database"),
         op("bundles", "Clean bundles", ServerOp::CleanBundles, "Delete metadata bundles for media that no longer exists."),
         op("optimize", "Optimize database", ServerOp::OptimizeDatabase, "Compact and re-index the library database."),
+        heading("Scheduled tasks"),
+    ];
+    // The maintenance window and other butler settings.
+    out.extend(m.schedule.iter().map(|p| pref(p.clone(), None)));
+    for t in &m.tasks {
+        let name = t.task.name.clone().unwrap_or_default();
+        let on = t.pref.as_ref().map_or(t.task.enabled, |p| p.value == "true" || p.value == "1");
+        let every = match t.task.interval {
+            Some(1) => "daily".to_string(),
+            Some(d) if d > 0 => format!("every {d} days"),
+            _ => String::new(),
+        };
+        let row = Row::new(format!("butler:{name}"), Act::Butler { name: name.clone(), pref: t.pref.clone().map(Box::new) })
+            .glyph("◷", if on { Tone::Accent } else { Tone::Dim })
+            .note(if on { every.clone() } else { "off".into() })
+            .kv("Name", name.clone())
+            .kv("Schedule", if on { "on" } else { "off" })
+            .kv("Runs", every)
+            .text(t.task.description.clone().unwrap_or_default());
+        out.push(row.item(t.task.title.clone().unwrap_or(name)));
+    }
+    out.extend([
+        op("start-all", "Start all tasks", ServerOp::ButlerStartAll, "Run every scheduled task now."),
+        op("stop-all", "Stop all tasks", ServerOp::ButlerStopAll, ""),
         heading("Diagnostics"),
         op("logs", "Download logs", ServerOp::SaveLogs, "Server logs as a zip, for troubleshooting or a support request. Saved to your Downloads folder."),
         op("database", "Download database backup", ServerOp::SaveDatabase, "A copy of the library database. Large libraries take a while. Saved to your Downloads folder."),
-        heading("Scheduled tasks"),
-        op("start-all", "Start all tasks", ServerOp::ButlerStartAll, "Plex's butler runs these during the maintenance window."),
-        op("stop-all", "Stop all tasks", ServerOp::ButlerStopAll, ""),
-    ];
-    for t in butler {
-        let name = t.name.clone().unwrap_or_default();
-        let row = Row::new(format!("butler:{name}"), Act::Butler(name.clone()))
-            .glyph("◷", if t.enabled { Tone::Accent } else { Tone::Dim })
-            .note(if t.enabled { "" } else { "disabled" })
-            .kv("Name", name.clone())
-            .kv("Every", t.interval.map(|d| format!("{d} days")).unwrap_or_default())
-            .text(t.description.clone().unwrap_or_default());
-        out.push(row.item(t.title.clone().unwrap_or(name)));
-    }
+    ]);
     out
 }
 
@@ -597,27 +610,38 @@ pub fn libraries(sections: &[Item], activities: &[ServerActivity]) -> Vec<Item> 
 }
 
 /// Settings of the server or a library; `/` searches them.
+/// A library's settings.
 pub fn prefs(list: Vec<Pref>, section: Option<&str>) -> Vec<Item> {
-    list.into_iter()
-        .map(|p| {
-            let on = |v: &str| v == "true" || v == "1";
-            let shown = if p.kind == "bool" {
-                switch(on(&p.value)).to_string()
-            } else {
-                p.options.iter().find(|(v, _)| *v == p.value).map_or(p.value.clone(), |(_, l)| l.clone())
-            };
-            let row = Row::new(format!("pref:{}", p.id), Act::Pref { pref: Box::new(p.clone()), section: section.map(str::to_string) })
-                .glyph(if p.advanced { "◦" } else { "•" }, Tone::Dim)
-                .note(shown.clone())
-                .kv("Setting", p.id.clone())
-                .kv("Value", shown)
-                .kv("Type", p.kind.clone())
-                .kv("", if p.advanced { "advanced" } else { "" })
-                .text(p.summary.clone().unwrap_or_default());
-            let label = if p.label.is_empty() { p.id.clone() } else { p.label.clone() };
-            row.item(label)
-        })
-        .collect()
+    list.into_iter().map(|p| pref(p, section)).collect()
+}
+
+/// The server's settings under a heading per group.
+pub fn server_settings(groups: Vec<PrefGroup>) -> Vec<Item> {
+    let mut out = Vec::new();
+    for g in groups {
+        out.push(heading(&g.label));
+        out.extend(g.prefs.into_iter().map(|p| pref(p, None)));
+    }
+    out
+}
+
+fn pref(p: Pref, section: Option<&str>) -> Item {
+    let on = |v: &str| v == "true" || v == "1";
+    let shown = if p.kind == "bool" {
+        switch(on(&p.value)).to_string()
+    } else {
+        p.options.iter().find(|(v, _)| *v == p.value).map_or(p.value.clone(), |(_, l)| l.clone())
+    };
+    let row = Row::new(format!("pref:{}", p.id), Act::Pref { pref: Box::new(p.clone()), section: section.map(str::to_string) })
+        .glyph(if p.advanced { "◦" } else { "•" }, Tone::Dim)
+        .note(shown.clone())
+        .kv("Setting", p.id.clone())
+        .kv("Value", shown)
+        .kv("Type", p.kind.clone())
+        .kv("", if p.advanced { "advanced" } else { "" })
+        .text(p.summary.clone().unwrap_or_default());
+    let label = if p.label.is_empty() { p.id.clone() } else { p.label.clone() };
+    row.item(label)
 }
 
 pub fn people(d: &UsersDevices) -> Vec<Item> {

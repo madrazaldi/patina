@@ -113,7 +113,7 @@ fn main() {
             commands::apply_update,
             commands::section_action,
             commands::server_action,
-            commands::butler_tasks,
+            commands::maintenance,
             commands::butler_task,
             commands::prefs,
             commands::set_pref,

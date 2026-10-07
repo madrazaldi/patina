@@ -266,6 +266,8 @@ export interface ButlerTask {
   name?: string;
   title?: string;
   description?: string;
+  /** Days between runs. */
+  interval?: number;
   enabled: boolean;
 }
 
@@ -472,6 +474,25 @@ export interface Pref {
   value: string;
   options: [string, string][];
   advanced: boolean;
+  /** Plex's group id; empty for library settings. */
+  group: string;
+}
+
+export interface PrefGroup {
+  id: string;
+  label: string;
+  prefs: Pref[];
+}
+
+/** A butler task with the setting that switches its scheduled runs. */
+export interface ScheduledTask extends ButlerTask {
+  pref?: Pref;
+}
+
+export interface Maintenance {
+  /** Butler settings that aren't one task's switch, like the maintenance window. */
+  schedule: Pref[];
+  tasks: ScheduledTask[];
 }
 
 export interface Friend {

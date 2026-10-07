@@ -4,7 +4,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
   Artwork,
-  ButlerTask,
   Download,
   FilterView,
   FolderView,
@@ -12,6 +11,7 @@ import type {
   LibraryForm,
   LiveChannel,
   Lyrics,
+  Maintenance,
   MatchResult,
   Recordings,
   ServerStats,
@@ -29,6 +29,7 @@ import type {
   PlayerSettings,
   PlaylistView,
   Pref,
+  PrefGroup,
   Settings,
   Snapshot,
   Tasks,
@@ -237,9 +238,9 @@ export const api = {
   sectionAction: (id: string, action: "scan" | "refresh" | "analyze" | "emptyTrash") =>
     call("section_action", { id, action }),
   serverAction: (action: "scanAll" | "cleanBundles" | "optimizeDatabase") => call("server_action", { action }),
-  butlerTasks: () => call<ButlerTask[]>("butler_tasks"),
+  maintenance: () => call<Maintenance>("maintenance"),
   butlerTask: (name: string, start: boolean) => call("butler_task", { name, start }),
-  prefs: () => call<Pref[]>("prefs"),
+  prefs: () => call<PrefGroup[]>("prefs"),
   setPref: (id: string, value: string) => call("set_pref", { id, value }),
   usersDevices: () => call<UsersDevices>("users_devices"),
   libraryChoices: (kind: string) => call<LibraryChoices>("library_choices", { kind }),

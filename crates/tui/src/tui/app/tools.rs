@@ -125,7 +125,7 @@ impl App {
             Act::Channel(_) => Watch,
             Act::Program { .. } => Record,
             Act::MoreHistory => Later,
-            Act::Butler(_) => Start,
+            Act::Butler { .. } => Start,
             Act::Server(_) | Act::Account(_) | Act::OpenUrl(_) => Run,
             Act::Pref { .. } | Act::Setting(_) => Change,
             Act::Library(_) => return self.row_menu(item),
@@ -142,7 +142,7 @@ impl App {
             Act::Rule(_) => RowOp::DeleteRule,
             Act::Activity { cancellable: true, .. } => RowOp::Cancel,
             Act::Transcode(_) => RowOp::Kill,
-            Act::Butler(_) => RowOp::Stop,
+            Act::Butler { .. } => RowOp::Stop,
             Act::Library(_) => RowOp::DeleteLibrary,
             _ => return false,
         };
@@ -183,8 +183,13 @@ impl App {
             Act::Activity { cancellable: true, .. } => rows.push((Cancel, "Cancel", "x")),
             Act::Transcode(_) => rows.push((Kill, "Stop transcode", "x")),
             Act::MoreHistory => rows.push((Later, "Load older history", "enter")),
-            Act::Butler(_) => {
-                rows.extend([(Start, "Start now", "enter"), (Stop, "Stop", "x"), (StartAll, "Start all tasks", ""), (StopAll, "Stop all tasks", "")]);
+            Act::Butler { pref, .. } => {
+                rows.extend([(Start, "Run now", "enter"), (Stop, "Stop", "x")]);
+                if let Some(p) = pref {
+                    let on = p.value == "true" || p.value == "1";
+                    rows.push((Change, if on { "Turn off scheduled runs" } else { "Turn on scheduled runs" }, ""));
+                }
+                rows.extend([(StartAll, "Start all tasks", ""), (StopAll, "Stop all tasks", "")]);
             }
             Act::Server(_) | Act::Account(_) | Act::OpenUrl(_) => rows.push((Run, "Run", "enter")),
             Act::Pref { .. } | Act::Setting(_) => rows.push((Change, "Change…", "enter")),
@@ -308,7 +313,7 @@ impl App {
                     Ok(Some("Transcode stopped".into()))
                 });
             }
-            (Start | Stop, Act::Butler(name)) => {
+            (Start | Stop, Act::Butler { name, .. }) => {
                 let start = op == Start;
                 let done = if start { format!("Started {title}") } else { format!("Stopped {title}") };
                 self.server_op(Refresh::Nothing, done, move |s| async move {
@@ -326,6 +331,7 @@ impl App {
             }
             (Change, Act::Setting(key)) => self.change_setting(key, title),
             (Change, Act::Pref { pref, section }) => self.change_pref(*pref, section),
+            (Change, Act::Butler { pref: Some(pref), .. }) => self.change_pref(*pref, None),
             (op, Act::Library(d)) => self.library_op(op, *d),
             _ => {}
         }
@@ -520,8 +526,10 @@ impl App {
     }
 
     pub(super) fn save_pref(&mut self, id: String, section: Option<String>, value: String) {
+        // Plex prefixes every scheduled-task setting with `Butler`; those live under Maintenance.
         let refresh = Refresh::Source(match &section {
             Some(s) => Source::LibraryPrefs(s.clone()),
+            None if id.starts_with("Butler") => Source::Maintenance,
             None => Source::Prefs,
         });
         self.server_op(refresh, "Setting saved", move |s| async move {

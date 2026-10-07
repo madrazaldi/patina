@@ -481,6 +481,28 @@ def admin(self, p, q):
 
 PREFS, SECTION_PREFS = {}, {}
 
+HOURS = "|".join(f"{h}:{h % 12 or 12} {'am' if h < 12 else 'pm'}" for h in range(24))
+# A sample of real server settings, with Plex's groups and the butler's.
+SERVER_PREFS = [
+    {"id": "FriendlyName", "label": "Friendly name", "summary": "The name of this server.", "type": "text", "value": "Mock Server", "group": "general"},
+    {"id": "logDebug", "label": "Enable Plex Media Server debug logging", "type": "bool", "value": True, "group": "general", "advanced": True},
+    {"id": "ScheduledLibraryUpdatesEnabled", "label": "Update my library periodically", "type": "bool", "value": True, "group": "library"},
+    {"id": "FSEventLibraryUpdatesEnabled", "label": "Scan my library automatically", "type": "bool", "value": False, "group": "library"},
+    {"id": "secureConnections", "label": "Secure connections", "type": "int", "value": 1, "group": "network",
+     "enumValues": "0:Required|1:Preferred|2:Disabled"},
+    {"id": "customConnections", "label": "Custom server access URLs", "type": "text", "value": "", "group": "network", "advanced": True},
+    {"id": "TranscoderQuality", "label": "Transcoder quality", "type": "int", "value": 0, "group": "transcoder",
+     "enumValues": "0:Automatic|1:Prefer higher speed encoding|2:Prefer higher quality encoding"},
+    {"id": "DlnaEnabled", "label": "Enable the DLNA server", "type": "bool", "value": False, "group": "dlna"},
+    {"id": "ButlerStartHour", "label": "Time at which tasks start to run", "type": "int", "value": 2, "group": "butler", "enumValues": HOURS},
+    {"id": "ButlerEndHour", "label": "Time at which tasks stop running", "type": "int", "value": 5, "group": "butler", "enumValues": HOURS},
+    {"id": "ButlerTaskBackupDatabase", "label": "Backup database every three days", "type": "bool", "value": True, "group": "butler"},
+    {"id": "ButlerDatabaseBackupPath", "label": "Backup directory", "type": "text", "value": "/var/lib/plex/backups", "group": "butler", "advanced": True},
+    {"id": "ButlerTaskOptimizeDatabase", "label": "Optimize database every week", "type": "bool", "value": True, "group": "butler"},
+    {"id": "ButlerTaskCleanOldBundles", "label": "Remove old bundles every week", "type": "bool", "value": False, "group": "butler"},
+    {"id": "ButlerTaskRefreshPeriodicMetadata", "label": "Refresh metadata periodically", "type": "bool", "value": True, "group": "butler"},
+]
+
 
 def pref_value(setting, saved):
     """A saved pref in the shape Plex reports it."""
@@ -864,16 +886,17 @@ class Handler(BaseHTTPRequestHandler):
             PREFS.update({k: v[0] for k, v in q.items() if not k.startswith("X-Plex")})
             return self.send_json(mc())
         if p == "/:/prefs":
-            return self.send_json(mc(Setting=[{**s, "value": pref_value(s, PREFS)} for s in [
-                {"id": "FriendlyName", "label": "Friendly name", "summary": "The name of this server.", "type": "text", "value": "Mock Server"},
-                {"id": "ScheduledLibraryUpdatesEnabled", "label": "Update my library periodically", "type": "bool", "value": True},
-                {"id": "TranscoderQuality", "label": "Transcoder quality", "type": "int", "value": 0,
-                 "enumValues": "0:Automatic|1:Prefer higher speed encoding|2:Prefer higher quality encoding"},
-            ]]))
+            return self.send_json(mc(Setting=[{**s, "value": pref_value(s, PREFS)} for s in SERVER_PREFS]))
         if p == "/butler":
+            def task(name, title, description, interval):
+                on = pref_value({"id": "ButlerTask" + name, "type": "bool", "value": True}, PREFS)
+                return {"name": name, "title": title, "description": description, "interval": interval, "enabled": on}
             return self.send_json({"ButlerTasks": {"ButlerTask": [
-                {"name": "BackupDatabase", "title": "Backup Database", "description": "Create a backup copy of the server's database.", "enabled": True},
-                {"name": "OptimizeDatabase", "title": "Optimize Database", "description": "Compact and re-index.", "enabled": True}]}})
+                task("BackupDatabase", "Backup Database", "Create a backup copy of the server's database.", 3),
+                task("OptimizeDatabase", "Optimize Database", "Compact and re-index.", 7),
+                task("CleanOldBundles", "Clean Old Bundles", "Remove old metadata bundles.", 7),
+                task("RefreshPeriodicMetadata", "Refresh Metadata Periodically", "Refresh metadata for older items.", 1),
+                task("CheckForUpdates", "Check For Updates", "Look for a newer server version.", 1)]}})
         if p == "/statistics/resources":
             return self.send_json(mc(StatisticsResources=[{"timespan": 6, "at": int(time.time()), "hostCpuUtilization": 12.5,
                                                            "processCpuUtilization": 3.1, "hostMemoryUtilization": 61.0, "processMemoryUtilization": 4.2}]))

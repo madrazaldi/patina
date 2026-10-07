@@ -12,7 +12,7 @@
   import { img } from "../lib/images";
   import { resource } from "../lib/resource.svelte";
   import { act, app } from "../lib/state.svelte";
-  import type { Directory, Pref } from "../lib/types";
+  import type { Directory, Pref, ScheduledTask } from "../lib/types";
 
   type Tab = "overview" | "libraries" | "maintenance" | "settings" | "users";
   const TABS: [Tab, string][] = [
@@ -40,27 +40,49 @@
     const since = period === "day" ? now - 86400 : now - 30 * 86400;
     return api.serverStats(timespan, since).then((s) => ({ s, since, step }));
   });
-  const butler = resource(() => (tab === "maintenance" ? api.butlerTasks() : Promise.resolve(null)));
+  const maintenance = resource(() => (tab === "maintenance" ? api.maintenance() : Promise.resolve(null)));
   const prefs = resource(() => (tab === "settings" ? api.prefs() : Promise.resolve(null)));
   const people = resource(() => (tab === "users" ? api.usersDevices() : Promise.resolve(null)));
 
+  // Settings: one group at a time, or every match while filtering.
   let filter = $state("");
   let advanced = $state(false);
+  let group = $state<string>();
+  let searching = $derived(filter.trim() !== "");
 
-  let shown = $derived.by(() => {
-    const f = filter.toLowerCase();
-    return (prefs.data ?? []).filter(
-      (p) =>
-        (advanced || !p.advanced) &&
-        (!f || [p.label, p.id, p.summary ?? ""].some((s) => s.toLowerCase().includes(f))),
-    );
+  /** Groups with the settings that pass the advanced switch and the filter. */
+  let groups = $derived.by(() => {
+    const f = filter.trim().toLowerCase();
+    return (prefs.data ?? [])
+      .map((g) => ({
+        ...g,
+        prefs: g.prefs.filter(
+          (p) =>
+            (advanced || !p.advanced) &&
+            (!f || [p.label, p.id, p.summary ?? ""].some((s) => s.toLowerCase().includes(f))),
+        ),
+      }))
+      .filter((g) => g.prefs.length);
   });
+  let current = $derived(groups.find((g) => g.id === group) ?? groups[0]);
+  let shownGroups = $derived(searching ? groups : current ? [current] : []);
 
   async function save(p: Pref, value: string) {
     const ok = await act(api.setPref(p.id, value), "Setting saved");
     if (ok) p.value = value;
     return ok;
   }
+
+  const isOn = (v: string) => v === "true" || v === "1";
+
+  /** Switch a task's scheduled runs on or off. */
+  async function toggleTask(t: ScheduledTask) {
+    if (!t.pref) return;
+    const next = isOn(t.pref.value) ? "false" : "true";
+    if (await save(t.pref, next)) t.enabled = next === "true";
+  }
+
+  const every = (days?: number) => (!days ? "" : days === 1 ? "Daily" : `Every ${days} days`);
 
   async function checkUpdates() {
     if (await act(api.checkForUpdates(), "Checked for updates")) overview.reload();
@@ -113,7 +135,7 @@
 </script>
 {#if people.error && people.data}<Status error={people.error} retry={() => people.reload()} stale />{/if}
 {#if prefs.error && prefs.data}<Status error={prefs.error} retry={() => prefs.reload()} stale />{/if}
-{#if butler.error && butler.data}<Status error={butler.error} retry={() => butler.reload()} stale />{/if}
+{#if maintenance.error && maintenance.data}<Status error={maintenance.error} retry={() => maintenance.reload()} stale />{/if}
 {#if stats.error && stats.data}<Status error={stats.error} retry={() => stats.reload()} stale />{/if}
 {#if overview.error && overview.data}<Status error={overview.error} retry={() => overview.reload()} stale />{/if}
 
@@ -263,6 +285,7 @@
         <button class="btn sm quiet" onclick={() => act(api.reloadSections())}>Reload list</button>
       </div>
     {:else if tab === "maintenance"}
+      <div class="section-head"><h2>Database</h2></div>
       <div class="rows">
         <div class="setting">
           <div class="label"><b>Clean bundles</b><span>Delete metadata bundles for media that no longer exists.</span></div>
@@ -275,6 +298,51 @@
           </div>
         </div>
       </div>
+
+      <div class="section-head">
+        <h2>Scheduled tasks</h2>
+        <div class="row-flex">
+          <button class="btn sm quiet" onclick={() => act(api.butlerAll(true), "Started all tasks")}>Start all</button>
+          <button class="btn sm quiet" onclick={() => act(api.butlerAll(false), "Stopped all tasks")}>Stop all</button>
+        </div>
+      </div>
+      <p class="muted intro">Plex's butler runs these during the maintenance window. Switch off any you don't want, or run one now.</p>
+      {#if !maintenance.data}
+        <Status loading={!maintenance.error} error={maintenance.error} retry={() => maintenance.reload()} />
+      {:else}
+        {@const m = maintenance.data}
+        <div class="rows">
+          {#each m.schedule as p (p.id)}
+            <ServerPrefRow pref={p} showId={false} onsave={(v) => save(p, v)} />
+          {/each}
+          {#each m.tasks as t, i (t.name ?? i)}
+            {@const name = t.name ?? ""}
+            {@const title = t.title ?? name}
+            <div class="setting">
+              <div class="label">
+                <b>{title}</b>
+                {#if t.description}<span>{t.description}</span>{/if}
+              </div>
+              <div class="control">
+                {#if t.interval}<span class="faint every">{every(t.interval)}</span>{/if}
+                <button class="btn sm" onclick={() => act(api.butlerTask(name, true), `Started ${title}`)}>Run now</button>
+                {#if t.pref}
+                  <button
+                    class={["toggle", { on: isOn(t.pref.value) }]}
+                    title={isOn(t.pref.value) ? "Runs on schedule" : "Off"}
+                    aria-label="Run {title} on schedule"
+                    onclick={() => toggleTask(t)}
+                  ></button>
+                {:else if !t.enabled}
+                  <span class="tag">Off</span>
+                {:else}
+                  <span class="no-toggle"></span>
+                {/if}
+              </div>
+            </div>
+          {/each}
+        </div>
+      {/if}
 
       <div class="section-head"><h2>Diagnostics</h2></div>
       <div class="rows">
@@ -293,32 +361,6 @@
           </div>
         {/each}
       </div>
-
-      <div class="section-head">
-        <h2>Scheduled tasks</h2>
-        <div class="row-flex">
-          <button class="btn sm quiet" onclick={() => act(api.butlerAll(true), "Started all tasks")}>Start all</button>
-          <button class="btn sm quiet" onclick={() => act(api.butlerAll(false), "Stopped all tasks")}>Stop all</button>
-        </div>
-      </div>
-      <p class="muted intro">Plex's butler runs these during the maintenance window. You can start any of them now.</p>
-      {#if !butler.data}
-        <Status loading={!butler.error} error={butler.error} retry={() => butler.reload()} />
-      {:else}
-        <div class="rows">
-          {#each butler.data as t, i (t.name ?? i)}
-            {@const name = t.name ?? ""}
-            <div class="setting">
-              <div class="label"><b>{t.title ?? name}</b><span>{t.description ?? ""}</span></div>
-              <div class="control">
-                {#if !t.enabled}<span class="tag">Disabled</span>{/if}
-                <button class="btn sm" onclick={() => act(api.butlerTask(name, true), "Task started")}>Start</button>
-                <button class="btn sm quiet" onclick={() => act(api.butlerTask(name, false), "Task stopped")}>Stop</button>
-              </div>
-            </div>
-          {/each}
-        </div>
-      {/if}
     {:else if tab === "settings"}
       {#if !prefs.data}
         <Status loading={!prefs.error} error={prefs.error} retry={() => prefs.reload()} />
@@ -326,16 +368,36 @@
         <div class="toolbar">
           <label class="filter">
             <Search size={14} />
-            <input placeholder="Filter settings" bind:value={filter} />
+            <input placeholder="Search all settings" bind:value={filter} />
           </label>
           <button class={["chip", { active: advanced }]} onclick={() => (advanced = !advanced)}>Show advanced</button>
-          <span class="faint num">{shown.length} settings</span>
         </div>
-        <div class="rows">
-          {#each shown as p (p.id)}
-            <ServerPrefRow pref={p} onsave={(v) => save(p, v)} />
-          {/each}
-        </div>
+        {#if groups.length === 0}
+          <p class="faint">No settings match “{filter.trim()}”.</p>
+        {:else}
+          <div class="prefs">
+            <nav class="groups">
+              {#each groups as g (g.id)}
+                <button
+                  class={["group", { active: !searching && g.id === current?.id }]}
+                  onclick={() => ((group = g.id), (filter = ""))}
+                >
+                  {g.label}<span class="num">{g.prefs.length}</span>
+                </button>
+              {/each}
+            </nav>
+            <div class="group-body">
+              {#each shownGroups as g (g.id)}
+                <div class="section-head"><h2>{g.label}</h2></div>
+                <div class="rows">
+                  {#each g.prefs as p (p.id)}
+                    <ServerPrefRow pref={p} showId={advanced} onsave={(v) => save(p, v)} />
+                  {/each}
+                </div>
+              {/each}
+            </div>
+          </div>
+        {/if}
       {/if}
     {:else}
       {@const d = people.data}
@@ -500,6 +562,55 @@
     border: 0;
     outline: 0;
     background: none;
+  }
+  /* Keeps Run now in line with the rows that have a switch. */
+  .no-toggle {
+    width: 30px;
+  }
+  .every {
+    margin-right: 8px;
+    font-size: 12px;
+  }
+  .prefs {
+    display: grid;
+    grid-template-columns: 180px minmax(0, 1fr);
+    gap: 40px;
+    align-items: start;
+  }
+  .groups {
+    position: sticky;
+    top: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .group {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    height: 30px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: var(--r);
+    background: none;
+    color: var(--text-2);
+    text-align: left;
+    cursor: pointer;
+  }
+  .group:hover {
+    color: var(--text);
+  }
+  .group.active {
+    color: var(--text);
+    background: var(--surface-2);
+  }
+  .group span {
+    font-size: 11px;
+    color: var(--text-3);
+  }
+  .group-body > .section-head:first-child {
+    margin-top: 0;
   }
   .devices {
     max-height: 480px;

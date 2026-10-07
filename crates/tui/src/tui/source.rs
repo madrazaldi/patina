@@ -256,8 +256,8 @@ pub async fn fetch(core: &AppState, source: &Source, progressive: bool, page: &m
             let (timespan, since) = if *month { (4, now - 30 * 86400) } else { (6, now - 86400) };
             Ok(rows::stats(&admin::server_stats(core, timespan, since).await?, *month))
         }
-        Source::Maintenance => Ok(rows::maintenance(&server.butler_tasks().await?)),
-        Source::Prefs => Ok(rows::prefs(admin::prefs(core).await?, None)),
+        Source::Maintenance => Ok(rows::maintenance(&admin::maintenance(core).await?)),
+        Source::Prefs => Ok(rows::server_settings(admin::settings(core).await?)),
         Source::LibraryPrefs(id) => Ok(rows::prefs(admin::library_prefs(core, id).await?, Some(id))),
         Source::People => Ok(rows::people(&admin::users_devices(core).await?)),
         Source::Watchlist => watchlist_items(core, &server).await,

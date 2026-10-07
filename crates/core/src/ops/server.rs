@@ -6,7 +6,8 @@ use std::path::PathBuf;
 
 use anyhow::{Result, anyhow};
 use patina_plex::{
-    Account, Activity, Device, Friend, MediaContainer, MediaType, Params, Release, ServerDevice, Setting, TranscodeSession,
+    Account, Activity, ButlerTask, Device, Friend, MediaContainer, MediaType, Params, Release, ServerDevice, Setting,
+    TranscodeSession,
 };
 use serde::{Deserialize, Serialize};
 
@@ -90,6 +91,15 @@ pub struct Pref {
     pub value: String,
     pub options: Vec<(String, String)>,
     pub advanced: bool,
+    /// Plex's group id (`general`, `network`, `butler`, …); empty for library settings.
+    pub group: String,
+}
+
+impl Pref {
+    /// A scheduled-task setting: the maintenance window or a task's switch.
+    pub fn is_butler(&self) -> bool {
+        self.group == "butler" || self.id.starts_with("Butler")
+    }
 }
 
 impl From<Setting> for Pref {
@@ -102,6 +112,7 @@ impl From<Setting> for Pref {
             summary: s.summary.clone(),
             kind: s.kind.clone().unwrap_or_default(),
             advanced: s.advanced,
+            group: s.group.clone().unwrap_or_default(),
         }
     }
 }
@@ -110,9 +121,82 @@ fn visible(list: Vec<Setting>) -> Vec<Pref> {
     list.into_iter().filter(|s| !s.hidden).map(Pref::from).collect()
 }
 
-/// The server's settings, without hidden ones.
-pub async fn prefs(app: &AppState) -> Result<Vec<Pref>> {
-    Ok(visible(app.server()?.prefs().await?))
+/// Server settings that belong together, as Plex groups them.
+#[derive(Clone, Debug, Serialize)]
+pub struct PrefGroup {
+    pub id: String,
+    pub label: String,
+    pub prefs: Vec<Pref>,
+}
+
+/// How a Plex settings group is titled.
+pub fn group_label(id: &str) -> String {
+    match id {
+        "" => "Other".into(),
+        "dlna" => "DLNA".into(),
+        "butler" => "Scheduled tasks".into(),
+        _ => {
+            let words = id.replace(['_', '-'], " ");
+            let mut c = words.chars();
+            c.next().map(|f| f.to_uppercase().chain(c).collect()).unwrap_or_default()
+        }
+    }
+}
+
+/// Group settings in the order Plex lists them, ungrouped ones last.
+fn grouped(prefs: Vec<Pref>) -> Vec<PrefGroup> {
+    let mut groups: Vec<PrefGroup> = Vec::new();
+    for p in prefs {
+        match groups.iter_mut().find(|g| g.id == p.group) {
+            Some(g) => g.prefs.push(p),
+            None => groups.push(PrefGroup { id: p.group.clone(), label: group_label(&p.group), prefs: vec![p] }),
+        }
+    }
+    groups.sort_by_key(|g| g.id.is_empty());
+    groups
+}
+
+/// The server's settings by group, without hidden ones. Scheduled-task
+/// settings are left out; [`maintenance`] has them next to their tasks.
+pub async fn settings(app: &AppState) -> Result<Vec<PrefGroup>> {
+    let prefs = visible(app.server()?.prefs().await?);
+    Ok(grouped(prefs.into_iter().filter(|p| !p.is_butler()).collect()))
+}
+
+/// A butler task with the setting that turns its scheduled runs on and off.
+#[derive(Clone, Debug, Serialize)]
+pub struct ScheduledTask {
+    #[serde(flatten)]
+    pub task: ButlerTask,
+    pub pref: Option<Pref>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct Maintenance {
+    /// Butler settings that aren't one task's switch, like the maintenance window.
+    pub schedule: Vec<Pref>,
+    pub tasks: Vec<ScheduledTask>,
+}
+
+/// The butler's tasks joined with their settings.
+pub async fn maintenance(app: &AppState) -> Result<Maintenance> {
+    let server = app.server()?;
+    let (tasks, prefs) = tokio::join!(server.butler_tasks(), server.prefs());
+    Ok(join_butler(tasks?, visible(prefs.unwrap_or_default())))
+}
+
+/// Plex names a task's switch `ButlerTask<name>`.
+fn join_butler(tasks: Vec<ButlerTask>, prefs: Vec<Pref>) -> Maintenance {
+    let mut schedule: Vec<Pref> = prefs.into_iter().filter(Pref::is_butler).collect();
+    let tasks = tasks
+        .into_iter()
+        .map(|task| {
+            let id = format!("ButlerTask{}", task.name.as_deref().unwrap_or_default());
+            let pref = schedule.iter().position(|p| p.id == id && p.kind == "bool").map(|i| schedule.remove(i));
+            ScheduledTask { task, pref }
+        })
+        .collect();
+    Maintenance { schedule, tasks }
 }
 
 /// A library's settings, without hidden ones.
@@ -313,4 +397,54 @@ pub async fn save_diagnostics(app: &AppState, what: &str) -> Result<PathBuf> {
     let path = dir.join(format!("plex-{what}-{stamp}.zip"));
     std::fs::write(&path, bytes)?;
     Ok(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pref(id: &str, group: &str, kind: &str) -> Pref {
+        Pref {
+            id: id.into(),
+            label: id.into(),
+            summary: None,
+            kind: kind.into(),
+            value: String::new(),
+            options: Vec::new(),
+            advanced: false,
+            group: group.into(),
+        }
+    }
+
+    #[test]
+    fn groups_keep_plex_order_with_ungrouped_last() {
+        let groups = grouped(vec![
+            pref("Odd", "", "text"),
+            pref("FriendlyName", "general", "text"),
+            pref("TranscoderQuality", "transcoder", "int"),
+            pref("LogVerbose", "general", "bool"),
+            pref("DlnaEnabled", "dlna", "bool"),
+        ]);
+        let labels: Vec<&str> = groups.iter().map(|g| g.label.as_str()).collect();
+        assert_eq!(labels, ["General", "Transcoder", "DLNA", "Other"]);
+        assert_eq!(groups[0].prefs.len(), 2);
+    }
+
+    #[test]
+    fn butler_switches_join_their_tasks() {
+        let task = |name: &str| ButlerTask { name: Some(name.into()), ..Default::default() };
+        let m = join_butler(
+            vec![task("BackupDatabase"), task("CheckForUpdates")],
+            vec![
+                pref("FriendlyName", "general", "text"),
+                pref("ButlerStartHour", "butler", "int"),
+                pref("ButlerTaskBackupDatabase", "butler", "bool"),
+                pref("ButlerDatabaseBackupPath", "butler", "text"),
+            ],
+        );
+        assert_eq!(m.tasks[0].pref.as_ref().map(|p| p.id.as_str()), Some("ButlerTaskBackupDatabase"));
+        assert!(m.tasks[1].pref.is_none());
+        let schedule: Vec<&str> = m.schedule.iter().map(|p| p.id.as_str()).collect();
+        assert_eq!(schedule, ["ButlerStartHour", "ButlerDatabaseBackupPath"]);
+    }
 }

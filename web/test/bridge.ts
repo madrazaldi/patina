@@ -14,6 +14,20 @@ const settings: Settings = {
   ui: { accent: "paper", poster_size: 160, hide_spoilers: false, saved_views: [], home_layouts: {} },
 };
 const sections = [{ key: "1", title: "Movies", type: "movie" }];
+const pref = (id: string, label: string, group: string, kind = "bool", value = "true", extra = {}) => ({ id, label, group, kind, value, options: [], advanced: false, ...extra });
+const prefs = [
+  { id: "general", label: "General", prefs: [pref("FriendlyName", "Friendly name", "general", "text", "Mock Server"), pref("logDebug", "Debug logging", "general", "bool", "false", { advanced: true })] },
+  { id: "network", label: "Network", prefs: [pref("secureConnections", "Secure connections", "network", "int", "1", { options: [["0", "Required"], ["1", "Preferred"]] })] },
+  { id: "transcoder", label: "Transcoder", prefs: [pref("TranscoderQuality", "Transcoder quality", "transcoder", "int", "0", { options: [["0", "Automatic"], ["2", "Prefer higher quality encoding"]] })] },
+];
+const maintenance = {
+  schedule: [pref("ButlerStartHour", "Time at which tasks start to run", "butler", "int", "2", { options: [["2", "2 am"], ["3", "3 am"]] })],
+  tasks: [
+    { name: "BackupDatabase", title: "Backup Database", description: "Create a backup copy of the server's database.", interval: 3, enabled: true, pref: pref("ButlerTaskBackupDatabase", "Backup database every three days", "butler") },
+    { name: "CleanOldBundles", title: "Clean Old Bundles", description: "Remove old metadata bundles.", interval: 7, enabled: false, pref: pref("ButlerTaskCleanOldBundles", "Remove old bundles every week", "butler", "bool", "false") },
+    { name: "CheckForUpdates", title: "Check For Updates", interval: 1, enabled: true },
+  ],
+};
 const calls: { cmd: string; args: Record<string, any> }[] = [];
 let fail = false, delay = 0;
 const emit = (event: string, payload: unknown) => { const id = listeners.get(event); if (id !== undefined) callbacks.get(id)?.({ event, id, payload }); };
@@ -54,6 +68,8 @@ Object.assign(window, { __PATINA_TEST__: test, __TAURI_INTERNALS__: {
       { hubIdentifier: "continue", title: "Continue Watching", Metadata: [item(1)], Directory: [] },
       { hubIdentifier: "recent", title: "Recently Added", Metadata: [item(2), item(3)], Directory: [] },
     ];
+    if (cmd === "prefs") return structuredClone(prefs);
+    if (cmd === "maintenance") return structuredClone(maintenance);
     if (cmd === "playlists") return [{ ...item(50), type: "playlist", title: "Favorites" }];
     if (cmd === "queue") emit("queue", { items: [{ uid: 1, item: args.command.item }], shuffled: false, stopAfter: false });
     if (cmd === "remove_download") { downloads.splice(0); emit("downloads", downloads); }

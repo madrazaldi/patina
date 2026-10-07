@@ -368,7 +368,7 @@ pub(super) fn row_hints(item: &Item) -> Vec<(&'static str, &'static str)> {
         Act::Activity { cancellable: true, .. } => vec![("x", "cancel")],
         Act::Transcode(_) => vec![("x", "stop")],
         Act::MoreHistory => vec![("enter", "load older")],
-        Act::Butler(_) => vec![("enter", "start"), ("x", "stop")],
+        Act::Butler { .. } => vec![("enter", "run now"), ("x", "stop")],
         Act::Server(_) | Act::Account(_) => vec![("enter", "run")],
         Act::OpenUrl(_) => vec![("enter", "open")],
         Act::Library(_) => vec![("enter", "actions"), ("l", "settings")],

@@ -559,9 +559,9 @@ fn inspector_lines(app: &App, item: &Item, theme: &Theme, width: usize) -> Vec<L
             Some(Source::Rules) => "What the server records. x deletes a rule; existing recordings are kept.",
             Some(Source::Overview) => "Version, platform, CPU and memory, and server updates.",
             Some(Source::Stats(_)) => "Data streamed per hour or day, plays, and the top users and devices.",
-            Some(Source::Maintenance) => "Database maintenance, diagnostics to download, and the butler's scheduled tasks.",
+            Some(Source::Maintenance) => "Database jobs, the butler's schedule and tasks, and diagnostics to download. Enter runs a task now; its menu switches its scheduled runs.",
             Some(Source::ServerLibraries) => "Scan, refresh, edit or delete libraries, change their settings, or add one.",
-            Some(Source::Prefs) => "Every server setting; / searches them, Enter changes one.",
+            Some(Source::Prefs) => "Server settings by group; / searches them, Enter changes one. Scheduled-task settings are under Maintenance.",
             Some(Source::People) => "Accounts, friends and shared users, players on the network and devices.",
             _ => "",
         };
