@@ -26,8 +26,7 @@ jobs:
       fail-fast: false
       matrix:
         # 26.04 for mpv 0.38+ (the smoke test needs the newer loadfile signature).
-        # Set the MACOS_RUNNER repo variable (e.g. patina-mac) to use a self-hosted Mac.
-        os: [ubuntu-26.04, "${{ vars.MACOS_RUNNER || 'macos-latest' }}", windows-latest]
+        os: [ubuntu-26.04, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v7
 
@@ -67,24 +66,6 @@ jobs:
       - name: mpv playback smoke test
         if: runner.os == 'Linux'
         run: cargo test -p patina-core --test reliability --locked -- --ignored mpv_playback_smoke
-
-  # The native macOS app (macos/): builds the backend library and the SwiftUI app.
-  macos:
-    name: macOS app
-    runs-on: ${{ vars.MACOS_RUNNER || 'macos-latest' }}
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-        if: runner.environment == 'github-hosted'
-        with:
-          key: macos-app
-          cache-on-failure: true
-
-      - name: Build
-        run: macos/build.sh
 
   web:
     name: Web
@@ -128,7 +109,7 @@ jobs:
   ok:
     name: CI OK
     if: always()
-    needs: [rust, macos, web]
+    needs: [rust, web]
     runs-on: ubuntu-24.04
     steps:
       - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')

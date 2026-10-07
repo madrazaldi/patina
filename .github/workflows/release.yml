@@ -1,8 +1,7 @@
 name: Release
 
 # Push a tag matching the workspace version (e.g. `v0.2.0` for version = "0.2.0") to build
-# the desktop apps (native on macOS, Tauri on Windows and Linux) and patina-tui for every
-# platform into a draft GitHub release.
+# the Tauri desktop app and patina-tui for every platform into a draft GitHub release.
 # Review the draft, then publish it by hand.
 
 on:
@@ -46,7 +45,7 @@ jobs:
             -F draft=true -F generate_release_notes=true --jq .id)
           echo "id=$id" >> "$GITHUB_OUTPUT"
 
-  # The Tauri app, for Windows and Linux. macOS gets the native app (the `macos` job).
+  # The Tauri desktop app.
   desktop:
     name: Desktop (${{ matrix.target }})
     needs: draft
@@ -94,79 +93,6 @@ jobs:
           tauriScript: pnpm tauri
           args: --target ${{ matrix.target }}
 
-  # The native SwiftUI app (macos/), universal, as a DMG. Runs on the self-hosted Mac
-  # named by the MACOS_RUNNER repo variable, if set. Signs and notarizes when the Apple
-  # secrets are set; otherwise ad-hoc signs, which still runs after the user allows it in
-  # System Settings > Privacy & Security.
-  macos:
-    name: macOS app
-    needs: draft
-    runs-on: ${{ vars.MACOS_RUNNER || 'macos-latest' }}
-    env:
-      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
-
-      - uses: Swatinem/rust-cache@v2
-        if: runner.environment == 'github-hosted'
-        with:
-          key: macos-universal
-
-      - name: Import signing certificate
-        if: env.APPLE_CERTIFICATE != ''
-        env:
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-        run: |
-          keychain="$RUNNER_TEMP/patina.keychain-db"
-          password=$(uuidgen)
-          echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
-          security create-keychain -p "$password" "$keychain"
-          security set-keychain-settings -lut 3600 "$keychain"
-          security unlock-keychain -p "$password" "$keychain"
-          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain" >/dev/null
-          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
-          rm "$RUNNER_TEMP/cert.p12"
-          if [ -z "$APPLE_SIGNING_IDENTITY" ]; then
-            echo "::error::APPLE_SIGNING_IDENTITY is empty"; exit 1
-          fi
-          if ! security find-identity -v -p codesigning "$keychain" | grep -qF "$APPLE_SIGNING_IDENTITY"; then
-            echo "::error::Signing identity not found in the imported keychain"; exit 1
-          fi
-          echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY" >> "$GITHUB_ENV"
-          echo "PATINA_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
-
-      - name: Build
-        run: macos/build.sh --release --universal --dmg
-
-      - name: Notarize
-        if: env.APPLE_CERTIFICATE != '' && env.APPLE_ID != ''
-        run: |
-          xcrun notarytool submit macos/build/Patina.dmg \
-            --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
-          xcrun stapler staple macos/build/Patina.dmg
-
-      - name: Upload
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          dmg="Patina-$GITHUB_REF_NAME-macos-universal.dmg"
-          cp macos/build/Patina.dmg "$dmg"
-          gh release upload "$GITHUB_REF_NAME" "$dmg" --clobber
-
-      # Self-hosted runners keep state between jobs.
-      - name: Remove signing keychain
-        if: always() && env.PATINA_KEYCHAIN != ''
-        run: security delete-keychain "$PATINA_KEYCHAIN"
-
   tui:
     name: patina-tui (${{ matrix.target }})
     needs: draft
@@ -175,8 +101,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: "${{ vars.MACOS_RUNNER || 'macos-latest' }}", target: aarch64-apple-darwin }
-          - { os: "${{ vars.MACOS_RUNNER || 'macos-latest' }}", target: x86_64-apple-darwin }
+          - { os: "macos-latest", target: aarch64-apple-darwin }
+          - { os: "macos-latest", target: x86_64-apple-darwin }
           - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu }
           - { os: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu }
           - { os: windows-latest, target: x86_64-pc-windows-msvc }

@@ -1,5 +1,0 @@
-module CPatina {
-    header "../../../crates/ffi/include/patina.h"
-    link "patina_ffi"
-    export *
-}
