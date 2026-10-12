@@ -6,6 +6,7 @@ use super::*;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::tui::marks::{self, BulkOp, markable};
+use patina_core::servers;
 
 impl App {
     fn marked(&self) -> Vec<Item> {
@@ -123,6 +124,11 @@ impl App {
         let items = self.marked();
         if items.is_empty() {
             return self.info("Nothing is marked · tab marks the selected item");
+        }
+        // Their rating keys mean something else here: a download or playlist would get the wrong item.
+        if op.edits_this_server() && let Some(id) = items.iter().find_map(|i| i.server_id()) {
+            let name = servers::name_of(&self.core, Some(id));
+            return self.info(format!("Some marked items are on {name}; unmark them first, or only queue them from here"));
         }
         match op {
             BulkOp::PlayNext => self.bulk_queue(items, true),

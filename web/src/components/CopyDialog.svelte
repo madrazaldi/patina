@@ -27,7 +27,7 @@
   <p class="desc">{group.copies.length === 1 ? "On one server" : `On ${group.copies.length} servers`}. Choose the copy to play.</p>
 
   <ul class="copies">
-    {#each group.copies as copy, i (copy.serverId)}
+    {#each group.copies as copy, i (`${copy.serverId}:${copy.item.ratingKey}`)}
       {@const resumable = plex.progress(copy.item) != null}
       <li class="copy">
         <div class="grow">

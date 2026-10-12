@@ -109,7 +109,7 @@ impl App {
     pub(super) fn play_with_options(&mut self, m: PlayOptionsModal) {
         let Some(item) = m.item else { return };
         let opts = m.opts;
-        let part = item.media.get(opts.media_index).and_then(|md| md.parts.first()).and_then(|p| p.id);
+        let part = item.media.get(opts.media_index.unwrap_or(0)).and_then(|md| md.parts.first()).and_then(|p| p.id);
         let choose = opts.audio_stream_id.is_some() || opts.subtitle_stream_id.is_some();
         let req = PlayRequest {
             item: item.meta.clone(),
@@ -197,7 +197,7 @@ pub fn build_option_rows(m: &mut PlayOptionsModal) {
                 rows.push((OptRow::Version(i), label));
             }
         }
-        let part = item.media.get(m.opts.media_index).and_then(|md| md.parts.first());
+        let part = item.media.get(m.opts.media_index.unwrap_or(0)).and_then(|md| md.parts.first());
         let streams = part.map(|p| p.streams.as_slice()).unwrap_or(&[]);
         let audio: Vec<_> = streams.iter().filter(|s| s.stream_type == Some(stream_type::AUDIO)).collect();
         if audio.len() > 1 {

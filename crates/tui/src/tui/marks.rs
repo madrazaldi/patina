@@ -86,6 +86,14 @@ pub enum BulkOp {
     Clear,
 }
 
+impl BulkOp {
+    /// Whether the action changes the connected server by rating key (downloads,
+    /// playlists, collections), so items found on another server can't take part.
+    pub fn edits_this_server(self) -> bool {
+        matches!(self, BulkOp::Download | BulkOp::Playlist | BulkOp::Collection | BulkOp::Remove)
+    }
+}
+
 /// The playlist type shared by every item (`video` or `audio`), or why there is none.
 pub fn playlist_kind(items: &[Item]) -> Result<&'static str, &'static str> {
     let first = items.first().ok_or("Nothing is marked")?;
@@ -150,6 +158,13 @@ mod tests {
         assert_eq!(m.len(), 2);
         m.clear();
         assert!(m.is_empty() && m.entries().is_empty());
+    }
+
+    #[test]
+    fn server_edits_are_told_apart_from_queueing_and_watched() {
+        assert!(BulkOp::Download.edits_this_server() && BulkOp::Playlist.edits_this_server());
+        assert!(BulkOp::Collection.edits_this_server() && BulkOp::Remove.edits_this_server());
+        assert!(!BulkOp::PlayNext.edits_this_server() && !BulkOp::Watched.edits_this_server() && !BulkOp::Clear.edits_this_server());
     }
 
     #[test]

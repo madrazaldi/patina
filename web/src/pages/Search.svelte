@@ -100,7 +100,7 @@
                   <div class="s">{g.subtitle ?? g.kind}</div>
                 </div>
                 <div class="end copies">
-                  {#each g.copies as c (c.serverId)}
+                  {#each g.copies as c (`${c.serverId}:${c.item.ratingKey}`)}
                     <span class={["tag", { accent: c.current }]} title={c.versions.map((v) => v.label).join("\n")}>{c.serverName}{#if quality(c)} <span class="num">{quality(c)}</span>{/if}</span>
                   {/each}
                 </div>

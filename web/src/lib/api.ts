@@ -236,7 +236,7 @@ export const api = {
         item,
         resume: opts.resume ?? true,
         shuffle: opts.shuffle ?? false,
-        mediaIndex: opts.mediaIndex ?? 0,
+        mediaIndex: opts.mediaIndex ?? null,
         radio: opts.radio ?? false,
       },
     }),

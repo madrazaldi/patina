@@ -15,7 +15,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::{self, QUALITIES, Quality};
 use crate::player::PlayRequest;
-use crate::state::{AppState, CoreEvent};
+use crate::recovery::Scope;
+use crate::state::{AppState, CoreEvent, Session};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -83,6 +84,8 @@ pub enum Recover {
 struct Failed {
     failure: PlaybackFailure,
     request: PlayRequest,
+    /// The account and server it failed on: its rating keys mean nothing elsewhere.
+    scope: Option<Scope>,
     at: Instant,
     auto_retried: bool,
 }
@@ -98,6 +101,19 @@ pub fn current() -> Option<PlaybackFailure> {
 /// Forget the failure (dismissed, or something else started playing).
 pub fn clear(app: &AppState) {
     if FAILED.lock().unwrap().take().is_some() {
+        app.emit(CoreEvent::PlaybackFailure(None));
+    }
+}
+
+fn scope_of(app: &AppState) -> Option<Scope> {
+    app.session().as_ref().map(Scope::of)
+}
+
+/// The account, profile or server changed: a failure from another one can't be acted on here.
+pub fn session_changed(app: &AppState, session: Option<&Session>) {
+    let scope = session.map(Scope::of);
+    let stale = FAILED.lock().unwrap().take_if(|f| f.scope != scope).is_some();
+    if stale {
         app.emit(CoreEvent::PlaybackFailure(None));
     }
 }
@@ -145,7 +161,8 @@ pub fn record(app: &AppState, report: Report) {
     };
     app.error(format!("Couldn't play {}: {}", failure.item.full_title(), failure.reason));
     app.emit(CoreEvent::PlaybackFailure(Some(Box::new(failure.clone()))));
-    *FAILED.lock().unwrap() = Some(Failed { failure, request: report.request, at: Instant::now(), auto_retried: false });
+    let scope = scope_of(app);
+    *FAILED.lock().unwrap() = Some(Failed { failure, request: report.request, scope, at: Instant::now(), auto_retried: false });
 }
 
 /// Turn what mpv said into a kind of failure and a sentence for people.
@@ -195,12 +212,16 @@ pub fn lower_quality(current: &str) -> Option<&'static Quality> {
 /// Act on the failure shown to the user.
 pub fn recover(app: &AppState, action: Recover) -> Result<()> {
     let failed = FAILED.lock().unwrap().take().ok_or_else(|| anyhow!("There is nothing to retry."))?;
-    let Failed { failure, mut request, .. } = failed;
+    let Failed { failure, mut request, scope, .. } = failed;
+    if scope != scope_of(app) {
+        app.emit(CoreEvent::PlaybackFailure(None));
+        anyhow::bail!("The account or server changed since this failed, so it can't be retried.");
+    }
     match action {
         Recover::Retry => {}
         Recover::Version { index } => {
             anyhow::ensure!(index < failure.item.media.len().max(1), "That version does not exist.");
-            request.media_index = index;
+            request.media_index = Some(index);
         }
         Recover::LowerQuality => {
             let q = failure.lower_quality.as_ref().ok_or_else(|| anyhow!("There is no lower quality to try."))?;
@@ -221,6 +242,7 @@ pub fn on_reconnect(app: &AppState) {
             Some(f)
                 if f.failure.kind == FailureKind::Network
                     && f.failure.can_retry
+                    && f.scope == scope_of(app)
                     && !f.auto_retried
                     && f.at.elapsed() < Duration::from_secs(15 * 60)
                     && !crate::player::is_active() =>

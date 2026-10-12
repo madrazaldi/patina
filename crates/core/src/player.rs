@@ -80,8 +80,9 @@ pub struct PlayRequest {
     /// Resume from the saved position (otherwise start from the beginning).
     pub resume: bool,
     pub shuffle: bool,
-    /// Which version (media) of the starting item to play.
-    pub media_index: usize,
+    /// Which version (media) of the starting item to play; `None` lets the
+    /// playback preferences pick.
+    pub media_index: Option<usize>,
     /// Play the item's radio station instead of the item (music).
     pub radio: bool,
     /// A tuned Live TV session; always transcoded, never scrobbled.
@@ -93,7 +94,7 @@ pub struct PlayRequest {
 
 impl Default for PlayRequest {
     fn default() -> Self {
-        Self { item: Metadata::default(), selection: Vec::new(), resume: true, shuffle: false, media_index: 0, radio: false, live: false, quality: None }
+        Self { item: Metadata::default(), selection: Vec::new(), resume: true, shuffle: false, media_index: None, radio: false, live: false, quality: None }
     }
 }
 
@@ -147,7 +148,7 @@ pub fn play(app: AppState, req: PlayRequest) {
                     kind: Some(kind),
                     phase: Phase::Start,
                     position_ms: 0,
-                    media_index: retry.media_index,
+                    media_index: retry.media_index.unwrap_or(0),
                     quality: retry.quality.clone().unwrap_or_else(|| app.settings().player.quality().id.to_string()),
                     remaining: retry.selection.len().saturating_sub(1),
                     request: retry,
@@ -617,7 +618,7 @@ async fn run(app: AppState, req: PlayRequest) -> Result<()> {
     // mpv playlist positions line up with `entries`.
     let mut start = 0;
     for (i, item) in queue.items.iter().enumerate() {
-        let media_index = crate::prefs::media_index(&app, item, if i == queue.start { req.media_index } else { 0 });
+        let media_index = crate::prefs::media_index(&app, item, if i == queue.start { req.media_index } else { None });
         let mut opts = vec![("force-media-title", item.full_title())];
         if i == queue.start {
             p.initial_start = Some((item.rating_key().to_string(), 0));
@@ -973,7 +974,7 @@ impl Player {
             item: upcoming.first().cloned().unwrap_or_else(|| c.item.clone()),
             selection: if upcoming.len() > 1 { upcoming } else { Vec::new() },
             resume: true,
-            media_index: c.media_index,
+            media_index: Some(c.media_index),
             live: self.live,
             quality: Some(self.quality.id.to_string()),
             ..Default::default()
@@ -1204,6 +1205,8 @@ impl Player {
                 c.detail_pending = false;
                 if let Some(mut full) = item {
                     full.play_queue_item_id = c.item.play_queue_item_id;
+                    // The server's answer carries no Patina server tag; keep the one the entry had.
+                    full.set_server_id(self.server_tag.as_deref());
                     if c.duration_ms == 0 {
                         c.duration_ms = full.duration.unwrap_or(0);
                     }

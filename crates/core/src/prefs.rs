@@ -655,19 +655,22 @@ pub fn remember_tracks(app: &AppState, q: &crate::tracks::Query) -> Result<()> {
 
 // Hooks used by playback -------------------------------------------------------
 
-/// The version of `item` to play when `requested` is the first one: the
-/// rules' pick. An explicit choice of another version always stands.
-pub fn media_index(app: &AppState, item: &Metadata, requested: usize) -> usize {
-    if requested != 0 || item.media.len() < 2 || !matches!(item.kind(), "movie" | "episode") {
-        return requested;
+/// The version of `item` to play: an explicit choice (`requested`, including
+/// the first version) always stands; otherwise the rules' pick.
+pub fn media_index(app: &AppState, item: &Metadata, requested: Option<usize>) -> usize {
+    if let Some(index) = requested {
+        return index;
     }
-    let Some(scope) = Scope::of(app) else { return requested };
+    if item.media.len() < 2 || !matches!(item.kind(), "movie" | "episode") {
+        return 0;
+    }
+    let Some(scope) = Scope::of(app) else { return 0 };
     pick_version(&effective(&load(), &scope, show_of(item)).resolve(), &item.media)
 }
 
 /// Which version of `item` the rules prefer (for pre-selecting it in a picker).
 pub fn preferred_version(app: &AppState, item: &Metadata) -> usize {
-    media_index(app, item, 0)
+    media_index(app, item, None)
 }
 
 /// Apply the rules to the streams of an item that is about to play: select the

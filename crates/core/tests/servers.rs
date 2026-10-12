@@ -68,6 +68,15 @@ impl Drop for Mock {
     }
 }
 
+/// Held while a test changes a session: a pending playback failure is kept for the whole
+/// process, and a session change in a parallel test would drop it.
+static SESSIONS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn set_session(app: &AppState, session: Option<Session>) {
+    let _held = SESSIONS.lock().unwrap_or_else(|e| e.into_inner());
+    app.set_session(session, vec![]);
+}
+
 struct Sink;
 impl EventSink for Sink {
     fn emit(&self, _: CoreEvent) {}
@@ -79,7 +88,8 @@ fn app(current: &Mock, others: &[&Mock]) -> AppState {
     let info = ClientInfo::new("test", "Patina", "test");
     let mut servers = vec![current.resource()];
     servers.extend(others.iter().map(|m| m.resource()));
-    app.set_session(
+    set_session(
+        &app,
         Some(Session {
             tv: Some(PlexTv::new(info.clone(), Some("x".into())).unwrap()),
             server: PlexServer::new(info, &current.url, "alice").unwrap(),
@@ -89,7 +99,6 @@ fn app(current: &Mock, others: &[&Mock]) -> AppState {
             owned: true,
             servers,
         }),
-        vec![],
     );
     app
 }
@@ -237,8 +246,39 @@ async fn undo_history_is_dropped_when_the_server_changes() {
 
     let other = self::app(&beta, &[&alpha]);
     // A different session on the same state: the old entries must not apply to the new server.
-    let session = other.session().unwrap();
-    app.set_session(Some(session), vec![]);
+    set_session(&app, other.session());
     assert!(undo::last(&app).is_none());
     assert!(undo::undo(&app, None).await.is_err());
+}
+
+#[tokio::test]
+async fn a_playback_failure_is_not_retried_on_another_server() {
+    use patina_core::failure::{self, Phase, Recover, Report};
+    use patina_core::player::PlayRequest;
+    let (alpha, beta) = (Mock::start("Alpha", "alpha-failure", 0, &[]), Mock::start("Beta", "beta-failure", 1, &[]));
+    let app = app(&alpha, &[&beta]);
+    let other = self::app(&beta, &[&alpha]);
+    let item = app.server().unwrap().metadata("112", MetadataOptions::default()).await.unwrap().unwrap();
+    let report = || Report {
+        item: item.clone(),
+        error: Some("loading failed".into()),
+        kind: None,
+        phase: Phase::Start,
+        position_ms: 61_000,
+        media_index: 0,
+        quality: "original".into(),
+        remaining: 0,
+        request: PlayRequest { item: item.clone(), ..Default::default() },
+    };
+
+    let _held = SESSIONS.lock().unwrap_or_else(|e| e.into_inner());
+    // Connecting to the same server again keeps the failure on offer.
+    failure::record(&app, report());
+    app.set_session(app.session(), vec![]);
+    assert!(failure::current().is_some());
+
+    // Another server: its rating key "112" is a different item, so the failure is dropped.
+    app.set_session(other.session(), vec![]);
+    assert!(failure::current().is_none());
+    assert!(failure::recover(&app, Recover::Retry).is_err());
 }

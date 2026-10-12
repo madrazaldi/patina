@@ -319,7 +319,7 @@
                 {/if}
               </button>
             {/if}
-            {#if ["show", "season", "playlist"].includes(kind)}
+            {#if ["show", "season", "playlist"].includes(kind) && !server}
               <button class="icon-btn outlined" title="Keep next unwatched downloaded" onclick={() => (app.keepTarget = item)}>
                 <CloudDownload />
               </button>

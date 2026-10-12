@@ -494,6 +494,7 @@ impl AppState {
     pub fn set_session(&self, session: Option<Session>, sections: Vec<Directory>) {
         let view = session.as_ref().map(SessionView::from);
         crate::undo::session_changed(self, session.as_ref());
+        crate::failure::session_changed(self, session.as_ref());
         *self.session.write().unwrap() = session;
         *self.sections.write().unwrap() = sections.clone();
         self.emit(CoreEvent::Session { session: view, sections });
