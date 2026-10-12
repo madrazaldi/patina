@@ -42,6 +42,7 @@ pub const HELP: &[(&str, &str)] = &[
     ("m → radio", "start radio from an artist, album or track"),
     ("", "Library"),
     ("w / u", "mark watched / unwatched"),
+    ("Z  ^z", "undo the last watch-state change, playlist removal or Continue Watching removal"),
     ("*", "rate 0–10"),
     ("space", "add to / remove from playlists"),
     ("x", "delete playlist or collection · remove entry · stop stream · delete history entry"),
@@ -61,7 +62,8 @@ pub const HELP: &[(&str, &str)] = &[
     ("l", "a channel's later programs · a library's settings"),
     ("/", "search server settings (or any list)"),
     ("", "Finding things"),
-    ("f", "search the server, grouped by type (tab: next type)"),
+    ("f", "search the server, grouped by type (tab: next type; ^a: all servers, enter: choose a copy)"),
+    ("r", "on Pick something to watch: reroll the candidates"),
     ("/", "filter this column"),
     ("s", "sort (the server's sorts in a library)"),
     ("F", "library filters (unwatched, genre, HDR…)"),
@@ -144,6 +146,24 @@ pub(super) fn draw_modal(f: &mut Frame, app: &App, theme: &Theme) {
             let skip = cursor.saturating_sub(visible.saturating_sub(1));
             let lines: Vec<Line> = list_lines(&rows, *cursor, theme, area.width as usize - 2).into_iter().skip(skip).collect();
             f.render_widget(Paragraph::new(lines).block(modal_block(format!(" {section_title} "), theme)), area);
+        }
+        Modal::Copies(p) => {
+            let rows: Vec<String> = p
+                .group
+                .copies
+                .iter()
+                .map(|c| {
+                    let quality: Vec<String> = c.versions.iter().map(|v| v.label.clone()).collect();
+                    let q = if quality.is_empty() { String::new() } else { format!("  {}", quality.join(", ")) };
+                    format!("{}{}{q}", c.server_name, if c.current { " (this server)" } else { "" })
+                })
+                .collect();
+            let area = centered(screen, 64, rows.len() as u16 + 4);
+            f.render_widget(Clear, area);
+            let mut lines = list_lines(&rows, p.cursor, theme, area.width as usize - 2);
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(" enter play · p from start · l browse · esc cancel", Style::default().fg(theme.dim))));
+            f.render_widget(Paragraph::new(lines).block(modal_block(format!(" {} ", truncate(&p.group.title, 50)), theme)), area);
         }
         Modal::Filter(p) => draw_filters(f, app, p, theme),
         Modal::Tracks(m) => draw_tracks(f, app, m, theme),

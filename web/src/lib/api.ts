@@ -3,7 +3,11 @@
 
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
+  AllResults,
   Artwork,
+  PickOptions,
+  PickQuery,
+  PickResult,
   Download,
   FilterView,
   FolderView,
@@ -116,16 +120,35 @@ export const api = {
   /** Folder view; `key` is a directory key from a previous call, or none for the top. */
   sectionFolders: (id: string, key?: string) => call<FolderView>("section_folders", { id, key }),
   /** More hubs for a detail page (related, sonically similar, similar artists). */
-  itemHubs: (ratingKey: string, kind: string) => call<Hub[]>("item_hubs", { ratingKey, kind }),
+  itemHubs: (ratingKey: string, kind: string, server?: string) => call<Hub[]>("item_hubs", { ratingKey, kind, server }),
   collections: (id: string) => call<Metadata[]>("collections", { id }),
   listing: (path: string, start: number, size: number) => call<MediaContainer>("listing", { path, start, size }),
   search: (query: string) => call<Hub[]>("search", { query }),
-  metadata: (ratingKey: string) => call<Metadata | null>("metadata", { ratingKey }),
-  children: (ratingKey: string, collection = false) => call<Metadata[]>("children", { ratingKey, collection }),
+  /** `server` is the machine id of another account server the item was found on (Metadata.patinaServer). */
+  metadata: (ratingKey: string, server?: string) => call<Metadata | null>("metadata", { ratingKey, server }),
+  children: (ratingKey: string, collection = false, server?: string) => call<Metadata[]>("children", { ratingKey, collection, server }),
   findByGuid: (guid: string) => call<string | null>("find_by_guid", { guid }),
 
   // Item actions
-  setWatched: (ratingKey: string, watched: boolean) => call("set_watched", { ratingKey, watched }),
+  /** Core announces it with a toast that offers Undo. */
+  setWatched: (ratingKey: string, watched: boolean, server?: string) => call("set_watched", { ratingKey, watched, server }),
+  /** A selection; undone together. */
+  setWatchedMany: (ratingKeys: string[], watched: boolean) => call("set_watched_many", { ratingKeys, watched }),
+  /** What Cmd/Ctrl+Z would undo, if anything. */
+  undoLast: () => call<{ id: number; label: string } | null>("undo_last"),
+  /** Undo entry `id` (a toast's button), or the most recent one; resolves to what was undone. */
+  undo: (id?: number) => call<string>("undo_action", { id }),
+
+  // Pick something to watch
+  pickOptions: () => call<PickOptions>("pick_options"),
+  pick: (query: PickQuery) => call<PickResult>("pick_something", { query }),
+
+  // Search across every server of the account; `onProgress` sees the results after each server answers.
+  searchAllServers: (query: string, onProgress: (r: AllResults) => void) => {
+    const progress = new Channel<AllResults>();
+    progress.onmessage = onProgress;
+    return call<AllResults>("search_all_servers", { query, progress });
+  },
   rate: (ratingKey: string, rating: number | null) => call("rate", { ratingKey, rating }),
   selectStreams: (partId: number, audio?: number, subtitle?: number) =>
     call("select_streams", { partId, audio, subtitle }),

@@ -40,6 +40,9 @@ impl App {
             return;
         }
         s.pending = true;
+        if self.xs.on {
+            return self.search_all_servers(query);
+        }
         let (core, tx) = (self.core.clone(), self.tx.clone());
         tokio::spawn(async move {
             let result = match core.server() {
@@ -98,10 +101,14 @@ impl App {
 
     pub(super) fn search_key(&mut self, key: KeyEvent) {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        if key.code == KeyCode::Enter && self.xs.on && self.search_all_accept() {
+            return;
+        }
         let Some(s) = &mut self.search else { return };
         let last = s.results.len().saturating_sub(1);
         match key.code {
             KeyCode::Esc => self.search = None,
+            KeyCode::Char('a') if ctrl => self.toggle_all_servers(),
             KeyCode::Enter => self.search_accept(),
             KeyCode::Down => s.cursor = (s.cursor + 1).min(last),
             KeyCode::Char('n' | 'j') if ctrl => s.cursor = (s.cursor + 1).min(last),

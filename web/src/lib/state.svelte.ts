@@ -25,6 +25,8 @@ export interface Toast {
   id: number;
   text: string;
   error: boolean;
+  /** Id of the undo entry that reverses what the toast reports (see `app.undo`). */
+  undo?: number;
 }
 
 export interface Menu {
@@ -108,6 +110,8 @@ class App {
   /** Queue drawer / lyrics panel above the now-playing bar. */
   panel = $state<"queue" | "lyrics" | null>(null);
   search = $state("");
+  /** Search every server of the account instead of the connected one (the Search page's toggle). */
+  searchAll = $state(false);
 
   get owned() {
     return this.session?.owned ?? false;
@@ -128,8 +132,10 @@ class App {
         const before = this.scope;
         this.session = e.payload.session;
         if (before !== this.scope) {
-          nav.reset(); this.search = "";
+          nav.reset(); this.search = ""; this.searchAll = false;
           this.clearEditors();
+          // Their entries belong to the previous account or server.
+          this.toasts = this.toasts.filter((t) => t.undo === undefined);
         }
         this.sections = e.payload.sections;
       }),
@@ -144,7 +150,7 @@ class App {
       listen("sessions-changed", () => this.sessionsTick++),
       listen<Changes>("library-changed", (e) => this.#noteChanges(e.payload)),
       listen<number>("revision", () => this.#bump()),
-      listen<{ text: string; error: boolean }>("toast", (e) => this.#push(e.payload.text, e.payload.error)),
+      listen<{ text: string; error: boolean; undo?: number }>("toast", (e) => this.#push(e.payload.text, e.payload.error, e.payload.undo)),
     ]);
     const [snap, settings, info, downloads] = await Promise.all([
       api.snapshot(),
@@ -229,10 +235,33 @@ class App {
     this.#push(message(e), true);
   }
 
-  #push(text: string, error: boolean) {
+  /** Reverse a reversible action: the toast's Undo button passes its entry, Cmd/Ctrl+Z the latest. Core announces the result. */
+  async undo(entry?: number) {
+    if (entry !== undefined) this.toasts = this.toasts.filter((t) => t.undo !== entry);
+    try {
+      await api.undo(entry);
+    } catch (e) {
+      this.error(e);
+    }
+  }
+
+  /** Cmd/Ctrl+Z. */
+  async undoLatest() {
+    const guard = captureScope();
+    try {
+      const last = await api.undoLast();
+      if (!guard.valid()) return;
+      if (last) await this.undo(last.id);
+      else this.toast("Nothing to undo");
+    } catch (e) {
+      this.error(e);
+    }
+  }
+
+  #push(text: string, error: boolean, undo?: number) {
     const id = ++toastId;
-    this.toasts.push({ id, text, error });
-    setTimeout(() => (this.toasts = this.toasts.filter((t) => t.id !== id)), error ? 6000 : 3200);
+    this.toasts.push({ id, text, error, undo });
+    setTimeout(() => (this.toasts = this.toasts.filter((t) => t.id !== id)), error ? 6000 : undo !== undefined ? 8000 : 3200);
   }
 
   #saveTimer: ReturnType<typeof setTimeout> | undefined;

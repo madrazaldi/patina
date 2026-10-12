@@ -186,10 +186,8 @@ impl App {
             MarkUnwatched => self.set_watched(false),
             ClearProgress => self.clear_progress(),
             RemoveFromContinue => {
-                let Some((k, title)) = item.and_then(|i| Some((i.rating_key.clone()?, i.full_title()))) else { return };
-                self.server_op(Refresh::WatchState, format!("Removed {title} from Continue Watching"), move |s| async move {
-                    s.remove_from_continue_watching(&k).await
-                });
+                let Some(k) = item.and_then(|i| i.rating_key.clone()) else { return };
+                self.hide_from_continue(k);
             }
             Rate => self.open_rate(),
             AddToPlaylist => self.open_playlist_picker(),

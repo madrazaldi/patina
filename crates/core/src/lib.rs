@@ -15,11 +15,13 @@ pub mod lyrics;
 pub mod ops;
 pub mod player;
 pub mod presence;
+pub mod servers;
 pub mod session;
 pub mod state;
 pub mod storage;
 pub mod offline;
 pub mod tracks;
+pub mod undo;
 
 pub use state::{AppState, CoreEvent, EventSink};
 

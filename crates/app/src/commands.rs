@@ -2,10 +2,10 @@
 //! serialize (Plex's own JSON field names); tokens never cross the boundary.
 
 use patina_core::config::{self, PlayerSettings, UiSettings};
-use patina_core::ops::{edit, library, lists, playback, server, setup};
+use patina_core::ops::{edit, library, lists, pick, playback, server, setup, xsearch};
 use patina_core::player::{self, Control, PlayRequest, QueueCommand};
 use patina_core::state::{AppState, Snapshot};
-use patina_core::{downloads, livetv, session, tracks};
+use patina_core::{downloads, livetv, servers, session, tracks, undo};
 use patina_plex::{Directory, Hub, LibraryQuery, MatchResult, MediaContainer, Metadata, MetadataOptions, Params, Stream};
 use serde::{Serialize, Serializer};
 use tauri::State;
@@ -219,17 +219,24 @@ pub async fn search(app: App<'_>, query: String) -> Res<Vec<Hub>> {
     Ok(app.server()?.search_hubs(&query, 24, None).await?)
 }
 
+/// `server` is the machine id of another server of the account (see `search_all_servers`).
 #[tauri::command]
-pub async fn metadata(app: App<'_>, rating_key: String) -> Res<Option<Metadata>> {
-    Ok(app.server()?.metadata(&rating_key, MetadataOptions::full()).await?)
+pub async fn metadata(app: App<'_>, rating_key: String, server: Option<String>) -> Res<Option<Metadata>> {
+    let found = servers::server_for(&app, server.as_deref()).await?.metadata(&rating_key, MetadataOptions::full()).await?;
+    Ok(found.map(|mut m| {
+        servers::tag(&app, std::slice::from_mut(&mut m), server.as_deref());
+        m
+    }))
 }
 
 /// Seasons, episodes, albums, tracks or collection items of an item.
 #[tauri::command]
-pub async fn children(app: App<'_>, rating_key: String, collection: bool) -> Res<Vec<Metadata>> {
-    let server = app.server()?;
-    let mc = if collection { server.collection_items(&rating_key).await? } else { server.children(&rating_key).await? };
-    Ok(mc.metadata)
+pub async fn children(app: App<'_>, rating_key: String, collection: bool, server: Option<String>) -> Res<Vec<Metadata>> {
+    let on = servers::server_for(&app, server.as_deref()).await?;
+    let mc = if collection { on.collection_items(&rating_key).await? } else { on.children(&rating_key).await? };
+    let mut items = mc.metadata;
+    servers::tag(&app, &mut items, server.as_deref());
+    Ok(items)
 }
 
 /// Rating key of the local copy of a plex.tv item, if the server has one.
@@ -241,11 +248,17 @@ pub async fn find_by_guid(app: App<'_>, guid: String) -> Res<Option<String>> {
 
 // Item actions ---------------------------------------------------------------
 
+/// Mark an item (or a whole show, season or album) watched or unwatched. Announces itself
+/// with a toast that offers Undo (see `undo_action`).
 #[tauri::command]
-pub async fn set_watched(app: App<'_>, rating_key: String, watched: bool) -> Res {
-    let server = app.server()?;
-    if watched { server.scrobble(&rating_key).await? } else { server.unscrobble(&rating_key).await? }
-    Ok(())
+pub async fn set_watched(app: App<'_>, rating_key: String, watched: bool, server: Option<String>) -> Res {
+    Ok(undo::set_watched(&app, server.as_deref(), &[rating_key], watched).await?)
+}
+
+/// [`set_watched`] for a selection; undone together.
+#[tauri::command]
+pub async fn set_watched_many(app: App<'_>, rating_keys: Vec<String>, watched: bool) -> Res {
+    Ok(undo::set_watched(&app, None, &rating_keys, watched).await?)
 }
 
 #[tauri::command]
@@ -310,7 +323,7 @@ pub async fn add_to_playlist(app: App<'_>, rating_key: String, playlist: Option<
 
 #[tauri::command]
 pub async fn remove_from_playlist(app: App<'_>, id: String, item_id: i64) -> Res {
-    Ok(app.server()?.remove_from_playlist(&id, item_id).await?)
+    Ok(undo::remove_from_playlist(&app, &id, item_id).await?)
 }
 
 #[tauri::command]
@@ -492,21 +505,71 @@ pub async fn section_folders(app: App<'_>, id: String, key: Option<String>) -> R
 
 /// Extra hubs for a detail page, plus sonically similar music.
 #[tauri::command]
-pub async fn item_hubs(app: App<'_>, rating_key: String, kind: String) -> Res<Vec<Hub>> {
-    Ok(library::item_hubs(&app, &rating_key, &kind).await?)
+pub async fn item_hubs(app: App<'_>, rating_key: String, kind: String, server: Option<String>) -> Res<Vec<Hub>> {
+    if servers::is_current(&app, server.as_deref()) {
+        return Ok(library::item_hubs(&app, &rating_key, &kind).await?);
+    }
+    let mut hubs = library::item_hubs_on(&servers::server_for(&app, server.as_deref()).await?, &rating_key, &kind).await?;
+    for hub in &mut hubs {
+        servers::tag(&app, &mut hub.metadata, server.as_deref());
+    }
+    Ok(hubs)
 }
 
 // Item actions ---------------------------------------------------------------
 
 #[tauri::command]
 pub async fn remove_from_continue_watching(app: App<'_>, rating_key: String) -> Res {
-    Ok(app.server()?.remove_from_continue_watching(&rating_key).await?)
+    Ok(undo::remove_from_continue_watching(&app, &rating_key).await?)
 }
 
 /// Forget the resume position without changing the watched state.
 #[tauri::command]
 pub async fn clear_progress(app: App<'_>, rating_key: String) -> Res {
-    Ok(app.server()?.set_progress(&rating_key, 0, "stopped").await?)
+    Ok(undo::clear_progress(&app, &rating_key).await?)
+}
+
+// Undo -----------------------------------------------------------------------
+
+#[derive(Serialize)]
+pub struct UndoView {
+    id: u64,
+    label: String,
+}
+
+/// What Cmd/Ctrl+Z would undo, if anything.
+#[tauri::command]
+pub fn undo_last(app: App) -> Option<UndoView> {
+    undo::last(&app).map(|(id, label)| UndoView { id, label })
+}
+
+/// Undo entry `id` (a toast's Undo button), or the most recent one.
+#[tauri::command]
+pub async fn undo_action(app: App<'_>, id: Option<u64>) -> Res<String> {
+    Ok(undo::undo(&app, id).await?)
+}
+
+// Pick something to watch ----------------------------------------------------
+
+#[tauri::command]
+pub async fn pick_options(app: App<'_>) -> Res<pick::PickOptions> {
+    Ok(pick::options(&app).await?)
+}
+
+#[tauri::command]
+pub async fn pick_something(app: App<'_>, query: pick::PickQuery) -> Res<pick::PickResult> {
+    Ok(pick::pick(&app, &query).await?)
+}
+
+// Search across servers ------------------------------------------------------
+
+/// Search every server of the account; `progress` gets the results so far after each server answers.
+#[tauri::command]
+pub async fn search_all_servers(app: App<'_>, query: String, progress: Channel<xsearch::Results>) -> Res<xsearch::Results> {
+    Ok(xsearch::search_all(&app, &query, |r| {
+        let _ = progress.send(r.clone());
+    })
+    .await)
 }
 
 #[tauri::command]

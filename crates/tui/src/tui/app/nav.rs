@@ -52,6 +52,7 @@ impl App {
         if source == Source::Settings {
             self.probe_mpv();
         }
+        let opens_pick = source == Source::Pick;
         let mut col = self.new_column(title, source);
         if !items.is_empty() || !col.source.loads() {
             col.items = items;
@@ -61,6 +62,9 @@ impl App {
         self.columns.push(col);
         let idx = self.columns.len() - 1;
         self.load(idx);
+        if opens_pick {
+            self.pick_opened();
+        }
     }
 
     pub(super) fn drill(&mut self) {
@@ -97,7 +101,11 @@ impl App {
             Kind::Season | Kind::Album => item.full_title(),
             _ => item.title().to_string(),
         };
-        self.open_column(title, path);
+        match item.server_id() {
+            // Children of an item found on another server are listed from that server.
+            Some(server) => self.open_source(title, Source::Remote { server: server.to_string(), path }, Vec::new()),
+            None => self.open_column(title, path),
+        }
     }
 
     /// `c`: related hubs, cast & crew and tags of the selection, as a column.
@@ -160,7 +168,6 @@ impl App {
     pub(super) fn apply_refresh(&mut self, refresh: Refresh) {
         match refresh {
             Refresh::Nothing => {}
-            Refresh::WatchState => self.core.bump(),
             Refresh::Playlists => {
                 let paths: Vec<String> = self.columns.iter().filter_map(|c| c.path.clone()).filter(|p| p.starts_with(PLAYLISTS)).collect();
                 self.apply_refresh(Refresh::Paths(paths));

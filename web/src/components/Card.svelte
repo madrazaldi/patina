@@ -35,7 +35,7 @@
     if (shape === "landscape" && useArt && kind !== "episode") source = plex.backdrop(item) ?? item.thumb;
     else if (shape === "landscape") source = item.thumb ?? plex.backdrop(item);
     else source = plex.poster(item);
-    return img(source, w, h);
+    return img(source, w, h, item.patinaServer);
   });
   let lines = $derived(
     kind === "episode" && useArt

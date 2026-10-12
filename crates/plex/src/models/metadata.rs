@@ -233,7 +233,29 @@ pub struct Metadata {
     pub extra: Map<String, Value>,
 }
 
+/// Key under which Patina tags an item with the server it came from (see [`Metadata::server_id`]).
+pub const SERVER_TAG: &str = "patinaServer";
+
 impl Metadata {
+    /// The machine identifier of the server this item came from, when it is not the
+    /// session's own server. Patina sets it on items found on other servers so that
+    /// navigation, playback and reporting stay with the right one. Plex never sends it.
+    pub fn server_id(&self) -> Option<&str> {
+        self.extra.get(SERVER_TAG).and_then(Value::as_str).filter(|s| !s.is_empty())
+    }
+
+    /// Tag the item with the server it lives on (`None` clears the tag).
+    pub fn set_server_id(&mut self, server: Option<&str>) {
+        match server {
+            Some(id) => {
+                self.extra.insert(SERVER_TAG.into(), Value::String(id.into()));
+            }
+            None => {
+                self.extra.remove(SERVER_TAG);
+            }
+        }
+    }
+
     pub fn rating_key(&self) -> &str {
         self.rating_key.as_deref().unwrap_or("")
     }

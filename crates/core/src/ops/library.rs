@@ -1,7 +1,7 @@
 //! Library browsing beyond plain listings: filters, folders, related hubs.
 
 use anyhow::Result;
-use patina_plex::{Directory, Hub, LibraryMetaType, MediaType, Metadata};
+use patina_plex::{Directory, Hub, LibraryMetaType, MediaType, Metadata, PlexServer};
 use serde::Serialize;
 
 use crate::state::AppState;
@@ -49,7 +49,11 @@ pub async fn section_folders(app: &AppState, id: &str, key: Option<&str>) -> Res
 
 /// Extra hubs for a detail page, plus sonically similar music.
 pub async fn item_hubs(app: &AppState, rating_key: &str, kind: &str) -> Result<Vec<Hub>> {
-    let server = app.server()?;
+    item_hubs_on(&app.server()?, rating_key, kind).await
+}
+
+/// [`item_hubs`] on any server (an item found on another server of the account).
+pub async fn item_hubs_on(server: &PlexServer, rating_key: &str, kind: &str) -> Result<Vec<Hub>> {
     let mut hubs = server.metadata_hubs(rating_key, 12).await.unwrap_or_default();
     let similar = match kind {
         "track" | "album" => server.nearest(rating_key).await.ok().map(|m| ("Sonically similar", m)),

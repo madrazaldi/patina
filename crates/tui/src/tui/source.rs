@@ -41,6 +41,10 @@ pub enum Source {
     Search,
     /// A root entry grouping screens; its items come with it.
     Group(Group),
+    /// "Pick something to watch": the criteria and candidates, built from app state.
+    Pick,
+    /// A listing on another server of the account (an item found by searching all servers).
+    Remote { server: String, path: String },
     // Built from local state by the app, so they work offline.
     Downloads,
     Settings,
@@ -72,7 +76,7 @@ impl Source {
     /// The server path listed, used for paging, refreshes and smart playlists.
     pub fn path(&self) -> Option<String> {
         match self {
-            Source::Path(p) => Some(p.clone()),
+            Source::Path(p) | Source::Remote { path: p, .. } => Some(p.clone()),
             Source::Library(v) => Some(v.path()),
             _ => None,
         }
@@ -85,7 +89,7 @@ impl Source {
 
     /// Listings the app builds from its own state rather than fetching.
     pub fn local(&self) -> bool {
-        matches!(self, Source::Downloads | Source::Settings | Source::ServerLibraries)
+        matches!(self, Source::Downloads | Source::Settings | Source::ServerLibraries | Source::Pick)
     }
 
     /// Listings that go stale by themselves and are polled while shown.
@@ -242,7 +246,15 @@ pub async fn fetch(core: &AppState, source: &Source, progressive: bool, page: &m
     let server = core.server()?;
     let now = chrono::Utc::now().timestamp();
     match source {
-        Source::Root | Source::Static | Source::Search | Source::Group(_) | Source::Downloads | Source::Settings | Source::ServerLibraries => Ok(Vec::new()),
+        Source::Root | Source::Static | Source::Search | Source::Group(_) | Source::Downloads | Source::Settings | Source::ServerLibraries | Source::Pick => Ok(Vec::new()),
+        Source::Remote { server: id, path } => {
+            let on = patina_core::servers::server_for(core, Some(id)).await?;
+            let mut items = Item::listing(on.fetch(path, &Params::new()).await?);
+            for item in &mut items {
+                item.meta.set_server_id(Some(id));
+            }
+            Ok(items)
+        }
         Source::Home => Ok(hubs(server.home_hubs(20).await?)),
         Source::Hub(key) => paged(&server, key, progressive, page).await,
         Source::Sessions => Ok(server.sessions().await?.into_iter().map(Item::from).collect()),

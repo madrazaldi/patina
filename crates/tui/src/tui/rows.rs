@@ -56,6 +56,21 @@ pub enum Act {
     Pref { pref: Box<Pref>, section: Option<String> },
     Setting(SettingKey),
     Account(AccountOp),
+    /// A criterion (or the pick button) of the "Pick something to watch" screen.
+    Pick(PickField),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PickField {
+    Roll,
+    Kind,
+    Unwatched,
+    Length,
+    Genres,
+    Ratings,
+    Years,
+    MinRating,
+    Library,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

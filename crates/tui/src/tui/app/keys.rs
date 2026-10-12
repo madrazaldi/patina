@@ -73,8 +73,14 @@ impl App {
     pub(super) fn normal_key(&mut self, key: KeyEvent) {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         let page = self.list_height.max(2) as isize;
+        if self.foreign_blocked(&key) {
+            return;
+        }
         let Some(col) = self.columns.last_mut() else { return };
         match key.code {
+            KeyCode::Char('Z') => self.undo_last(),
+            KeyCode::Char('z') if ctrl => self.undo_last(),
+            KeyCode::Char('r') if col.source == Source::Pick => self.roll(true),
             KeyCode::Char('q') => self.quit = true,
             KeyCode::Char('?') => self.modal = Some(Modal::Help { scroll: 0 }),
             KeyCode::Char('j') | KeyCode::Down => col.move_by(1),
@@ -265,6 +271,7 @@ impl App {
                     Some(Modal::Browse { section_id, section_title, rows, cursor })
                 }
             }
+            Modal::Copies(p) => self.copies_key(p, key),
             Modal::Filter(p) => self.filter_modal_key(p, key),
             Modal::Tracks(m) => self.tracks_key(m, key),
             Modal::Queue { sel } => self.queue_key(sel, key),

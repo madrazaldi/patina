@@ -5,7 +5,8 @@ use std::sync::Arc;
 
 use anyhow::{Result, anyhow, bail};
 use clap::{Parser, Subcommand, ValueEnum};
-use patina_core::ops::lists;
+use patina_core::ops::pick::{self, PickKind, PickQuery};
+use patina_core::ops::{lists, xsearch};
 use patina_core::player::{self, PlayRequest};
 use patina_core::state::{ServerView, Stage};
 use patina_core::{AppState, CoreEvent, EventSink, config, session};
@@ -49,12 +50,17 @@ pub enum Command {
         #[command(flatten)]
         out: Output,
     },
-    /// Search the server.
+    /// Search the server, or every server of the account with `--all-servers`.
     Search {
         query: String,
+        /// Search all servers on your account; one result per title, with each server's copy.
+        #[arg(long)]
+        all_servers: bool,
         #[command(flatten)]
         out: Output,
     },
+    /// Pick something to watch: a few random candidates that fit what you feel like.
+    Pick(PickArgs),
     /// Continue watching (in-progress and next-up items).
     Continue(Output),
     /// Recently added items.
@@ -120,6 +126,45 @@ pub enum Command {
     Url { rating_key: String },
     /// Print the config file path.
     ConfigPath,
+}
+
+#[derive(clap::Args)]
+pub struct PickArgs {
+    /// `movie`, `show` or `any`.
+    #[arg(long, default_value = "movie")]
+    kind: String,
+    /// Include things you have already watched.
+    #[arg(long)]
+    watched: bool,
+    /// Longest running time in minutes (a film, or one episode of a show).
+    #[arg(long)]
+    max_minutes: Option<u32>,
+    #[arg(long)]
+    min_minutes: Option<u32>,
+    /// Genre; repeat for several (any of them).
+    #[arg(long = "genre")]
+    genres: Vec<String>,
+    /// Content rating such as PG-13; repeat for several (any of them).
+    #[arg(long = "content-rating")]
+    content_ratings: Vec<String>,
+    /// A library, by id or name; repeat for several. Defaults to every movie and show library.
+    #[arg(long = "library")]
+    libraries: Vec<String>,
+    #[arg(long)]
+    year_from: Option<i64>,
+    #[arg(long)]
+    year_to: Option<i64>,
+    /// Lowest audience rating, 0 to 10.
+    #[arg(long)]
+    min_rating: Option<f64>,
+    /// How many candidates to offer (1 to 12).
+    #[arg(short = 'n', long = "count", default_value_t = 4)]
+    count: usize,
+    /// Rating keys already offered, to get something new (repeat or comma-separate).
+    #[arg(long = "exclude", value_delimiter = ',')]
+    exclude: Vec<String>,
+    #[command(flatten)]
+    out: Output,
 }
 
 #[derive(clap::Args, Clone, Copy)]
@@ -451,7 +496,9 @@ pub async fn run(command: Command) -> Result<()> {
                 }
             }
         }
-        Command::Search { query, out } => print_items(&fetch::search(&server, &query, 20).await?, out)?,
+        Command::Search { query, all_servers: true, out } => search_all_servers(&core, &query, out).await?,
+        Command::Search { query, all_servers: false, out } => print_items(&fetch::search(&server, &query, 20).await?, out)?,
+        Command::Pick(args) => pick_something(&core, args).await?,
         Command::Continue(out) => print_items(&fetch::continue_watching(&server).await?, out)?,
         Command::Recent { limit, out } => {
             let mut items = fetch::recently_added(&server).await?;
@@ -535,6 +582,78 @@ pub async fn run(command: Command) -> Result<()> {
             println!("{}", server.part_url(&part, false)?);
         }
         Command::Login { .. } | Command::Logout | Command::ConfigPath => unreachable!(),
+    }
+    Ok(())
+}
+
+/// `search --all-servers`: one line per title, then a line per server that has it.
+async fn search_all_servers(core: &AppState, query: &str, out: Output) -> Result<()> {
+    let found = xsearch::search_all(core, query, |_| {}).await;
+    if out.json {
+        println!("{}", serde_json::to_string_pretty(&found)?);
+        return Ok(());
+    }
+    for group in &found.groups {
+        let mut title = group.title.clone();
+        if let Some(y) = group.year {
+            title.push_str(&format!(" ({y})"));
+        }
+        let subtitle = group.subtitle.as_ref().map(|s| format!("  {s}")).unwrap_or_default();
+        println!("{:<8} {title}{subtitle}", group.kind);
+        for copy in &group.copies {
+            let versions: Vec<_> = copy.versions.iter().map(|v| v.label.clone()).collect();
+            let quality = if versions.is_empty() { String::new() } else { format!("  {}", versions.join(", ")) };
+            let here = if copy.current { " (this server)" } else { "" };
+            println!("    {}{here}  key {}{quality}", copy.server_name, copy.item.rating_key.clone().unwrap_or_default());
+        }
+    }
+    for s in found.servers.iter().filter(|s| !matches!(s.state, xsearch::ServerState::Done)) {
+        eprintln!("{}: {:?}{}", s.name, s.state, s.error.as_ref().map(|e| format!(" ({e})")).unwrap_or_default());
+    }
+    if found.groups.is_empty() {
+        eprintln!("No results");
+    }
+    Ok(())
+}
+
+/// `pick`: random candidates that fit, honouring the same criteria as the app.
+async fn pick_something(core: &AppState, args: PickArgs) -> Result<()> {
+    let kind = PickKind::parse(&args.kind).ok_or_else(|| anyhow!("--kind is movie, show or any"))?;
+    let sections = core.sections();
+    let mut ids = Vec::new();
+    for wanted in &args.libraries {
+        let found = sections
+            .iter()
+            .find(|d| d.key.as_deref() == Some(wanted.as_str()) || d.title().eq_ignore_ascii_case(wanted))
+            .and_then(|d| d.key.clone())
+            .ok_or_else(|| anyhow!("no library matches {wanted:?}"))?;
+        ids.push(found);
+    }
+    let query = PickQuery {
+        kind,
+        unwatched: !args.watched,
+        max_minutes: args.max_minutes,
+        min_minutes: args.min_minutes,
+        genres: args.genres,
+        content_ratings: args.content_ratings,
+        sections: ids,
+        year_min: args.year_from,
+        year_max: args.year_to,
+        min_rating: args.min_rating,
+        count: args.count,
+        exclude: args.exclude,
+    };
+    let picked = pick::pick(core, &query).await?;
+    if args.out.json {
+        println!("{}", serde_json::to_string_pretty(&picked)?);
+        return Ok(());
+    }
+    let items: Vec<Item> = picked.items.iter().cloned().map(Item::from).collect();
+    print_items(&items, args.out)?;
+    if items.is_empty() {
+        eprintln!("Nothing fits; loosen a filter");
+    } else {
+        eprintln!("{} of {} that fit{}", items.len(), picked.matches, if picked.wrapped { " (started over)" } else { "" });
     }
     Ok(())
 }

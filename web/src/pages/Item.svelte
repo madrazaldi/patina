@@ -31,11 +31,13 @@
   import { act, app } from "../lib/state.svelte";
   import type { Download as Saved, Hub, Metadata, Tag } from "../lib/types";
 
-  let { ratingKey }: { ratingKey: string } = $props();
+  // `server` is the machine id of another account server the item was found on (cross-server search).
+  let { ratingKey, server }: { ratingKey: string; server?: string } = $props();
+  let serverName = $derived(server ? (app.session?.servers.find((s) => s.id === server)?.name ?? "another server") : "");
 
   const data = resource(() => {
     app.revision;
-    return api.metadata(ratingKey);
+    return api.metadata(ratingKey, server);
   });
 
   // More hubs (sonically similar, similar artists, ...), fetched once the kind is known.
@@ -43,14 +45,14 @@
   const extra = resource(() => {
     const k = loadedKind;
     app.revision;
-    return k ? api.itemHubs(ratingKey, k) : Promise.resolve([] as Hub[]);
+    return k ? api.itemHubs(ratingKey, k, server) : Promise.resolve([] as Hub[]);
   });
 
   let mediaIndex = $state(0);
   let expanded = $state(false);
 
   // Watchlist state lives on plex.tv.
-  let discover = $derived(data.data && app.hasTv && ["movie", "show"].includes(plex.kind(data.data)) ? plex.discoverId(data.data) : null);
+  let discover = $derived(data.data && !server && app.hasTv && ["movie", "show"].includes(plex.kind(data.data)) ? plex.discoverId(data.data) : null);
   let watchlisted = $state<boolean | null>(null);
   $effect(() => {
     const id = discover;
@@ -102,7 +104,7 @@
     act(api.collectionSettings(item.ratingKey ?? "", s), "Collection updated", true);
 
   function tagRoute(item: Metadata, tag: Tag): Route | null {
-    if (item.librarySectionID == null || !tag.filter) return null;
+    if (item.librarySectionID == null || !tag.filter || server) return null;
     return browseRoute(`/library/sections/${item.librarySectionID}/all?${tag.filter}`, tag.tag ?? "");
   }
 
@@ -192,10 +194,10 @@
   {@const shape = kind === "episode" || kind === "clip" ? "landscape" : ["album", "artist", "playlist", "photoalbum", "track"].includes(kind) ? "square" : "poster"}
   {@const poster =
     shape === "landscape"
-      ? img(item.thumb, 840, 472)
+      ? img(item.thumb, 840, 472, server)
       : shape === "square"
-        ? img(item.thumb ?? item.parentThumb, 600, 600)
-        : img(item.thumb, 500, 750)}
+        ? img(item.thumb ?? item.parentThumb, 600, 600, server)
+        : img(item.thumb, 500, 750, server)}
   {@const spoiler = app.spoilers && kind === "episode" && !plex.isWatched(item)}
   {@const progress = plex.progress(item)}
   {@const left = remaining(item)}
@@ -207,7 +209,7 @@
   {@const saved = downloaded(item)}
 
   <div class="detail">
-    <div class="backdrop"><Img src={img(plex.backdrop(item), 1920, 1080)} /></div>
+    <div class="backdrop"><Img src={img(plex.backdrop(item), 1920, 1080, server)} /></div>
 
     <div class="page inner">
       <header class={["head", `is-${shape}`]}>
@@ -219,7 +221,7 @@
             <div class="crumbs">
               {#each crumbs(item) as [label, rk], i (rk)}
                 {#if i > 0}<span class="faint">/</span>{/if}
-                <button class="link" onclick={() => nav.push({ name: "item", ratingKey: rk })}>{label}</button>
+                <button class="link" onclick={() => nav.push({ name: "item", ratingKey: rk, server })}>{label}</button>
               {/each}
             </div>
           {/if}
@@ -233,6 +235,7 @@
             {/each}
             {#if item.contentRating}<span class="tag">{item.contentRating}</span>{/if}
             {#if mediaLabel}<span class="tag">{mediaLabel}</span>{/if}
+            {#if server}<span class="tag" title="This copy is on another server of your account">On {serverName}</span>{/if}
           </div>
 
           <div class="actions">
@@ -269,7 +272,7 @@
                 {#if watchlisted}<BookmarkCheck />{:else}<Bookmark />{/if}
               </button>
             {/if}
-            {#if plex.supportsTracks(item)}
+            {#if plex.supportsTracks(item) && !server}
               <button class="icon-btn outlined" title="Audio & subtitles for many episodes" onclick={() => (app.tracksTarget = item)}>
                 <Captions />
               </button>
@@ -277,10 +280,10 @@
             {#if plex.canPlay(item) && kind !== "photo" && kind !== "photoalbum"}
               <button class="icon-btn outlined" title="Play next" onclick={() => enqueue(item, true)}><ListStart /></button>
             {/if}
-            {#if kind !== "collection" && kind !== "playlist"}
+            {#if kind !== "collection" && kind !== "playlist" && !server}
               <button class="icon-btn outlined" title="Add to playlist" onclick={() => (app.playlistTarget = item)}><ListPlus /></button>
             {/if}
-            {#if ["movie", "episode", "track", "show", "season", "album", "artist"].includes(kind)}
+            {#if ["movie", "episode", "track", "show", "season", "album", "artist"].includes(kind) && !server}
               {@const busy = saved?.state === "queued" || saved?.state === "downloading"}
               <button
                 class={["icon-btn outlined", { on: saved?.state === "done", busy }]}
@@ -298,7 +301,7 @@
               </button>
             {/if}
             <button class="icon-btn outlined" title="More" onclick={(e) => openMenu(item, e)}><Ellipsis /></button>
-            {#if ["movie", "show", "episode", "season", "album", "track", "artist"].includes(kind)}
+            {#if ["movie", "show", "episode", "season", "album", "track", "artist"].includes(kind) && !server}
               <StarRating
                 value={item.userRating ?? 0}
                 onrate={(v) => act(api.rate(item.ratingKey ?? "", v), undefined, true)}
@@ -340,7 +343,7 @@
         {/if}
       </div>
 
-      {#if kind === "collection" && app.owned}
+      {#if kind === "collection" && app.owned && !server}
         {@const mode = item.collectionMode ?? -1}
         {@const order = Number(item.collectionSort ?? 0)}
         <div class="collection-tools">
@@ -377,7 +380,7 @@
             {@const r = tagRoute(item, role)}
             <button class="person" disabled={!r} onclick={() => r && nav.push(r)}>
               <span class="face">
-                {#if role.thumb}<Img src={img(role.thumb, 160, 160)} />{:else}{initials(role.tag ?? "")}{/if}
+                {#if role.thumb}<Img src={img(role.thumb, 160, 160, server)} />{:else}{initials(role.tag ?? "")}{/if}
               </span>
               <span class="name ellipsis">{role.tag}</span>
               {#if role.role}<span class="role ellipsis">{role.role}</span>{/if}
@@ -386,7 +389,7 @@
         </div>
       {/if}
 
-      {#if item.Extras?.Metadata.length}
+      {#if item.Extras?.Metadata.length && !server}
         <Row title="Extras" items={item.Extras.Metadata} shape="landscape" />
       {/if}
       {#each (item.Related?.Hub ?? []).filter((h) => h.Metadata.length) as hub, i (`${hub.hubIdentifier}:${i}`)}

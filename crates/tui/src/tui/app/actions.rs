@@ -14,12 +14,12 @@ impl App {
             return;
         }
         let key = item.rating_key.clone().unwrap_or_default();
-        self.patch(&key, &mut |i| i.set_watched(watched));
-        let title = item.title().to_string();
-        let done = format!("{title} marked {}", if watched { "watched" } else { "unwatched" });
-        self.server_op(Refresh::WatchState, done, move |s| async move {
-            if watched { s.scrobble(&key).await } else { s.unscrobble(&key).await }
-        });
+        let server = item.server_id().map(str::to_string);
+        if server.is_none() {
+            self.patch(&key, &mut |i| i.set_watched(watched));
+        }
+        // Core announces it (with Undo) and refreshes the views.
+        self.mark_watched(vec![key], server, watched);
     }
 
     /// Forget the resume position without changing the watched state.
@@ -27,8 +27,7 @@ impl App {
         let Some(item) = self.selected().cloned() else { return };
         let Some(key) = item.rating_key.clone().filter(|_| item.progress().is_some()) else { return };
         self.patch(&key, &mut |i| i.view_offset = None);
-        let done = format!("Progress cleared for {}", item.full_title());
-        self.server_op(Refresh::WatchState, done, move |s| async move { s.set_progress(&key, 0, "stopped").await });
+        self.forget_progress(key);
     }
 
     pub(super) fn submit_rating(&mut self, key: String, value: &str) {
@@ -247,6 +246,7 @@ impl App {
             }
             InputPurpose::TwoFactor { login, password } => self.password_sign_in(login, password, value),
             InputPurpose::Setting(key) => self.save_setting(key, Some(value)),
+            InputPurpose::Pick(field) => self.pick_submit(field, &value),
             InputPurpose::Pref { id, section } => self.save_pref(id, section, value),
             InputPurpose::LibraryName(mut form) => {
                 form.name = value;
@@ -291,9 +291,7 @@ impl App {
             ConfirmAction::DeletePlaylist { playlist_id } => {
                 self.server_op(Refresh::Playlists, "Playlist deleted", move |s| async move { s.delete_playlist(&playlist_id).await })
             }
-            ConfirmAction::RemoveFromPlaylist { playlist_id, playlist_item_id } => self.server_op(Refresh::Playlists, "Removed from playlist", move |s| async move {
-                s.remove_from_playlist(&playlist_id, playlist_item_id).await
-            }),
+            ConfirmAction::RemoveFromPlaylist { playlist_id, playlist_item_id } => self.remove_playlist_entry(playlist_id, playlist_item_id),
             ConfirmAction::RemoveFromCollection { collection_id, rating_key } => {
                 let path = format!("/library/collections/{collection_id}/children");
                 self.server_op(Refresh::Paths(vec![path]), "Removed from collection", move |s| async move {

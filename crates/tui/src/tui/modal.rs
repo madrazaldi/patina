@@ -9,7 +9,7 @@ use patina_plex::{Directory, HomeUser, MatchResult, Stream, stream_type};
 use crate::item::Item;
 
 use super::column::SortKey;
-use super::rows::SettingKey;
+use super::rows::{PickField, SettingKey};
 use super::source::Source;
 
 pub enum Modal {
@@ -37,6 +37,8 @@ pub enum Modal {
     Edit(EditModal),
     /// A list loaded in the background, then chosen from.
     Pick(Picker),
+    /// The servers that have a title found by searching all servers; one is played or opened.
+    Copies(CopyPicker),
     /// Audio and subtitle tracks for a whole show or season.
     Tracks(Box<TracksModal>),
     /// The running play queue; `sel` is the uid of the selected entry.
@@ -142,6 +144,11 @@ pub enum RowOp {
     Change,
 }
 
+pub struct CopyPicker {
+    pub group: patina_core::ops::xsearch::Group,
+    pub cursor: usize,
+}
+
 pub struct Menu {
     pub title: String,
     pub rows: Vec<(MenuAction, &'static str, &'static str)>,
@@ -206,6 +213,8 @@ pub enum InputPurpose {
         password: String,
     },
     Setting(SettingKey),
+    /// A criterion of the "Pick something to watch" screen.
+    Pick(PickField),
     Pref {
         id: String,
         section: Option<String>,

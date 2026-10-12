@@ -4,7 +4,13 @@
 
 <div class="toasts" aria-live="polite">
   {#each app.toasts as t (t.id)}
-    <div class={["toast", { error: t.error }]}>{t.text}</div>
+    <div class={["toast", { error: t.error }]}>
+      <span>{t.text}</span>
+      {#if t.undo !== undefined}
+        {@const entry = t.undo}
+        <button class="btn sm undo" onclick={() => app.undo(entry)}>Undo</button>
+      {/if}
+    </div>
   {/each}
 </div>
 
@@ -21,6 +27,9 @@
     pointer-events: none;
   }
   .toast {
+    display: flex;
+    align-items: center;
+    gap: 12px;
     max-width: 420px;
     padding: 9px 14px;
     border-radius: 5px;
@@ -32,6 +41,9 @@
     animation: rise 0.2s var(--ease);
     user-select: text;
     -webkit-user-select: text;
+  }
+  .undo {
+    flex: none;
   }
   .toast.error {
     border-color: color-mix(in srgb, var(--danger) 40%, transparent);

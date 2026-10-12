@@ -69,6 +69,7 @@
 </script>
 
 <div class="home-controls">
+  <button class="btn quiet sm" onclick={() => nav.push({ name: "pick" })}>Pick something to watch</button>
   <button class="btn quiet sm" aria-expanded={customizing} onclick={() => (customizing = !customizing)}>Customize Home</button>
 </div>
 {#if customizing}
@@ -137,7 +138,7 @@
 {/if}
 
 <style>
-  .home-controls { display: flex; justify-content: flex-end; padding: 8px var(--gutter); }
+  .home-controls { display: flex; justify-content: flex-end; gap: 8px; padding: 8px var(--gutter); }
   .customize { margin: 0 var(--gutter) 16px; padding: 16px; background: var(--surface); border: 1px solid var(--line); }
   .hero {
     position: relative;

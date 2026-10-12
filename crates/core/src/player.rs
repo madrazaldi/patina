@@ -367,6 +367,8 @@ impl Current {
 struct Player {
     app: AppState,
     server: PlexServer,
+    /// Machine id of `server` when it is not the session's own; queue items are tagged with it.
+    server_tag: Option<String>,
     settings: PlayerSettings,
     quality: &'static Quality,
     mpv: Arc<Mpv>,
@@ -412,7 +414,9 @@ fn release(mpv: &Arc<Mpv>) -> bool {
 }
 
 async fn run(app: AppState, req: PlayRequest) -> Result<()> {
-    let server = app.server()?;
+    // An item found on another server of the account plays, and reports, through that server.
+    let server = crate::servers::server_of(&app, &req.item).await?;
+    let server_tag = req.item.server_id().filter(|id| !crate::servers::is_current(&app, Some(id))).map(str::to_string);
     let settings = app.settings().player;
     let queue = build_queue(&server, &req, &settings).await?;
 
@@ -447,6 +451,7 @@ async fn run(app: AppState, req: PlayRequest) -> Result<()> {
     let mut p = Player {
         app: app.clone(),
         server: server.clone(),
+        server_tag,
         settings: settings.clone(),
         quality: req.quality.as_deref().and_then(config::quality).unwrap_or_else(|| settings.quality()),
         mpv: mpv.clone(),
@@ -544,7 +549,8 @@ impl Player {
     }
 
     /// Load an item into mpv at `index` (the end when `None`) and track it.
-    async fn insert(&mut self, item: Metadata, media_index: usize, index: Option<usize>, opts: &[(&str, String)]) -> Result<u64> {
+    async fn insert(&mut self, mut item: Metadata, media_index: usize, index: Option<usize>, opts: &[(&str, String)]) -> Result<u64> {
+        item.set_server_id(self.server_tag.as_deref());
         let loaded = media_url(&self.server, &item, media_index, self.quality, self.live)?;
         let mut opts = opts.to_vec();
         if !opts.iter().any(|(k, _)| *k == "force-media-title") {
@@ -885,6 +891,9 @@ impl Player {
     }
 
     async fn add(&mut self, item: Metadata, next: bool) -> Result<()> {
+        if item.server_id() != self.server_tag.as_deref() {
+            return Err(anyhow!("A queue plays from one server; “{}” is on another.", item.title()));
+        }
         let items = leaves(&self.server, &item).await?;
         if items.is_empty() {
             return Err(anyhow!("nothing playable in “{}”", item.title()));

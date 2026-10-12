@@ -11,6 +11,17 @@ const CLIENTS: &str = "https://clients.plex.tv";
 const DISCOVER: &str = "https://discover.provider.plex.tv";
 const METADATA: &str = "https://metadata.provider.plex.tv";
 
+/// Debug builds: `PATINA_PLEX_TV_URL` points the account and resource endpoints at
+/// a mock server (tools/mock_pms.py), so multi-server features can be tried offline.
+fn account_base(default: &str) -> String {
+    if cfg!(debug_assertions)
+        && let Ok(url) = std::env::var("PATINA_PLEX_TV_URL")
+    {
+        return url;
+    }
+    default.to_string()
+}
+
 /// Client for plex.tv account services.
 #[derive(Clone)]
 pub struct PlexTv {
@@ -104,7 +115,7 @@ impl PlexTv {
 
     /// Validates the current token and returns the account.
     pub async fn user(&self) -> Result<User> {
-        self.get(PLEX_TV, "/api/v2/user", &Params::new()).await
+        self.get(&account_base(PLEX_TV), "/api/v2/user", &Params::new()).await
     }
 
     // ----- Resources -----------------------------------------------------
@@ -112,7 +123,7 @@ impl PlexTv {
     /// All devices the account can access, including servers with their connections.
     pub async fn resources(&self) -> Result<Vec<Resource>> {
         let params = Params::new().set("includeHttps", 1).set("includeRelay", 1).set("includeIPv6", 1);
-        self.get(CLIENTS, "/api/v2/resources", &params).await
+        self.get(&account_base(CLIENTS), "/api/v2/resources", &params).await
     }
 
     pub async fn servers(&self) -> Result<Vec<Resource>> {

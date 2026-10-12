@@ -10,11 +10,14 @@ mod library;
 mod login;
 mod menu;
 mod nav;
+mod pick;
 mod playback;
 mod queue;
 mod search;
 mod tools;
 mod tracks;
+mod undo;
+mod xsearch;
 
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
@@ -35,6 +38,7 @@ use crate::item::{Item, Kind};
 use crate::search::Fuzzy;
 
 pub use playback::{active_download, build_option_rows};
+pub use xsearch::{badges, status_line};
 pub use queue::{LYRICS_HOLD, active_line, playing_lines, up_next};
 
 pub const PLAYLISTS: &str = "/playlists";
@@ -71,6 +75,17 @@ pub enum Msg {
         groups: Vec<Item>,
     },
     SearchFailed(String, String),
+    /// Results so far of a search across all servers.
+    XSearch {
+        generation: u64,
+        query: String,
+        results: Box<patina_core::ops::xsearch::Results>,
+    },
+    PickOptions(Result<patina_core::ops::pick::PickOptions, String>),
+    Picked {
+        generation: u64,
+        result: Result<patina_core::ops::pick::PickResult, String>,
+    },
     OpDone {
         result: Result<Option<String>, String>,
         refresh: Refresh,
@@ -113,8 +128,6 @@ pub enum Msg {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Refresh {
     Nothing,
-    /// Watch state or ratings changed: every view refetches (via a revision).
-    WatchState,
     /// Playlist contents or the playlist list changed.
     Playlists,
     /// Reload the columns showing these paths.
@@ -192,6 +205,10 @@ pub struct App {
 
     pub modal: Option<Modal>,
     pub search: Option<SearchState>,
+    /// Searching all servers from the search overlay.
+    pub xs: xsearch::XSearch,
+    /// The "Pick something to watch" screen.
+    pub pick: pick::PickState,
     pub notice: Option<Notice>,
     pub pending: usize,
     pub now_playing: Option<NowPlaying>,
@@ -220,7 +237,9 @@ pub struct App {
 }
 
 fn detail_kind(item: &Item) -> bool {
+    // Details are fetched from the current server, so items found on another server have none.
     item.rating_key.is_some()
+        && item.server_id().is_none()
         && matches!(
             item.kind(),
             Kind::Movie
@@ -261,6 +280,8 @@ impl App {
             revision_due: None,
             modal: None,
             search: None,
+            xs: Default::default(),
+            pick: Default::default(),
             notice: None,
             pending: 0,
             now_playing: None,
@@ -399,7 +420,7 @@ impl App {
         item.rating_key
             .as_ref()
             .and_then(|k| self.details.get(k))
-            .filter(|_| item.kind() != Kind::Playlist && item.session.is_none())
+            .filter(|_| item.kind() != Kind::Playlist && item.session.is_none() && item.server_id().is_none())
             .or(Some(item))
     }
 
@@ -528,6 +549,15 @@ impl App {
                 }
                 self.after_selection_change();
             }
+            Msg::XSearch { generation, query, results } => self.on_xsearch(generation, query, *results),
+            Msg::PickOptions(result) => {
+                match result {
+                    Ok(o) => self.pick.options = Some(o),
+                    Err(e) => tracing::warn!("could not load the pick options: {e}"),
+                }
+                self.refresh_local(&Source::Pick);
+            }
+            Msg::Picked { generation, result } => self.on_picked(generation, result),
             Msg::SearchFailed(query, e) => {
                 if let Some(s) = &mut self.search
                     && s.input.trim() == query
@@ -720,6 +750,7 @@ impl App {
                 self.revision_due.get_or_insert_with(|| Instant::now() + REVISION_DELAY);
             }
             CoreEvent::Toast(t) if t.error => self.error(t.text),
+            CoreEvent::Toast(t) if t.undo.is_some() => self.info(undo::undo_notice(&t.text)),
             CoreEvent::Toast(t) => self.info(t.text),
             CoreEvent::Downloads(list) => {
                 let was_empty = self.downloads.is_empty();

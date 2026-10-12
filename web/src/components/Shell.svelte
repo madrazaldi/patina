@@ -46,9 +46,14 @@
     const t = e.target as HTMLElement | null;
     const typing = t && ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName);
     const mod = e.metaKey || e.ctrlKey;
+    const editing = typing || !!t?.isContentEditable;
     if (mod && e.key.toLowerCase() === "k") {
       e.preventDefault();
       app.palette = true;
+    } else if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "z" && !editing) {
+      // Not while typing: a text field keeps its own undo.
+      e.preventDefault();
+      void app.undoLatest();
     } else if ((e.key === "/" && !typing) || (mod && e.key === "f")) {
       e.preventDefault();
       searchInput?.focus();
@@ -99,6 +104,7 @@
     <div class="group">
       {@render link({ name: "home" }, "Home")}
       {@render link({ name: "search" }, "Search")}
+      {@render link({ name: "pick" }, "Pick something")}
       {#if app.hasTv}{@render link({ name: "watchlist" }, "Watchlist")}{/if}
       {@render link({ name: "playlists" }, "Playlists")}
       {#if app.liveTv}{@render link({ name: "livetv" }, "Live TV")}{/if}

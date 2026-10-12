@@ -4,6 +4,8 @@
 pub mod edit;
 pub mod library;
 pub mod lists;
+pub mod pick;
 pub mod playback;
 pub mod server;
 pub mod setup;
+pub mod xsearch;
