@@ -2,7 +2,9 @@
 
 use std::cmp::Ordering;
 
+use super::pager::Pager;
 use super::source::{LibraryView, Source};
+use super::task::TaskSlot;
 use crate::item::{Item, Kind};
 use crate::search::Fuzzy;
 
@@ -107,6 +109,13 @@ pub struct Column {
     pub total: Option<usize>,
     /// Entry to select once the listing arrives.
     pub select_on_load: Option<String>,
+    /// The listing in flight, aborted when the column reloads or goes away.
+    pub task: TaskSlot,
+    /// Set for a big listing shown a window at a time: `items` and `view` are
+    /// then unused and every position is read through the pager.
+    pub pager: Option<Pager>,
+    /// The whole listing is wanted (filtering, hiding watched), so no pager.
+    pub want_full: bool,
 }
 
 impl Column {
@@ -132,6 +141,9 @@ impl Column {
             error: None,
             total: None,
             select_on_load: None,
+            task: TaskSlot::default(),
+            pager: None,
+            want_full: false,
         }
     }
 
@@ -143,15 +155,41 @@ impl Column {
     }
 
     pub fn selected(&self) -> Option<&Item> {
-        self.view.get(self.cursor).map(|&i| &self.items[i])
+        self.item_at(self.cursor)
+    }
+
+    /// Rows in the listing as shown: every entry of a paged listing, else the visible ones.
+    pub fn len(&self) -> usize {
+        match &self.pager {
+            Some(p) => p.total,
+            None => self.view.len(),
+        }
+    }
+
+    /// The entry on row `pos`; `None` past the end or while its page is loading.
+    pub fn item_at(&self, pos: usize) -> Option<&Item> {
+        match &self.pager {
+            Some(p) => p.item(pos),
+            None => self.view.get(pos).map(|&i| &self.items[i]),
+        }
     }
 
     /// Items in view order starting at the cursor (for queueing playback).
+    /// A paged listing yields what is loaded up to the first gap.
     pub fn queue_from_cursor(&self) -> Vec<Item> {
+        if let Some(p) = &self.pager {
+            return p.loaded_from(self.cursor).cloned().collect();
+        }
         self.view[self.cursor.min(self.view.len())..]
             .iter()
             .map(|&i| self.items[i].clone())
             .collect()
+    }
+
+    /// Whether this column may show its listing a page at a time: a library
+    /// query in server order, which is all a pager can serve.
+    pub fn pageable(&self) -> bool {
+        matches!(self.source, Source::Library(_)) && !self.want_full && !self.hide_watched && self.filter.is_empty() && self.sort == SortKey::Default
     }
 
     pub fn identity(item: &Item) -> String {
@@ -170,6 +208,15 @@ impl Column {
     }
 
     pub fn select_identity(&mut self, id: &str) -> bool {
+        if let Some(p) = &self.pager {
+            return match p.position(|i| Self::identity(i) == id) {
+                Some(pos) => {
+                    self.cursor = pos;
+                    true
+                }
+                None => false,
+            };
+        }
         if let Some(pos) = self
             .view
             .iter()
@@ -184,6 +231,7 @@ impl Column {
 
     /// Replace the items, keeping the selection on the same entry if it survives.
     pub fn set_items(&mut self, items: Vec<Item>, fuzzy: &mut Fuzzy) {
+        self.pager = None;
         let keep = self.selected_identity();
         let old_cursor = self.cursor;
         self.items = items;
@@ -195,6 +243,7 @@ impl Column {
     }
 
     pub fn append(&mut self, items: Vec<Item>, fuzzy: &mut Fuzzy) {
+        self.pager = None;
         let keep = self.selected_identity();
         self.items.extend(items);
         self.rebuild(fuzzy);
@@ -205,6 +254,9 @@ impl Column {
 
     /// Recompute the view after any change to items, filter, sort or hiding.
     pub fn rebuild(&mut self, fuzzy: &mut Fuzzy) {
+        if self.pager.is_some() {
+            return;
+        }
         let visible: Vec<usize> = (0..self.items.len())
             .filter(|&i| {
                 let it = &self.items[i];
@@ -242,21 +294,21 @@ impl Column {
     }
 
     pub fn move_by(&mut self, delta: isize) {
-        if self.view.is_empty() {
+        if self.len() == 0 {
             return;
         }
-        let max = self.view.len() as isize - 1;
+        let max = self.len() as isize - 1;
         self.cursor = (self.cursor as isize + delta).clamp(0, max) as usize;
         self.settle(if delta < 0 { -1 } else { 1 });
     }
 
     pub fn move_to(&mut self, pos: usize) {
-        self.cursor = pos.min(self.view.len().saturating_sub(1));
+        self.cursor = pos.min(self.len().saturating_sub(1));
         self.settle(if pos == usize::MAX { -1 } else { 1 });
     }
 
     fn heading_at(&self, pos: usize) -> bool {
-        self.view.get(pos).is_some_and(|&i| self.items[i].is_heading())
+        self.pager.is_none() && self.view.get(pos).is_some_and(|&i| self.items[i].is_heading())
     }
 
     /// Move the cursor off a section heading: onward in `dir`, else back the
@@ -289,16 +341,18 @@ impl Column {
         } else if self.cursor >= self.scroll + height {
             self.scroll = self.cursor + 1 - height;
         }
-        let max_scroll = self.view.len().saturating_sub(height);
+        let max_scroll = self.len().saturating_sub(height);
         self.scroll = self.scroll.min(max_scroll);
     }
 
     /// Mutate every item with this rating key; returns whether any matched.
     pub fn patch(&mut self, rating_key: &str, f: &mut dyn FnMut(&mut Item)) -> bool {
         let mut hit = false;
+        let paged = self.pager.iter_mut().flat_map(|p| p.items_mut());
         for it in self
             .items
             .iter_mut()
+            .chain(paged)
             .filter(|i| i.rating_key.as_deref() == Some(rating_key))
         {
             f(it);
@@ -342,6 +396,9 @@ impl Column {
     pub fn set_library(&mut self, view: LibraryView) {
         self.path = Some(view.path());
         self.source = Source::Library(view);
+        self.pager = None;
+        self.want_full = false;
+        self.task.cancel();
         self.items.clear();
         self.view.clear();
         self.cursor = 0;
@@ -354,6 +411,9 @@ impl Column {
     }
 
     pub fn count_label(&self) -> String {
+        if let Some(p) = &self.pager {
+            return p.total.to_string();
+        }
         let shown = self.view.len();
         let all = self.items.len();
         if shown != all {
@@ -437,6 +497,92 @@ mod tests {
         );
         assert_eq!(c.selected().unwrap().title(), "Zodiac");
         assert_eq!(c.cursor, 0);
+    }
+
+    fn paged_col(total: usize) -> Column {
+        let mut c = Column::new(1, "Movies", Source::Library(LibraryView::new("3", "movie")));
+        let mut p = Pager::new(total, 200);
+        p.insert(0, (0..200.min(total)).map(|i| it(&i.to_string(), &format!("m{i}"), 2000, false)).collect(), total);
+        c.pager = Some(p);
+        c.loaded = true;
+        c
+    }
+
+    #[test]
+    fn a_paged_column_reads_through_its_pager() {
+        let mut f = Fuzzy::default();
+        let mut c = paged_col(5000);
+        assert!(c.pageable());
+        assert_eq!((c.len(), c.count_label()), (5000, "5000".to_string()));
+        assert_eq!(c.selected().unwrap().title(), "m0");
+        c.move_to(usize::MAX);
+        assert_eq!(c.cursor, 4999);
+        assert!(c.selected().is_none(), "its page has not arrived");
+        c.move_to(150);
+        c.move_by(10);
+        assert_eq!(c.selected().unwrap().title(), "m160");
+        // Rebuilding or replacing items never disturbs the window.
+        c.rebuild(&mut f);
+        assert_eq!((c.cursor, c.len()), (160, 5000));
+        c.clamp_scroll(30);
+        assert_eq!(c.scroll, 131);
+        // Optimistic watch-state updates reach loaded pages.
+        assert!(c.patch("7", &mut |i| i.set_watched(true)));
+        assert!(c.pager.as_ref().unwrap().item(7).unwrap().is_watched());
+        assert!(!c.patch("4000", &mut |_| {}));
+        // The queue to play is what is loaded from the cursor, up to the gap.
+        assert_eq!(c.queue_from_cursor().len(), 40);
+        assert!(c.select_identity("42") && c.cursor == 42);
+        assert!(!c.select_identity("4000"));
+    }
+
+    #[test]
+    fn only_the_plain_server_ordered_view_can_be_paged() {
+        let mut c = paged_col(5000);
+        assert!(c.pageable());
+        c.filter = "heat".into();
+        assert!(!c.pageable());
+        c.filter.clear();
+        c.hide_watched = true;
+        assert!(!c.pageable());
+        c.hide_watched = false;
+        c.sort = SortKey::Year;
+        assert!(!c.pageable());
+        c.sort = SortKey::Default;
+        c.want_full = true;
+        assert!(!c.pageable());
+        // A new query starts windowed again.
+        c.set_library(LibraryView::new("3", "movie"));
+        assert!(c.pageable() && c.pager.is_none() && c.len() == 0);
+        assert!(!Column::new(2, "P", Source::Path("/library/sections/3/all".into())).pageable());
+    }
+
+    #[tokio::test]
+    async fn a_column_aborts_its_listing_when_dropped_or_reloaded() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        struct Lived(Arc<AtomicUsize>);
+        impl Drop for Lived {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        let aborted = Arc::new(AtomicUsize::new(0));
+        let parked = |aborted: &Arc<AtomicUsize>| {
+            let guard = Lived(aborted.clone());
+            async move {
+                let _guard = guard;
+                tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+            }
+        };
+        let mut c = col();
+        c.task.spawn(parked(&aborted));
+        c.task.spawn(parked(&aborted));
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert_eq!(aborted.load(Ordering::SeqCst), 1, "reloading aborts the previous listing");
+        drop(c);
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert_eq!(aborted.load(Ordering::SeqCst), 2, "closing the column aborts its listing");
     }
 
     #[test]

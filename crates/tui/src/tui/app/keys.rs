@@ -154,7 +154,12 @@ impl App {
             KeyCode::Char('J') => self.move_entry(true),
             KeyCode::Char('K') => self.move_entry(false),
             KeyCode::Char('f') => self.open_search(),
-            KeyCode::Char('/') => col.filtering = true,
+            KeyCode::Char('/') => {
+                col.filtering = true;
+                // Filtering ranks every title, not just the ones loaded.
+                let idx = self.columns.len() - 1;
+                self.go_full(idx);
+            }
             KeyCode::Char('s') if col.library().is_some() => self.open_sort(),
             KeyCode::Char('s') => {
                 let cursor = SortKey::ALL.iter().position(|k| *k == col.sort).unwrap_or(0);
@@ -165,6 +170,9 @@ impl App {
             KeyCode::Char('t') => self.cycle_type(),
             KeyCode::Char('v') => self.open_browse(),
             KeyCode::Char('H') => {
+                let idx = self.columns.len() - 1;
+                self.go_full(idx);
+                let col = &mut self.columns[idx];
                 col.hide_watched = !col.hide_watched;
                 let on = col.hide_watched;
                 col.rebuild(&mut self.fuzzy);

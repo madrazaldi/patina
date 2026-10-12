@@ -63,6 +63,20 @@ pub enum Msg {
         generation: u64,
         error: String,
     },
+    /// One page of a listing shown a window at a time.
+    Page {
+        id: u64,
+        generation: u64,
+        page: usize,
+        items: Vec<Item>,
+        total: Option<usize>,
+    },
+    PageFailed {
+        id: u64,
+        generation: u64,
+        page: usize,
+        error: String,
+    },
     SectionCount(String, usize),
     Detail(String, Box<Item>),
     DetailFailed(String),
@@ -155,6 +169,8 @@ pub struct SearchState {
     pub pending: bool,
     pub dirty_at: Option<Instant>,
     pub error: Option<String>,
+    /// The request for the current query; replaced, and so aborted, as the query changes.
+    pub task: crate::tui::task::TaskSlot,
 }
 
 /// The sign-in screens (everything before [`Stage::Ready`]).
@@ -404,6 +420,7 @@ impl App {
     }
 
     fn after_selection_change(&mut self) {
+        self.page_in();
         let identity = self.selected().map(Column::identity);
         if identity != self.last_selected {
             self.last_selected = identity;
@@ -506,6 +523,8 @@ impl App {
                 let title = col.title.clone();
                 self.error(format!("Loading {title}: {error}"));
             }
+            Msg::Page { id, generation, page, items, total } => self.on_page(id, generation, page, items, total),
+            Msg::PageFailed { id, generation, page, error } => self.on_page_failed(id, generation, page, error),
             Msg::SectionCount(id, n) => {
                 self.counts.insert(id, n);
             }

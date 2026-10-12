@@ -3,8 +3,10 @@
 mod app;
 mod column;
 mod modal;
+mod pager;
 pub mod rows;
 pub mod source;
+mod task;
 mod ui;
 
 use std::sync::Arc;

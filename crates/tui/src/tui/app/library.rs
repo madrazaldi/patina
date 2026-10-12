@@ -164,6 +164,10 @@ impl App {
 
     pub(super) fn jump_to_letter(&mut self, letter: &str, at: usize) {
         let Some(col) = self.columns.last_mut() else { return };
+        if col.pager.is_some() {
+            // A windowed listing is in server order; the page loads as the cursor lands there.
+            return col.move_to(at);
+        }
         let server_order = col.sort == SortKey::Default && col.filter.is_empty() && !col.hide_watched;
         let local = col.view.iter().position(|&i| first_letter(col.items[i].sort_title()) == letter);
         match (server_order && at < col.view.len(), local) {

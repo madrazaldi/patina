@@ -1,6 +1,7 @@
 use super::*;
 use patina_core::session;
 use crate::item::resolve_key;
+use crate::tui::pager::{PAGE, Pager};
 use crate::tui::source::{self, LibraryView, is_paged};
 
 impl App {
@@ -22,12 +23,17 @@ impl App {
         }
         let col = &mut self.columns[idx];
         col.generation += 1;
-        col.loading = true;
         col.error = None;
+        if col.pageable() {
+            return self.load_pages(idx);
+        }
+        col.pager = None;
+        col.loading = true;
         let (id, generation, source) = (col.id, col.generation, col.source.clone());
         let progressive = col.items.is_empty();
         let (core, tx) = (self.core.clone(), self.tx.clone());
-        tokio::spawn(async move {
+        // Replaces (and aborts) the listing this column was already loading.
+        col.task.spawn(async move {
             let page_tx = tx.clone();
             let mut page = move |items, append, total| {
                 let _ = page_tx.send(Msg::Listing { id, generation, items, append, total, done: false });
@@ -37,6 +43,135 @@ impl App {
                 Err(e) => Msg::ListingFailed { id, generation, error: err(e) },
             });
         });
+    }
+
+    // ---- big listings, a window at a time --------------------------------
+
+    /// (Re)load a listing that is shown through a [`Pager`]: the first page
+    /// tells how many entries there are; after that only pages near the
+    /// cursor are fetched, as it moves.
+    fn load_pages(&mut self, idx: usize) {
+        let col = &mut self.columns[idx];
+        col.loading = true;
+        if let Some(pager) = &mut col.pager {
+            // Keep showing what is there until fresh pages replace it.
+            pager.invalidate();
+            return self.fetch_pages(idx);
+        }
+        let (id, generation, path) = (col.id, col.generation, col.path.clone().unwrap_or_default());
+        let (core, tx) = (self.core.clone(), self.tx.clone());
+        col.task.spawn(async move {
+            let result = match core.server() {
+                Ok(server) => source::fetch_page(&server, &path, 0, PAGE).await.map_err(err),
+                Err(e) => Err(err(e)),
+            };
+            let _ = tx.send(match result {
+                Ok((items, total)) => Msg::Page { id, generation, page: 0, items, total },
+                Err(error) => Msg::ListingFailed { id, generation, error },
+            });
+        });
+    }
+
+    /// Request the pages the cursor of column `idx` needs and drop the ones it left.
+    fn fetch_pages(&mut self, idx: usize) {
+        let height = self.list_height.max(10);
+        let (core, tx) = (self.core.clone(), self.tx.clone());
+        let col = &mut self.columns[idx];
+        let (id, generation, cursor) = (col.id, col.generation, col.cursor);
+        let Some(path) = col.path.clone() else { return };
+        let Some(pager) = &mut col.pager else { return };
+        let wanted = pager.wanted(cursor, height);
+        pager.trim(&wanted, cursor);
+        let size = pager.size();
+        for page in pager.missing(&wanted) {
+            let (core, tx, path) = (core.clone(), tx.clone(), path.clone());
+            pager.fetch(page, async move {
+                let result = match core.server() {
+                    Ok(server) => source::fetch_page(&server, &path, page * size, size).await.map_err(err),
+                    Err(e) => Err(err(e)),
+                };
+                let _ = tx.send(match result {
+                    Ok((items, total)) => Msg::Page { id, generation, page, items, total },
+                    Err(error) => Msg::PageFailed { id, generation, page, error },
+                });
+            });
+        }
+        col.loading = pager.loading() > 0;
+    }
+
+    /// Keep the focused column's window of pages current after the cursor moved.
+    pub(super) fn page_in(&mut self) {
+        if let Some(idx) = self.columns.len().checked_sub(1)
+            && self.columns[idx].pager.is_some()
+        {
+            self.fetch_pages(idx);
+        }
+    }
+
+    pub(super) fn on_page(&mut self, id: u64, generation: u64, page: usize, items: Vec<Item>, total: Option<usize>) {
+        let Some(idx) = self.column_index(id) else { return };
+        let col = &mut self.columns[idx];
+        if col.generation != generation || col.want_full {
+            return;
+        }
+        match &mut col.pager {
+            Some(pager) => pager.insert(page, items, total.unwrap_or(pager.total)),
+            None => {
+                // The first page: learn the size of the listing. A server that
+                // serves fewer than asked for sets the page size.
+                let total = total.unwrap_or(items.len());
+                let size = if items.len() < PAGE && items.len() < total { items.len().max(1) } else { PAGE };
+                let mut pager = Pager::new(total, size);
+                pager.insert(0, items, total);
+                col.pager = Some(pager);
+                col.items.clear();
+                col.view.clear();
+            }
+        }
+        col.loaded = true;
+        col.error = None;
+        col.move_to(col.cursor);
+        self.fetch_pages(idx);
+        if idx + 1 == self.columns.len() {
+            self.after_selection_change();
+        }
+    }
+
+    pub(super) fn on_page_failed(&mut self, id: u64, generation: u64, page: usize, error: String) {
+        let Some(idx) = self.column_index(id) else { return };
+        let col = &mut self.columns[idx];
+        if col.generation != generation {
+            return;
+        }
+        if let Some(pager) = &mut col.pager {
+            pager.fail(page);
+            col.loading = pager.loading() > 0;
+        }
+        col.error = Some(error.clone());
+        let title = col.title.clone();
+        self.error(format!("Loading {title}: {error}"));
+    }
+
+    /// Filtering, hiding watched titles and local sorting need the whole
+    /// listing: leave the window and load everything (the cursor's entry is
+    /// selected again as it arrives).
+    pub(super) fn go_full(&mut self, idx: usize) {
+        let Some(col) = self.columns.get_mut(idx) else { return };
+        // Windowed, or its first page is on the way: either way, start over in full.
+        let windowed = col.pager.is_some() || (col.loading && !col.want_full && matches!(col.source, Source::Library(_)));
+        col.want_full = true;
+        if !windowed {
+            return;
+        }
+        if let Some(item) = col.selected() {
+            col.select_on_load = Some(Column::identity(item));
+        }
+        col.pager = None;
+        col.items.clear();
+        col.view.clear();
+        col.cursor = 0;
+        col.scroll = 0;
+        self.load(idx);
     }
 
     pub(super) fn column_index(&self, id: u64) -> Option<usize> {
@@ -192,6 +327,10 @@ impl App {
             }
             Refresh::Removed(key) => {
                 self.details.remove(&key);
+                let paged: Vec<usize> = (0..self.columns.len()).filter(|&i| self.columns[i].pager.as_ref().is_some_and(|p| p.contains(|it| it.rating_key.as_deref() == Some(key.as_str())))).collect();
+                for idx in paged {
+                    self.load(idx);
+                }
                 for col in &mut self.columns {
                     let before = col.items.len();
                     col.items.retain(|i| i.rating_key.as_deref() != Some(key.as_str()));

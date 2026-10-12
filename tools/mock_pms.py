@@ -276,7 +276,7 @@ def edit_lists(self, p, q):
         return mc(Metadata=[dict(playlist(), ratingKey="951", title=q.get("title", [""])[0])])
     if LARGE and p in ("/playlists/960", "/playlists/960/items"):
         if p.endswith("/items"):
-            self.record("big playlist page", q)
+            self.record("big playlist page", {"start": q.get("X-Plex-Container-Start", ["0"]), "size": q.get("X-Plex-Container-Size", ["-"])})
             return page([dict(big_movie(i), playlistItemID=70000 + i) for i in range(LARGE)], q)
         return mc(Metadata=[big_playlist()])
     m = re.fullmatch(r"/playlists/950(/items(?:/(\d+)(/move)?)?)?", p)
@@ -802,7 +802,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(mc(Metadata=[]))
             items = all_movies() if sid == "1" else [artist()] if sid == "3" else [big_movie(i) for i in range(LARGE)] if sid == "4" else all_shows()
             if sid == "4":
-                self.record("big library page", q)
+                self.record("big library page", {"start": q.get("X-Plex-Container-Start", ["0"]), "size": q.get("X-Plex-Container-Size", ["-"]),
+                                                  "sort": q.get("sort", [""]), "unwatched": q.get("unwatched", [""])})
             if sid == "3" and q.get("type") in (["9"], ["10"]):
                 items = [album()] if q["type"] == ["9"] else children("3100")
             if sid == "2" and q.get("type") in (["3"], ["4"]):
