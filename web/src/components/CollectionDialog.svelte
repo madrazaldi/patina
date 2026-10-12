@@ -2,13 +2,16 @@
   // "Add to collection" dialog, shown while `app.collectionTarget` is set.
   import { Check, Plus } from "@lucide/svelte";
   import Img from "./Img.svelte";
+  import { modal } from "../lib/dialog";
   import { api } from "../lib/api";
   import { img } from "../lib/images";
   import * as plex from "../lib/plex";
-  import { act, app, message } from "../lib/state.svelte";
+  import { act, app, captureScope, message } from "../lib/state.svelte";
   import type { Metadata } from "../lib/types";
 
   let item = $derived(app.collectionTarget);
+  // The account and server the dialog opened on: responses and writes for any other one are dropped.
+  let guard = captureScope();
   let lists = $state<Metadata[] | null>(null);
   let error = $state<string>();
   let name = $state("");
@@ -31,20 +34,21 @@
     name = "";
     member = [];
     if (!target) return;
+    const opened = (guard = captureScope());
     load(target).then(
       (r) => {
-        if (app.collectionTarget !== target) return;
+        if (app.collectionTarget !== target || !opened.valid()) return;
         lists = r.found;
         member = r.member;
       },
-      (e) => (error = message(e)),
+      (e) => app.collectionTarget === target && opened.valid() && (error = message(e)),
     );
   });
 
   const close = () => (app.collectionTarget = null);
 
   function add(target: { collection?: string; title?: string }, ok: string) {
-    if (!item) return;
+    if (!item || !guard.valid()) return close();
     const rk = item.ratingKey ?? "";
     close();
     act(api.addToCollection(rk, target), ok, true);
@@ -57,49 +61,47 @@
 </script>
 
 {#if item}
-  <div class="modal-backdrop" role="presentation" onclick={close}>
-    <div class="modal" role="dialog" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.key === "Escape" && close()}>
-      <h2>Add to collection</h2>
-      <p class="desc">{plex.fullTitle(item)}</p>
+  <dialog class="modal" use:modal={close} aria-labelledby="collection-title">
+    <h2 id="collection-title">Add to collection</h2>
+    <p class="desc">{plex.fullTitle(item)}</p>
 
-      {#if error}
-        <div class="error-box">{error}</div>
-      {:else if lists === null}
-        <div class="spinner"></div>
-      {:else if lists.length === 0}
-        <p class="faint">This library has no collections yet.</p>
-      {:else}
-        <div class="rows lists">
-          {#each lists as c (c.ratingKey)}
-            {@const has = member.includes(c.title ?? "")}
-            <button
-              class="list-row clickable"
-              disabled={has}
-              onclick={() => add({ collection: c.ratingKey }, `Added to “${c.title}”`)}
-            >
-              <div class="thumb"><Img src={img(c.thumb ?? c.composite, 96, 144)} /></div>
-              <div class="grow">
-                <div class="t">{c.title}</div>
-                <div class="s">{has ? "Already in this collection" : plex.subtitle(c)}</div>
-              </div>
-              <div class="end">{#if has}<Check />{:else}<Plus />{/if}</div>
-            </button>
-          {/each}
-        </div>
-      {/if}
-
-      <div class="new">
-        <input
-          class="input grow"
-          placeholder="New collection"
-          bind:value={name}
-          onkeydown={(e) => e.key === "Enter" && create()}
-        />
-        <button class="btn" disabled={!name.trim()} onclick={create}>Create</button>
+    {#if error}
+      <div class="error-box">{error}</div>
+    {:else if lists === null}
+      <div class="spinner"></div>
+    {:else if lists.length === 0}
+      <p class="faint">This library has no collections yet.</p>
+    {:else}
+      <div class="rows lists">
+        {#each lists as c (c.ratingKey)}
+          {@const has = member.includes(c.title ?? "")}
+          <button
+            class="list-row clickable"
+            disabled={has}
+            onclick={() => add({ collection: c.ratingKey }, `Added to “${c.title}”`)}
+          >
+            <div class="thumb"><Img src={img(c.thumb ?? c.composite, 96, 144)} /></div>
+            <div class="grow">
+              <div class="t">{c.title}</div>
+              <div class="s">{has ? "Already in this collection" : plex.subtitle(c)}</div>
+            </div>
+            <div class="end">{#if has}<Check />{:else}<Plus />{/if}</div>
+          </button>
+        {/each}
       </div>
-      <div class="foot"><button class="btn quiet" onclick={close}>Cancel</button></div>
+    {/if}
+
+    <div class="new">
+      <input
+        class="input grow"
+        placeholder="New collection"
+        bind:value={name}
+        onkeydown={(e) => e.key === "Enter" && create()}
+      />
+      <button class="btn" disabled={!name.trim()} onclick={create}>Create</button>
     </div>
-  </div>
+    <div class="foot"><button class="btn quiet" onclick={close}>Cancel</button></div>
+  </dialog>
 {/if}
 
 <style>

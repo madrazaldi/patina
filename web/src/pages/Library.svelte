@@ -102,7 +102,7 @@
     untrack(() => {
       const key = JSON.stringify(q);
       if (pages.key && pages.key !== key) { selection = []; focused = undefined; }
-      pages.configure(key, revision, (start, size) => api.sectionItems(id, { ...q, start, size }));
+      pages.configure(key, revision, (start, size) => api.sectionItems(id, { ...q, start, size }), id);
     });
   });
   function viewQuery() { return { mediaType: mediaType ?? 0, sort, desc, unwatched, toggles: $state.snapshot(toggles), picked: $state.snapshot(picked) }; }
@@ -117,6 +117,16 @@
     toggles = [...view.toggles]; picked = view.picked.map((p) => ({ ...p })); selection = [];
     document.getElementById("content")?.scrollTo({ top: 0 });
   }
+  // The command palette can open a saved view of this library.
+  $effect(() => {
+    const view = app.pendingView;
+    if (!view || view.library !== id || view.scope !== scope) return;
+    untrack(() => {
+      tab = "browse";
+      useView(view);
+    });
+    app.pendingView = null;
+  });
   onDestroy(() => {
     pages.detach();
     rememberLibrary(cacheKey, { pages, query: viewQuery(), tab, trail: $state.snapshot(trail), focus: focused });

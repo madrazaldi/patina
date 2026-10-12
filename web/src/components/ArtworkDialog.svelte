@@ -2,13 +2,16 @@
   // Poster / background picker, shown while `app.artworkTarget` is set.
   import { Check } from "@lucide/svelte";
   import Img from "./Img.svelte";
+  import { modal } from "../lib/dialog";
   import { api } from "../lib/api";
   import { img } from "../lib/images";
   import * as plex from "../lib/plex";
-  import { act, app, message } from "../lib/state.svelte";
+  import { act, app, captureScope, message } from "../lib/state.svelte";
   import type { Artwork } from "../lib/types";
 
   let target = $derived(app.artworkTarget);
+  // The account and server the dialog opened on: responses and writes for any other one are dropped.
+  let guard = captureScope();
   let choices = $state<Artwork[] | null>(null);
   let error = $state<string>();
   let busy = $state<string | null>(null);
@@ -22,9 +25,10 @@
     error = undefined;
     busy = null;
     if (!t) return;
+    const opened = (guard = captureScope());
     api.artwork(t.item.ratingKey ?? "", t.kind).then(
-      (l) => app.artworkTarget === t && (choices = l),
-      (e) => (error = message(e)),
+      (l) => app.artworkTarget === t && opened.valid() && (choices = l),
+      (e) => app.artworkTarget === t && opened.valid() && (error = message(e)),
     );
   });
 
@@ -36,6 +40,7 @@
     const t = target;
     const url = a.key ?? a.ratingKey;
     if (!t || !url || busy) return;
+    if (!guard.valid()) { app.artworkTarget = null; return; }
     busy = url;
     const ok = await act(api.setArtwork(t.item.ratingKey ?? "", t.kind, url), art ? "Background updated" : "Poster updated", true);
     busy = null;
@@ -43,39 +48,35 @@
   }
 </script>
 
-<svelte:window onkeydown={(e) => e.key === "Escape" && target && close()} />
-
 {#if target}
-  <div class="modal-backdrop" role="presentation" onclick={close}>
-    <div class="modal wide" role="dialog" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
-      <h2>{art ? "Choose background" : "Choose poster"}</h2>
-      <p class="desc">{plex.fullTitle(target.item)}</p>
+  <dialog class="modal wide" use:modal={close} aria-labelledby="artwork-title">
+    <h2 id="artwork-title">{art ? "Choose background" : "Choose poster"}</h2>
+    <p class="desc">{plex.fullTitle(target.item)}</p>
 
-      {#if error}
-        <div class="error-box">{error}</div>
-      {:else if choices === null}
-        <div class="spinner"></div>
-      {:else if choices.length === 0}
-        <p class="faint">No {art ? "backgrounds" : "posters"} available.</p>
-      {:else}
-        <div class={["choices", { art, square }]}>
-          {#each choices as a, i (a.key ?? a.ratingKey ?? i)}
-            {@const url = a.key ?? a.ratingKey}
-            <button class={["choice", { selected: !!a.selected }]} disabled={!!busy} onclick={() => pick(a)}>
-              <span class="frame">
-                <Img src={art ? img(a.thumb ?? a.key, 480, 270) : square ? img(a.thumb ?? a.key, 300, 300) : img(a.thumb ?? a.key, 240, 360)} />
-                {#if a.selected}<span class="mark"><Check size={12} strokeWidth={2.4} /></span>{/if}
-                {#if busy && busy === url}<span class="wait"><span class="spinner"></span></span>{/if}
-              </span>
-              <span class="provider ellipsis">{a.selected ? "Current" : (a.provider ?? "")}</span>
-            </button>
-          {/each}
-        </div>
-      {/if}
+    {#if error}
+      <div class="error-box">{error}</div>
+    {:else if choices === null}
+      <div class="spinner"></div>
+    {:else if choices.length === 0}
+      <p class="faint">No {art ? "backgrounds" : "posters"} available.</p>
+    {:else}
+      <div class={["choices", { art, square }]}>
+        {#each choices as a, i (a.key ?? a.ratingKey ?? i)}
+          {@const url = a.key ?? a.ratingKey}
+          <button class={["choice", { selected: !!a.selected }]} data-initial-focus={i === 0 ? "" : undefined} aria-pressed={!!a.selected} aria-label={a.selected ? `${a.provider ?? "Artwork"} (current)` : (a.provider ?? "Artwork")} disabled={!!busy} onclick={() => pick(a)}>
+            <span class="frame">
+              <Img src={art ? img(a.thumb ?? a.key, 480, 270) : square ? img(a.thumb ?? a.key, 300, 300) : img(a.thumb ?? a.key, 240, 360)} />
+              {#if a.selected}<span class="mark"><Check size={12} strokeWidth={2.4} /></span>{/if}
+              {#if busy && busy === url}<span class="wait"><span class="spinner"></span></span>{/if}
+            </span>
+            <span class="provider ellipsis">{a.selected ? "Current" : (a.provider ?? "")}</span>
+          </button>
+        {/each}
+      </div>
+    {/if}
 
-      <div class="foot"><button class="btn quiet" disabled={!!busy} onclick={close}>Cancel</button></div>
-    </div>
-  </div>
+    <div class="foot"><button class="btn quiet" disabled={!!busy} onclick={close}>Cancel</button></div>
+  </dialog>
 {/if}
 
 <style>

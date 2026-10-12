@@ -8,7 +8,7 @@ const item = (index: number): Metadata => ({
   year: 2024, duration: 600000, viewOffset: index === 1 ? 100000 : 0,
   Media: [], Genre: [], Role: [], Director: [], Writer: [], Country: [], Collection: [], Label: [], Mood: [], Style: [], Image: [], smart: false,
 });
-let session: SessionView = { accountId: "alice", serverId: "mock", serverName: "Mock Server", baseUrl: "http://127.0.0.1:32499", owned: true, hasTv: false, servers: [] };
+let session: SessionView = { accountId: "alice", serverId: "mock", serverName: "Mock Server", baseUrl: "http://127.0.0.1:32499", owned: true, hasTv: true, servers: [] };
 const settings: Settings = {
   player: { mpv_path: "", extra_args: "", quality: "original", auto_skip_intro: false, auto_skip_credits: false, skip_key: "TAB", sync_streams: true, watched_threshold: .9, continuous: true, media_controls: true, discord: false, discord_app_id: "", downloads_dir: "" },
   ui: { accent: "paper", poster_size: 160, hide_spoilers: false, saved_views: [], home_layouts: {} },
@@ -30,13 +30,26 @@ const maintenance = {
 };
 const calls: { cmd: string; args: Record<string, any> }[] = [];
 let fail = false, delay = 0;
+// Commands whose responses are held back until released, to test late responses.
+const held = new Map<string, (() => void)[]>();
+// Watchlist: 100 titles, the even ones are on the server. `lookups` tracks find_by_guid concurrency.
+const watchlist = Array.from({ length: 100 }, (_, n) => ({ ...item(1000 + n), guid: `plex://movie/${n}`, title: `Watchlist ${n}` }));
+const lookups = { active: 0, max: 0, total: 0, delay: 15, fail: false, present: new Set<number>(watchlist.map((_, n) => n).filter((n) => n % 2 === 0)) };
 const emit = (event: string, payload: unknown) => { const id = listeners.get(event); if (id !== undefined) callbacks.get(id)?.({ event, id, payload }); };
 const downloads = [{ id: "mock:alice:1", account: "alice", serverId: "mock", serverName: "Mock Server", item: item(1), size: 10000, received: 10000, state: "done", addedAt: 1 }];
 const test = {
   calls, settings,
   fail(value: boolean) { fail = value; },
   delay(value: number) { delay = value; },
+  hold(cmd: string) { held.set(cmd, []); },
+  release(cmd: string) { for (const go of held.get(cmd) ?? []) go(); held.delete(cmd); },
+  lookups,
   emit,
+  setServers() {
+    const server = (id: string, name: string) => ({ id, name, owned: true, presence: true });
+    session = { ...session, servers: [server("mock", "Mock Server"), server("other", "Other Server")] };
+    emit("session", { session, sections });
+  },
   switchServer() { session = { ...session, serverId: "other", serverName: "Other Server" }; emit("session", { session, sections }); },
 };
 Object.assign(window, { __PATINA_TEST__: test, __TAURI_INTERNALS__: {
@@ -44,6 +57,7 @@ Object.assign(window, { __PATINA_TEST__: test, __TAURI_INTERNALS__: {
   convertFileSrc(path: string) { return path; },
   async invoke(cmd: string, args: Record<string, any> = {}) {
     calls.push({ cmd, args });
+    if (held.has(cmd)) await new Promise<void>((go) => held.get(cmd)!.push(go));
     if (cmd === "plugin:event|listen") { listeners.set(args.event, args.handler); return args.handler; }
     if (cmd === "snapshot") return { stage: { kind: "ready" }, session, sections, activities: [], revision: 0, connected: true };
     if (cmd === "settings") return structuredClone(settings);
@@ -63,6 +77,16 @@ Object.assign(window, { __PATINA_TEST__: test, __TAURI_INTERNALS__: {
       return { totalSize: 10000, size: args.size, Metadata: Array.from({ length: Math.min(args.size, 10000 - args.start) }, (_, n) => ({ ...item(args.start + n), summary: current })) };
     }
     if (cmd === "metadata") return item(Number(args.ratingKey));
+    if (cmd === "watchlist") return watchlist;
+    if (cmd === "find_by_guid") {
+      lookups.active++; lookups.total++; lookups.max = Math.max(lookups.max, lookups.active);
+      try {
+        await new Promise((r) => setTimeout(r, lookups.delay));
+        if (lookups.fail) throw new Error("Lookup failed");
+        const n = Number(String(args.guid).split("/").pop());
+        return lookups.present.has(n) ? String(1000 + n) : null;
+      } finally { lookups.active--; }
+    }
     if (cmd === "item_hubs") return [];
     if (cmd === "home_hubs") return [
       { hubIdentifier: "continue", title: "Continue Watching", Metadata: [item(1)], Directory: [] },

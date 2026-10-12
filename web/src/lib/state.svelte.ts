@@ -2,6 +2,7 @@
 // its events, plus UI-only state such as menus and dialogs.
 
 import { listen } from "@tauri-apps/api/event";
+import { untrack } from "svelte";
 import { nav } from "./router.svelte";
 import { api } from "./api";
 import type {
@@ -12,6 +13,7 @@ import type {
   NowPlaying,
   PlayerSettings,
   QueueView,
+  SavedView,
   ServerActivity,
   SessionView,
   Settings,
@@ -40,7 +42,23 @@ export interface Confirm {
   resolve: (ok: boolean) => void;
 }
 
+/** What a revision covered, as reported by the `library-changed` event. */
+export interface Changes {
+  all: boolean;
+  sections: string[];
+  items: string[];
+}
+
 let toastId = 0;
+
+/**
+ * Capture the active account and server. `valid()` turns false once either changes,
+ * so late responses and queued mutations can be dropped instead of landing on another server.
+ */
+export function captureScope() {
+  const scope = untrack(() => app.scope);
+  return { scope, valid: () => untrack(() => app.scope) === scope };
+}
 
 export const message = (e: unknown) => (typeof e === "string" ? e : e instanceof Error ? e.message : String(e));
 
@@ -69,6 +87,10 @@ class App {
   menu = $state<Menu | null>(null);
   /** Item waiting for the "add to playlist" dialog. */
   playlistTarget = $state<Metadata | null>(null);
+  /** Open command palette (Cmd/Ctrl+K). */
+  palette = $state(false);
+  /** A saved view the command palette asked a library page to apply once it is showing. */
+  pendingView = $state<SavedView | null>(null);
   /** Show, season or episode waiting for the bulk audio/subtitle dialog. */
   tracksTarget = $state<Metadata | null>(null);
   /** Item waiting for the "add to collection" dialog. */
@@ -106,8 +128,8 @@ class App {
         const before = this.scope;
         this.session = e.payload.session;
         if (before !== this.scope) {
-          nav.reset(); this.search = ""; this.menu = null; this.playlistTarget = null; this.playlistItems = [];
-          this.confirming?.resolve(false); this.confirming = null;
+          nav.reset(); this.search = "";
+          this.clearEditors();
         }
         this.sections = e.payload.sections;
       }),
@@ -120,7 +142,8 @@ class App {
       listen<ServerActivity[]>("activities", (e) => (this.activities = e.payload)),
       listen<Download[]>("downloads", (e) => (this.downloads = e.payload)),
       listen("sessions-changed", () => this.sessionsTick++),
-      listen<number>("revision", () => this.revision++),
+      listen<Changes>("library-changed", (e) => this.#noteChanges(e.payload)),
+      listen<number>("revision", () => this.#bump()),
       listen<{ text: string; error: boolean }>("toast", (e) => this.#push(e.payload.text, e.payload.error)),
     ]);
     const [snap, settings, info, downloads] = await Promise.all([
@@ -143,7 +166,51 @@ class App {
 
   /** Refetch everything that depends on watch state. */
   refresh() {
+    this.#pending = null;
+    this.#bump();
+  }
+
+  #pending: Changes | null = null;
+  #log: ({ revision: number } & Changes)[] = [];
+  #noteChanges(c: Changes) {
+    const p = this.#pending ?? { all: false, sections: [], items: [] };
+    this.#pending = {
+      all: p.all || c.all,
+      sections: [...new Set([...p.sections, ...c.sections])],
+      items: [...new Set([...p.items, ...c.items])],
+    };
+  }
+  /** A revision without a preceding `library-changed` could affect anything. */
+  #bump() {
+    const c = this.#pending ?? { all: true, sections: [], items: [] };
+    this.#pending = null;
     this.revision++;
+    this.#log.push({ revision: this.revision, ...c });
+    if (this.#log.length > 64) this.#log.shift();
+  }
+  /** Whether anything in library section `section` may have changed since `revision`. */
+  affects(section: string, since: number) {
+    if (since >= this.revision) return false;
+    const first = this.#log[0];
+    if (!first || first.revision > since + 1) return true;
+    return this.#log.some((c) => c.revision > since && (c.all || c.sections.includes(section)));
+  }
+
+  /** Close every menu, dialog and picker held in global state (page-local dialogs go with their page, which is keyed by scope). Called when the account or server changes, so none can act on the old one. */
+  clearEditors() {
+    this.menu = null;
+    this.playlistTarget = null;
+    this.playlistItems = [];
+    this.tracksTarget = null;
+    this.collectionTarget = null;
+    this.editTarget = null;
+    this.artworkTarget = null;
+    this.matchTarget = null;
+    this.subtitleTarget = null;
+    this.palette = false;
+    this.pendingView = null;
+    this.confirming?.resolve(false);
+    this.confirming = null;
   }
 
   /** Ask before something destructive; resolves to whether it was confirmed. */

@@ -715,6 +715,7 @@ impl App {
                     }
                 }
             }
+            CoreEvent::Changes(_) => {}
             CoreEvent::Revision(_) => {
                 self.revision_due.get_or_insert_with(|| Instant::now() + REVISION_DELAY);
             }

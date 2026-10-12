@@ -6,9 +6,7 @@
 </script>
 
 {#if c}
-  <dialog class="modal" use:modal aria-labelledby="confirm-title" aria-describedby={c.text ? "confirm-description" : undefined}
-    oncancel={(e) => { e.preventDefault(); done(false); }}
-    onclick={(e) => { if (e.target === e.currentTarget) { const r = e.currentTarget.getBoundingClientRect(); if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) done(false); } }}>
+  <dialog class="modal" role="alertdialog" use:modal={() => done(false)} aria-labelledby="confirm-title" aria-describedby={c.text ? "confirm-description" : undefined}>
     <h2 id="confirm-title">{c.title}</h2>
     {#if c.text}<p id="confirm-description" class="desc">{c.text}</p>{/if}
     <div class="foot">
@@ -17,7 +15,3 @@
     </div>
   </dialog>
 {/if}
-<style>
-  dialog { color: var(--text); margin: auto; }
-  dialog::backdrop { background: rgba(0, 0, 0, .65); }
-</style>
