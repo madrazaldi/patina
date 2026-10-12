@@ -5,21 +5,31 @@
 //! sidebar and the Activity page; session changes nudge the Activity page.
 //! The listener reconnects on its own and stops when the session changes.
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use futures::StreamExt;
 use serde_json::Value;
 
-use crate::state::{AppState, CoreEvent, ServerActivity};
+use crate::state::{AppState, Changes, CoreEvent, ServerActivity};
 
 /// Start listening to the current server, replacing any previous listener.
+///
+/// The previous listener is aborted, not just told to stop: it may be parked
+/// waiting for the old server's next event, which can take arbitrarily long
+/// (and holds its connection open meanwhile).
 pub fn watch(app: AppState) {
     let generation = app.live_generation.fetch_add(1, Ordering::SeqCst) + 1;
-    app.clone().spawn(async move {
+    let owner = app.clone();
+    // Held until the new task is registered, so concurrent calls cannot leave two running.
+    let mut slot = owner.live_task.lock().unwrap();
+    if let Some(old) = slot.take() {
+        old.abort();
+    }
+    let handle = owner.spawn(async move {
         let current = || app.live_generation.load(Ordering::SeqCst) == generation;
-        let pending = Arc::new(AtomicBool::new(false));
+        let pending = Arc::new(Mutex::new(Pending::default()));
         let mut backoff = Duration::from_secs(2);
         while current() {
             let Ok(server) = app.server() else { return };
@@ -55,25 +65,41 @@ pub fn watch(app: AppState) {
             backoff = (backoff * 2).min(Duration::from_secs(60));
         }
     });
+    *slot = Some(handle.abort_handle());
 }
 
 /// Stop listening (signing out).
 pub fn stop(app: &AppState) {
     app.live_generation.fetch_add(1, Ordering::SeqCst);
+    if let Some(old) = app.live_task.lock().unwrap().take() {
+        old.abort();
+    }
     app.set_activities(Vec::new());
 }
 
-fn handle(app: &AppState, event: &str, data: &Value, pending: &Arc<AtomicBool>, last_sessions: &mut Instant) {
+/// Changes collected while a refetch is scheduled.
+#[derive(Default)]
+struct Pending {
+    scheduled: bool,
+    changes: Changes,
+}
+
+/// Whether a notification listener is running.
+pub fn listening(app: &AppState) -> bool {
+    app.live_task.lock().unwrap().as_ref().is_some_and(|t| !t.is_finished())
+}
+
+fn handle(app: &AppState, event: &str, data: &Value, pending: &Arc<Mutex<Pending>>, last_sessions: &mut Instant) {
     match event {
         "timeline" => {
             // Items added, updated or deleted in a library. State 5 is "done", 9 "deleted".
-            let changed = entries(data, "TimelineEntry").iter().any(|e| {
+            for e in entries(data, "TimelineEntry") {
                 let state = e.get("state").and_then(Value::as_i64);
                 let library = e.get("identifier").and_then(Value::as_str) == Some("com.plexapp.plugins.library");
-                library && (matches!(state, Some(5 | 9)) || e.get("metadataState").and_then(Value::as_str) == Some("deleted"))
-            });
-            if changed {
-                bump_soon(app, pending);
+                let changed = library && (matches!(state, Some(5 | 9)) || e.get("metadataState").and_then(Value::as_str) == Some("deleted"));
+                if changed {
+                    bump_soon(app, pending, text(e, "sectionID").as_deref(), text(e, "itemID").as_deref());
+                }
             }
         }
         "activity" => {
@@ -82,6 +108,7 @@ fn handle(app: &AppState, event: &str, data: &Value, pending: &Arc<AtomicBool>, 
                 let Some(view) = activity_view(&activity) else { continue };
                 let ended = n.get("event").and_then(Value::as_str) == Some("ended");
                 let library = view.kind.starts_with("library.") || view.kind.starts_with("media.");
+                let section = view.section_id.clone();
                 app.update_activities(|list| {
                     list.retain(|a| a.uuid != view.uuid);
                     if !ended {
@@ -89,7 +116,7 @@ fn handle(app: &AppState, event: &str, data: &Value, pending: &Arc<AtomicBool>, 
                     }
                 });
                 if ended && library {
-                    bump_soon(app, pending);
+                    bump_soon(app, pending, section.as_deref(), None);
                     let app = app.clone();
                     app.clone().spawn(async move {
                         let _ = crate::session::reload_sections(&app).await;
@@ -103,28 +130,45 @@ fn handle(app: &AppState, event: &str, data: &Value, pending: &Arc<AtomicBool>, 
                 app.emit(CoreEvent::SessionsChanged);
             }
             // Something stopped playing (here or on another device): watch state may have changed.
-            let stopped = entries(data, "PlaySessionStateNotification")
-                .iter()
-                .any(|n| n.get("state").and_then(Value::as_str) == Some("stopped"));
-            if stopped {
-                bump_soon(app, pending);
+            for n in entries(data, "PlaySessionStateNotification") {
+                if n.get("state").and_then(Value::as_str) == Some("stopped") {
+                    bump_soon(app, pending, text(n, "librarySectionID").as_deref(), text(n, "ratingKey").as_deref());
+                }
             }
         }
         _ => {}
     }
 }
 
-/// Coalesce bursts of changes (a scan adds many items) into one refetch.
-fn bump_soon(app: &AppState, pending: &Arc<AtomicBool>) {
-    if pending.swap(true, Ordering::SeqCst) {
-        return;
+/// A string or number field as a string.
+fn text(v: &Value, key: &str) -> Option<String> {
+    match v.get(key)? {
+        Value::String(s) if !s.is_empty() => Some(s.clone()),
+        Value::Number(n) => Some(n.to_string()),
+        _ => None,
+    }
+}
+
+/// Coalesce bursts of changes (a scan adds many items) into one refetch that
+/// names every section and item touched. A change with no section means "anywhere".
+fn bump_soon(app: &AppState, pending: &Arc<Mutex<Pending>>, section: Option<&str>, item: Option<&str>) {
+    {
+        let mut p = pending.lock().unwrap();
+        p.changes.add(section, item);
+        if std::mem::replace(&mut p.scheduled, true) {
+            return;
+        }
     }
     let app = app.clone();
     let pending = pending.clone();
     app.clone().spawn(async move {
         tokio::time::sleep(Duration::from_millis(1500)).await;
-        pending.store(false, Ordering::SeqCst);
-        app.bump();
+        let changes = {
+            let mut p = pending.lock().unwrap();
+            p.scheduled = false;
+            std::mem::take(&mut p.changes)
+        };
+        app.bump_with(changes);
     });
 }
 
@@ -150,4 +194,33 @@ fn activity_view(a: &patina_plex::Activity) -> Option<ServerActivity> {
         cancellable: a.cancellable,
         section_id: section.map(|id| id.as_str().map(str::to_string).unwrap_or_else(|| id.to_string())),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn changes_merge_sections_and_items() {
+        let mut c = Changes::default();
+        c.add(Some("1"), Some("10"));
+        c.add(Some("1"), Some("11"));
+        c.add(Some("2"), None);
+        assert!(!c.all);
+        assert_eq!(c.sections, ["1", "2"]);
+        assert_eq!(c.items, ["10", "11"]);
+        c.add(None, Some("12"));
+        assert!(c.all, "a change without a section could be anywhere");
+    }
+
+    #[test]
+    fn text_reads_strings_and_numbers() {
+        let v = json!({"a": "1", "b": 2, "c": "", "d": null});
+        assert_eq!(text(&v, "a").as_deref(), Some("1"));
+        assert_eq!(text(&v, "b").as_deref(), Some("2"));
+        assert_eq!(text(&v, "c"), None);
+        assert_eq!(text(&v, "d"), None);
+        assert_eq!(text(&v, "e"), None);
+    }
 }

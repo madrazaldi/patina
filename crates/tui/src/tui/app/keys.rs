@@ -73,8 +73,14 @@ impl App {
     pub(super) fn normal_key(&mut self, key: KeyEvent) {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         let page = self.list_height.max(2) as isize;
+        if self.marks_key(key) || self.foreign_blocked(&key) {
+            return;
+        }
         let Some(col) = self.columns.last_mut() else { return };
         match key.code {
+            KeyCode::Char('I') => self.undo_last(),
+            KeyCode::Char('z') if ctrl => self.undo_last(),
+            KeyCode::Char('r') if col.source == Source::Pick => self.roll(true),
             KeyCode::Char('q') => self.quit = true,
             KeyCode::Char('?') => self.modal = Some(Modal::Help { scroll: 0 }),
             KeyCode::Char('j') | KeyCode::Down => col.move_by(1),
@@ -126,9 +132,10 @@ impl App {
                 }
             }
             KeyCode::Char('o') => self.open_play_options(),
-            KeyCode::Char('P' | '>' | '<' | '=' | '-' | 'X') => {
+            KeyCode::Char('P' | '>' | '<' | '=' | '-' | 'X' | '9' | '0' | 'M' | '{' | '}' | 'Z') => {
                 self.transport_key(key);
             }
+            KeyCode::Char('V') => self.open_player(),
             KeyCode::Char('n') => self.enqueue(true),
             KeyCode::Char('N') => self.enqueue(false),
             KeyCode::Char('Q') => self.open_queue(),
@@ -154,7 +161,12 @@ impl App {
             KeyCode::Char('J') => self.move_entry(true),
             KeyCode::Char('K') => self.move_entry(false),
             KeyCode::Char('f') => self.open_search(),
-            KeyCode::Char('/') => col.filtering = true,
+            KeyCode::Char('/') => {
+                col.filtering = true;
+                // Filtering ranks every title, not just the ones loaded.
+                let idx = self.columns.len() - 1;
+                self.go_full(idx);
+            }
             KeyCode::Char('s') if col.library().is_some() => self.open_sort(),
             KeyCode::Char('s') => {
                 let cursor = SortKey::ALL.iter().position(|k| *k == col.sort).unwrap_or(0);
@@ -164,7 +176,11 @@ impl App {
             KeyCode::Char('A') => self.open_letters(),
             KeyCode::Char('t') => self.cycle_type(),
             KeyCode::Char('v') => self.open_browse(),
+            KeyCode::Char('W') => self.open_views(),
             KeyCode::Char('H') => {
+                let idx = self.columns.len() - 1;
+                self.go_full(idx);
+                let col = &mut self.columns[idx];
                 col.hide_watched = !col.hide_watched;
                 let on = col.hide_watched;
                 col.rebuild(&mut self.fuzzy);
@@ -265,9 +281,12 @@ impl App {
                     Some(Modal::Browse { section_id, section_title, rows, cursor })
                 }
             }
+            Modal::Copies(p) => self.copies_key(p, key),
             Modal::Filter(p) => self.filter_modal_key(p, key),
             Modal::Tracks(m) => self.tracks_key(m, key),
             Modal::Queue { sel } => self.queue_key(sel, key),
+            Modal::Player { cursor } => self.player_key(cursor, key),
+            Modal::Failure { cursor } => self.failure_key(cursor, key),
             Modal::Lyrics { manual } => self.lyrics_key(manual, key),
             Modal::Menu(mut m) => {
                 if down {
@@ -322,6 +341,10 @@ impl App {
                     None
                 }
                 KeyCode::Char('n' | 'N') | KeyCode::Esc | KeyCode::Char('q') => None,
+                KeyCode::Char('x') if matches!(c.action, ConfirmAction::ResumeQueue) => {
+                    self.forget_queue();
+                    None
+                }
                 _ => Some(Modal::Confirm(c)),
             },
             Modal::Playlists(mut p) => {
@@ -449,6 +472,10 @@ impl App {
                 } else {
                     Some(Modal::Edit(m))
                 }
+            }
+            Modal::Pick(p) if matches!(p.kind, PickKind::Views) && key.code == KeyCode::Char('x') => {
+                self.forget_view(p);
+                return;
             }
             Modal::Pick(mut p) => {
                 // Letters jump directly; arrows move.

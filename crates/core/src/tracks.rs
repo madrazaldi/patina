@@ -170,25 +170,18 @@ pub struct View {
     pub plan: Plan,
 }
 
-pub fn view(app: &AppState, q: &Query) -> Result<View> {
-    let all = match &*app.tracks.lock().unwrap() {
-        Some((show, eps)) if *show == q.show => eps.clone(),
-        _ => return Err(anyhow!("The episode list is not loaded.")),
-    };
+/// The episodes in scope for a query, the reference episode, its tracks and
+/// the templates the choices name.
+struct Chosen<'a> {
+    scope: Vec<&'a Metadata>,
+    reference: Option<&'a Metadata>,
+    audio: Vec<&'a Stream>,
+    subs: Vec<&'a Stream>,
+    audio_tpl: Option<&'a Stream>,
+    sub_tpl: Option<Option<&'a Stream>>,
+}
 
-    // Seasons in library order, with episode counts.
-    let mut seasons: Vec<Season> = Vec::new();
-    for ep in all.iter() {
-        let idx = ep.parent_index.unwrap_or_default();
-        match seasons.iter_mut().find(|s| s.index == idx) {
-            Some(s) => s.count += 1,
-            None => seasons.push(Season {
-                index: idx,
-                title: ep.parent_title.clone().unwrap_or_else(|| format!("Season {idx}")),
-                count: 1,
-            }),
-        }
-    }
+fn choose<'a>(all: &'a [Metadata], q: &Query) -> Chosen<'a> {
     let scope: Vec<&Metadata> = all.iter().filter(|ep| q.season.is_none_or(|s| ep.parent_index == Some(s))).collect();
     let reference = q
         .reference
@@ -204,6 +197,43 @@ pub fn view(app: &AppState, q: &Query) -> Result<View> {
         SubChoice::Off => Some(None),
         SubChoice::Track(id) => subs.iter().find(|s| s.id == Some(id)).map(|s| Some(*s)),
     };
+    Chosen { scope, reference, audio, subs, audio_tpl, sub_tpl }
+}
+
+fn loaded(app: &AppState, show: &str) -> Result<Arc<Vec<Metadata>>> {
+    match &*app.tracks.lock().unwrap() {
+        Some((loaded, eps)) if loaded == show => Ok(eps.clone()),
+        _ => Err(anyhow!("The episode list is not loaded.")),
+    }
+}
+
+/// The streams a query names (copies), and the show's title; what the dialog's
+/// "remember for this show" turns into playback rules.
+#[allow(clippy::type_complexity)]
+pub fn chosen(app: &AppState, q: &Query) -> Result<(Option<Stream>, Option<Option<Stream>>, String)> {
+    let all = loaded(app, &q.show)?;
+    let c = choose(&all, q);
+    let title = all.first().and_then(|ep| ep.grandparent_title.clone()).unwrap_or_default();
+    Ok((c.audio_tpl.cloned(), c.sub_tpl.map(|s| s.cloned()), title))
+}
+
+pub fn view(app: &AppState, q: &Query) -> Result<View> {
+    let all = loaded(app, &q.show)?;
+
+    // Seasons in library order, with episode counts.
+    let mut seasons: Vec<Season> = Vec::new();
+    for ep in all.iter() {
+        let idx = ep.parent_index.unwrap_or_default();
+        match seasons.iter_mut().find(|s| s.index == idx) {
+            Some(s) => s.count += 1,
+            None => seasons.push(Season {
+                index: idx,
+                title: ep.parent_title.clone().unwrap_or_else(|| format!("Season {idx}")),
+                count: 1,
+            }),
+        }
+    }
+    let Chosen { scope, reference, audio, subs, audio_tpl, sub_tpl } = choose(&all, q);
     let plan = plan(&scope, audio_tpl, sub_tpl);
 
     Ok(View {

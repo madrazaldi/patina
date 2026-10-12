@@ -1,8 +1,9 @@
 <script lang="ts">
   // Remote for the running mpv: what's playing, transport controls, position, and the queue/lyrics panel.
-  import { ListMusic, MicVocal, Pause, Play, RotateCcw, SkipBack, SkipForward, Square } from "@lucide/svelte";
+  import { ListMusic, MicVocal, Pause, Play, RotateCcw, SkipBack, SkipForward, SlidersHorizontal, Square } from "@lucide/svelte";
   import Img from "./Img.svelte";
   import Lyrics from "./Lyrics.svelte";
+  import PlayerPanel from "./PlayerPanel.svelte";
   import Queue from "./Queue.svelte";
   import { api, type Control, type QueueCommand } from "../lib/api";
   import { clock } from "../lib/format";
@@ -14,9 +15,32 @@
   let np = $derived(app.nowPlaying);
   let queue = $derived(app.queue);
   let isTrack = $derived(np != null && plex.kind(np.item) === "track");
+  let playback = $derived(app.playback);
   let panel = $derived(
-    !np ? null : app.panel === "queue" && queue ? "queue" : app.panel === "lyrics" && isTrack ? "lyrics" : null,
+    !np
+      ? null
+      : app.panel === "queue" && queue
+        ? "queue"
+        : app.panel === "lyrics" && isTrack
+          ? "lyrics"
+          : app.panel === "player" && playback
+            ? "player"
+            : null,
   );
+
+  // Volume, speed, repeat, sleep timer and buffering, when they differ from the defaults.
+  let chips = $derived.by(() => {
+    if (!np || !playback) return [];
+    void np.positionMs; // the sleep countdown refreshes with the position
+    const out: string[] = [];
+    if (playback.diagnostics.buffering) out.push(playback.diagnostics.bufferPercent != null ? `Buffering ${playback.diagnostics.bufferPercent}%` : "Buffering");
+    if (playback.muted) out.push("Muted");
+    else if (Math.abs(playback.volume - 100) > 0.5) out.push(`Vol ${Math.round(playback.volume)}%`);
+    if (Math.abs(playback.speed - 1) > 0.001) out.push(`${playback.speed}x`);
+    if (playback.repeat !== "off") out.push(playback.repeat === "one" ? "Repeat one" : "Repeat all");
+    if (playback.sleep?.endsAtMs != null) out.push(`Sleep ${Math.max(1, Math.ceil((playback.sleep.endsAtMs - Date.now()) / 60000))}m`);
+    return out;
+  });
 
   let next = $derived.by(() => {
     if (!np || !queue) return undefined;
@@ -38,7 +62,7 @@
 
   const send = (c: Control) => () => api.control(c).catch((e) => app.error(e));
   const edit = (c: QueueCommand) => () => api.queue(c).catch((e) => app.error(e));
-  const toggle = (p: "queue" | "lyrics") => () => (app.panel = app.panel === p ? null : p);
+  const toggle = (p: "queue" | "lyrics" | "player") => () => (app.panel = app.panel === p ? null : p);
 
   let footer: HTMLElement | undefined = $state();
 
@@ -63,6 +87,27 @@
     setTimeout(() => !scrubbing && (scrub = null), 2000);
   }
 
+  // Keyboard: arrows seek 5 s, PageUp/PageDown 60 s, Home/End jump to the ends. Repeated presses build on the
+  // pending target rather than on the lagging playback position.
+  let scrubTimer: ReturnType<typeof setTimeout> | undefined;
+  function seekKey(e: KeyboardEvent) {
+    if (!np || np.durationMs <= 0 || e.altKey || e.ctrlKey || e.metaKey) return;
+    const now = scrub != null ? scrub * np.durationMs : np.positionMs;
+    const step: Record<string, number> = { ArrowLeft: -5000, ArrowDown: -5000, ArrowRight: 5000, ArrowUp: 5000, PageDown: -60000, PageUp: 60000 };
+    let to: number;
+    if (e.key in step) to = now + step[e.key];
+    else if (e.key === "Home") to = 0;
+    // Stop just short of the end so End never skips to the next item by itself.
+    else if (e.key === "End") to = np.durationMs - 1000;
+    else return;
+    e.preventDefault();
+    to = Math.min(Math.max(0, to), Math.max(0, np.durationMs - 1000));
+    scrub = to / np.durationMs;
+    send({ kind: "seekTo", seconds: to / 1000 })();
+    clearTimeout(scrubTimer);
+    scrubTimer = setTimeout(() => !scrubbing && (scrub = null), 2000);
+  }
+
   $effect(() => {
     const pos = app.nowPlaying?.positionMs ?? 0;
     const target = scrub != null && np ? scrub * np.durationMs : null;
@@ -83,7 +128,15 @@
       <div
         class={["seek", { scrubbing: scrub != null }]}
         bind:this={seek}
-        role="presentation"
+        role="slider"
+        tabindex="0"
+        aria-label="Seek"
+        aria-orientation="horizontal"
+        aria-valuemin={0}
+        aria-valuemax={Math.round(np.durationMs / 1000)}
+        aria-valuenow={Math.round(position / 1000)}
+        aria-valuetext="{clock(position)} of {clock(np.durationMs)}"
+        onkeydown={seekKey}
         onpointerdown={(e) => {
           if (e.button !== 0) return;
           e.currentTarget.setPointerCapture(e.pointerId);
@@ -126,11 +179,15 @@
           <button class="link" onclick={edit({ kind: "stopAfter", on: false })}>Undo</button>
         </span>
       {/if}
+      {#each chips as chip (chip)}<span class="tag">{chip}</span>{/each}
       <span class={["tag", { accent: np.live }]}>{status}</span>
       {#if np.queueLen > 1}<span>{np.queuePos + 1} of {np.queueLen}</span>{/if}
       <span>{clock(position)}{#if !np.live}&nbsp;/ {clock(np.durationMs)}{/if}</span>
-      {#if queue || isTrack}
+      {#if queue || isTrack || playback}
         <span class="tools">
+          {#if playback}
+            <button class={["icon-btn", { on: panel === "player" }]} title="Player controls and diagnostics" onclick={toggle("player")}><SlidersHorizontal /></button>
+          {/if}
           {#if isTrack}
             <button class={["icon-btn", { on: panel === "lyrics" }]} title="Lyrics" onclick={toggle("lyrics")}><MicVocal /></button>
           {/if}
@@ -143,7 +200,7 @@
 
     {#if panel}
       <div class={["surface panel fade-in", { tall: panel === "lyrics" }]}>
-        {#if panel === "queue" && queue}<Queue {queue} />{:else if panel === "lyrics"}<Lyrics {np} />{/if}
+        {#if panel === "queue" && queue}<Queue {queue} />{:else if panel === "lyrics"}<Lyrics {np} />{:else if panel === "player" && playback}<PlayerPanel ps={playback} />{/if}
       </div>
     {:else if np.ending && next && !np.stopAfter}
       {@const [nextTitle, nextSub] = plex.playingLines(next)}
@@ -191,8 +248,13 @@
     height: 1px;
   }
   .seek:hover .line,
+  .seek:focus-visible .line,
   .seek.scrubbing .line {
     background: var(--line-2);
+  }
+  .seek:focus-visible .line {
+    height: 3px;
+    top: 3px;
   }
   .line i {
     display: block;

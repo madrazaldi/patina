@@ -172,6 +172,10 @@ pub struct ServerActivity {
 pub struct Toast {
     pub text: String,
     pub error: bool,
+    /// Id of an undo entry (see [`crate::undo`]) that reverses what the toast reports.
+    /// Absent for ordinary toasts, so their payload is unchanged.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub undo: Option<u64>,
 }
 
 /// Everything a front end needs to render its first frame.
@@ -188,6 +192,47 @@ pub struct Snapshot {
     pub revision: u64,
 }
 
+/// What the next [`CoreEvent::Revision`] covers, so views can refetch only what changed.
+/// `all` means the change could not be narrowed down (watch state, unknown sections).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct Changes {
+    pub all: bool,
+    /// Library section ids that changed.
+    pub sections: Vec<String>,
+    /// Rating keys that changed, when the server said which.
+    pub items: Vec<String>,
+}
+
+impl Changes {
+    pub fn everything() -> Self {
+        Self { all: true, ..Self::default() }
+    }
+
+    /// A change in one library section, optionally to one item.
+    pub fn section(section: Option<&str>, item: Option<&str>) -> Self {
+        let mut c = Self::default();
+        c.add(section, item);
+        c
+    }
+
+    /// Fold another change in. Without a section the change could be anywhere.
+    pub fn add(&mut self, section: Option<&str>, item: Option<&str>) {
+        match section {
+            Some(s) => {
+                if !self.sections.iter().any(|x| x == s) {
+                    self.sections.push(s.to_string());
+                }
+            }
+            None => self.all = true,
+        }
+        if let Some(i) = item
+            && !self.items.iter().any(|x| x == i)
+        {
+            self.items.push(i.to_string());
+        }
+    }
+}
+
 /// A state change for the front end.
 #[derive(Clone, Debug)]
 pub enum CoreEvent {
@@ -200,10 +245,17 @@ pub enum CoreEvent {
     Activities(Vec<ServerActivity>),
     /// Watch state may have changed; views refetch.
     Revision(u64),
+    /// What the revision that follows covers (sent just before it). A revision with
+    /// no preceding `Changes` may affect anything.
+    Changes(Changes),
     Toast(Toast),
     Downloads(Vec<Download>),
     /// Playback sessions on the server changed.
     SessionsChanged,
+    /// Volume, speed, chapters, repeat, sleep timer and diagnostics of the playing item; `None` when nothing plays.
+    PlaybackState(Option<Box<crate::controls::PlaybackState>>),
+    /// Playback failed and can be retried, changed or dismissed; `None` clears it.
+    PlaybackFailure(Option<Box<crate::failure::PlaybackFailure>>),
 }
 
 impl CoreEvent {
@@ -218,9 +270,12 @@ impl CoreEvent {
             Self::Queue(_) => "queue",
             Self::Activities(_) => "activities",
             Self::Revision(_) => "revision",
+            Self::Changes(_) => "library-changed",
             Self::Toast(_) => "toast",
             Self::Downloads(_) => "downloads",
             Self::SessionsChanged => "sessions-changed",
+            Self::PlaybackState(_) => "playback-state",
+            Self::PlaybackFailure(_) => "playback-failure",
         }
     }
 
@@ -235,9 +290,12 @@ impl CoreEvent {
             Self::Queue(q) => serde_json::to_value(q),
             Self::Activities(a) => serde_json::to_value(a),
             Self::Revision(r) => Ok(json!(r)),
+            Self::Changes(c) => serde_json::to_value(c),
             Self::Toast(t) => serde_json::to_value(t),
             Self::Downloads(d) => serde_json::to_value(d),
             Self::SessionsChanged => Ok(Value::Null),
+            Self::PlaybackState(s) => serde_json::to_value(s),
+            Self::PlaybackFailure(f) => serde_json::to_value(f),
         };
         v.unwrap_or_else(|e| {
             tracing::warn!("could not encode {}: {e}", self.name());
@@ -266,12 +324,16 @@ pub struct Inner {
     /// Bumped whenever the session changes, which stops the previous
     /// server's notification listener.
     pub live_generation: AtomicU64,
+    /// The running notification listener, aborted when it is replaced or stopped.
+    pub(crate) live_task: Mutex<Option<tokio::task::AbortHandle>>,
     /// Bumped to abandon an in-flight PIN sign-in.
     pub login_attempt: AtomicU64,
     /// Servers offered on the "choose a server" screen.
     pub pending: Mutex<Option<(PlexTv, User, Vec<Resource>)>>,
     /// Episodes loaded by the bulk audio/subtitle dialog, keyed by show.
     pub tracks: Mutex<Option<(String, Arc<Vec<Metadata>>)>>,
+    /// Reversible actions of the current account and server (see [`crate::undo`]).
+    pub undo: Mutex<crate::undo::Stack>,
 }
 
 /// Cheap handle to the shared state.
@@ -302,9 +364,11 @@ impl AppState {
             revision: AtomicU64::new(0),
             connected: AtomicBool::new(true),
             live_generation: AtomicU64::new(0),
+            live_task: Mutex::new(None),
             login_attempt: AtomicU64::new(0),
             pending: Mutex::new(None),
             tracks: Mutex::new(None),
+            undo: Mutex::new(Default::default()),
         }));
         let weak = Arc::downgrade(&app.0);
         app.spawn(async move {
@@ -316,7 +380,7 @@ impl AppState {
                 let Some(inner) = weak.upgrade() else { break };
                 let app = Self(inner);
                 let list = crate::downloads::list();
-                let next = serde_json::to_string(&list).unwrap_or_default();
+                let next = serde_json::to_string(&list).unwrap_or_default() + &crate::smart::fingerprint();
                 if next != downloads { downloads = next; app.emit(CoreEvent::Downloads(list.clone())); }
                 if list.iter().any(|d| matches!(d.state, crate::downloads::State::Queued | crate::downloads::State::Downloading)) {
                     crate::downloads::resume(&app);
@@ -325,6 +389,10 @@ impl AppState {
                 let next = serde_json::to_string(&(&s.player, &s.ui, &s.tui)).unwrap_or_default();
                 if next != settings { settings = next; app.emit(CoreEvent::SettingsChanged); }
                 ticks += 1;
+                // Smart downloads follow watch state; check now and then even when nothing announces a change.
+                if ticks % 150 == 5 {
+                    crate::smart::reconcile_soon(&app);
+                }
                 if ticks % 15 == 1 {
                     let syncing = app.clone();
                     app.spawn(async move {
@@ -411,7 +479,10 @@ impl AppState {
         let was = self.connected.swap(online, Ordering::Relaxed);
         if was != online {
             self.emit(CoreEvent::Connection(online));
-            if online { self.bump(); }
+            if online {
+                self.bump();
+                crate::failure::on_reconnect(self);
+            }
         }
     }
 
@@ -422,6 +493,8 @@ impl AppState {
 
     pub fn set_session(&self, session: Option<Session>, sections: Vec<Directory>) {
         let view = session.as_ref().map(SessionView::from);
+        crate::undo::session_changed(self, session.as_ref());
+        crate::failure::session_changed(self, session.as_ref());
         *self.session.write().unwrap() = session;
         *self.sections.write().unwrap() = sections.clone();
         self.emit(CoreEvent::Session { session: view, sections });
@@ -469,13 +542,26 @@ impl AppState {
     pub fn bump(&self) {
         let r = self.revision.fetch_add(1, Ordering::Relaxed) + 1;
         self.emit(CoreEvent::Revision(r));
+        // Watch state may have changed: smart downloads catch up.
+        crate::smart::reconcile_soon(self);
+    }
+
+    /// Like [`bump`](Self::bump), telling front ends which sections and items changed.
+    pub fn bump_with(&self, changes: Changes) {
+        self.emit(CoreEvent::Changes(changes));
+        self.bump();
     }
 
     pub fn toast(&self, text: impl Into<String>) {
-        self.emit(CoreEvent::Toast(Toast { text: text.into(), error: false }));
+        self.emit(CoreEvent::Toast(Toast { text: text.into(), error: false, undo: None }));
+    }
+
+    /// A toast that offers to undo what it reports.
+    pub fn toast_undo(&self, text: impl Into<String>, undo: u64) {
+        self.emit(CoreEvent::Toast(Toast { text: text.into(), error: false, undo: Some(undo) }));
     }
 
     pub fn error(&self, text: impl std::fmt::Display) {
-        self.emit(CoreEvent::Toast(Toast { text: text.to_string(), error: true }));
+        self.emit(CoreEvent::Toast(Toast { text: text.to_string(), error: true, undo: None }));
     }
 }

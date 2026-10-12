@@ -3,6 +3,7 @@
   import Img from "../components/Img.svelte";
   import Status from "../components/Status.svelte";
   import { enqueue, openMenu, play } from "../lib/actions.svelte";
+  import { modal } from "../lib/dialog";
   import { api } from "../lib/api";
   import { duration } from "../lib/format";
   import { img } from "../lib/images";
@@ -93,13 +94,16 @@
 {:else}
   {@const { playlist, items } = data.data}
   {@const total = items.reduce((n, m) => n + (m.duration ?? 0), 0)}
+  {@const cutOff = data.data.total > items.length}
   <div class="page">
     <header class="head">
       <div class="cover"><Img src={img(playlist.composite ?? playlist.thumb, 480, 480)} /></div>
       <div>
         <div class="kicker">{playlist.smart ? "Smart playlist" : "Playlist"}</div>
         <h1 class="serif">{playlist.title}</h1>
-        <div class="muted">{items.length} items · {duration(total)}</div>
+        <div class="muted">
+          {cutOff ? `Showing the first ${items.length.toLocaleString()} of ${data.data.total.toLocaleString()} items` : `${items.length} items`} · {duration(total)}
+        </div>
         {#if playlist.summary}<p class="summary">{playlist.summary}</p>{/if}
         <div class="actions">
           <button class="btn primary lg" disabled={!items.length} onclick={() => play(playlist)}>
@@ -112,6 +116,9 @@
             class="btn quiet lg"
             onclick={() => (editing = { title: playlist.title ?? "", summary: playlist.summary ?? "" })}>Edit</button
           >
+          {#if items.length}
+            <button class="btn quiet lg" onclick={() => (app.keepTarget = playlist)}>Keep downloaded</button>
+          {/if}
           {#if !playlist.smart && items.length}
             <button class="btn quiet lg" onclick={clear}>Clear</button>
           {/if}
@@ -199,30 +206,21 @@
 {/if}
 
 {#if editing}
-  <div class="modal-backdrop" role="presentation" onclick={() => (editing = null)}>
-    <div
-      class="modal"
-      role="dialog"
-      tabindex="-1"
-      onclick={(e) => e.stopPropagation()}
-      onkeydown={(e) => e.key === "Escape" && (editing = null)}
-    >
-      <h2>Edit playlist</h2>
-      <label class="field">
-        <span>Title</span>
-        <!-- svelte-ignore a11y_autofocus -->
-        <input class="input" autofocus bind:value={editing.title} onkeydown={(e) => e.key === "Enter" && save()} />
-      </label>
-      <label class="field">
-        <span>Description</span>
-        <textarea class="input" rows="4" bind:value={editing.summary}></textarea>
-      </label>
-      <div class="foot">
-        <button class="btn quiet" onclick={() => (editing = null)}>Cancel</button>
-        <button class="btn primary" disabled={!editing.title.trim()} onclick={save}>Save</button>
-      </div>
+  <dialog class="modal" use:modal={() => (editing = null)} aria-labelledby="playlist-edit-title">
+    <h2 id="playlist-edit-title">Edit playlist</h2>
+    <label class="field">
+      <span>Title</span>
+      <input class="input" data-initial-focus bind:value={editing.title} onkeydown={(e) => e.key === "Enter" && save()} />
+    </label>
+    <label class="field">
+      <span>Description</span>
+      <textarea class="input" rows="4" bind:value={editing.summary}></textarea>
+    </label>
+    <div class="foot">
+      <button class="btn quiet" onclick={() => (editing = null)}>Cancel</button>
+      <button class="btn primary" disabled={!editing.title.trim()} onclick={save}>Save</button>
     </div>
-  </div>
+  </dialog>
 {/if}
 
 <style>

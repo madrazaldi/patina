@@ -267,6 +267,19 @@ fn draw_footer(f: &mut Frame, app: &App, theme: &Theme, area: Rect) {
         let mut line = key_hints(&hints, theme);
         line.spans.insert(0, Span::raw(" "));
         line
+    } else if let Some(col) = app.columns.last().filter(|c| !c.marks.is_empty()) {
+        // Marks are set: the keys now act on all of them.
+        let mut hints = vec![("tab", "mark"), ("M", "actions"), ("n/N", "queue"), ("w/u", "watched"), ("D", "download"), ("space", "playlist")];
+        if app.owned() {
+            hints.push(("C", "collection"));
+        }
+        if col.is_playlist().is_some() || (app.owned() && col.is_collection().is_some()) {
+            hints.push(("x", "remove"));
+        }
+        hints.push(("esc", "clear"));
+        let mut line = key_hints(&hints, theme);
+        line.spans.insert(0, Span::raw(" "));
+        line
     } else {
         let playable = app.selected().is_some_and(Item::is_playable);
         let mut hints = vec![("enter", if playable { "play" } else { "open" })];
@@ -278,6 +291,19 @@ fn draw_footer(f: &mut Frame, app: &App, theme: &Theme, area: Rect) {
         }
         if app.columns.last().is_some_and(|c| c.library().is_some()) {
             hints.push(("F", "filters"));
+            hints.push(("W", "views"));
+        }
+        if app.selected().is_some_and(crate::tui::marks::markable) {
+            hints.push(("tab", "mark"));
+        }
+        if app.failure.is_some() && app.now_playing.is_none() {
+            hints.insert(0, ("V", "playback failed"));
+        }
+        if app.columns.last().is_some_and(|c| c.source == Source::Pick) {
+            hints.push(("r", "reroll"));
+        }
+        if patina_core::undo::last(&app.core).is_some() {
+            hints.push(("I", "undo"));
         }
         hints.extend([
             ("f", "search"),
@@ -372,7 +398,13 @@ pub(super) fn row_hints(item: &Item) -> Vec<(&'static str, &'static str)> {
         Act::Server(_) | Act::Account(_) => vec![("enter", "run")],
         Act::OpenUrl(_) => vec![("enter", "open")],
         Act::Library(_) => vec![("enter", "actions"), ("l", "settings")],
-        Act::Pref { .. } | Act::Setting(_) => vec![("enter", "change")],
+        Act::Pref { .. } | Act::Setting(_) | Act::Auto(_) | Act::Budget => vec![("enter", "change")],
+        Act::AutoShow { .. } => vec![("enter", "edit"), ("x", "clear")],
+        Act::AutoClear => vec![("enter", "clear all")],
+        Act::Policy(_) => vec![("enter", "keep how many"), ("x", "stop keeping")],
+        Act::SmartRun => vec![("enter", "check now")],
+        Act::Pick(crate::tui::rows::PickField::Roll) => vec![("enter", "roll"), ("r", "reroll")],
+        Act::Pick(_) => vec![("enter", "change"), ("r", "reroll")],
         _ => Vec::new(),
     }
 }

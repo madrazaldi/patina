@@ -5,6 +5,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use super::{App, Msg, SEARCH_DELAY, SearchState, err};
 use crate::item::Item;
 use crate::tui::column::Column;
+use crate::tui::task::TaskSlot;
 use crate::tui::source::{Source, search_groups};
 
 /// Results per type, as on the GUI.
@@ -37,11 +38,16 @@ impl App {
         if query.chars().count() < MIN_QUERY {
             s.set_groups(Vec::new());
             s.pending = false;
+            s.task.cancel();
             return;
         }
         s.pending = true;
+        if self.xs.on {
+            return self.search_all_servers(query);
+        }
         let (core, tx) = (self.core.clone(), self.tx.clone());
-        tokio::spawn(async move {
+        // Replaces (and aborts) the previous query's request.
+        s.task.spawn(async move {
             let result = match core.server() {
                 Ok(server) => server.search_hubs(&query, PER_TYPE, None).await.map(search_groups).map_err(err),
                 Err(e) => Err(err(e)),
@@ -64,11 +70,14 @@ impl App {
             pending: false,
             dirty_at: None,
             error: None,
+            task: TaskSlot::default(),
         });
     }
 
     pub(super) fn search_changed(&mut self) {
         let Some(s) = &mut self.search else { return };
+        // Whatever is still running answers an earlier query.
+        s.task.cancel();
         s.error = None;
         s.dirty_at = Some(Instant::now());
         s.pending = s.input.trim().chars().count() >= MIN_QUERY;
@@ -98,10 +107,14 @@ impl App {
 
     pub(super) fn search_key(&mut self, key: KeyEvent) {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        if key.code == KeyCode::Enter && self.xs.on && self.search_all_accept() {
+            return;
+        }
         let Some(s) = &mut self.search else { return };
         let last = s.results.len().saturating_sub(1);
         match key.code {
             KeyCode::Esc => self.search = None,
+            KeyCode::Char('a') if ctrl => self.toggle_all_servers(),
             KeyCode::Enter => self.search_accept(),
             KeyCode::Down => s.cursor = (s.cursor + 1).min(last),
             KeyCode::Char('n' | 'j') if ctrl => s.cursor = (s.cursor + 1).min(last),
@@ -155,6 +168,7 @@ mod tests {
             pending: false,
             dirty_at: None,
             error: None,
+            task: TaskSlot::default(),
         };
         s.set_groups(vec![group("a", 2), group("b", 1)]);
         assert_eq!(s.results.iter().map(|i| i.title()).collect::<Vec<_>>(), ["a0", "a1", "b0"]);

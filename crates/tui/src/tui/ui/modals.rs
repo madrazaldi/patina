@@ -39,21 +39,35 @@ pub const HELP: &[(&str, &str)] = &[
     ("Q", "play queue: jump, remove, J/K reorder, z shuffle"),
     ("E", "stop after this (when Up next shows: > plays it now)"),
     ("Y", "lyrics of the playing track (enter seeks to a line)"),
+    ("V", "player panel: chapters, diagnostics; after a failure: retry"),
+    ("9 / 0", "volume down / up 5%"),
+    ("M", "mute / unmute"),
+    ("{ / }", "playback speed down / up 0.25x"),
+    ("Z", "sleep timer: off, 15-90 min, end of this item"),
+    ("r", "repeat off / all / one (in the queue or player panel)"),
     ("m → radio", "start radio from an artist, album or track"),
     ("", "Library"),
     ("w / u", "mark watched / unwatched"),
+    ("I  ^z", "undo the last watch-state change, playlist removal or Continue Watching removal"),
     ("*", "rate 0–10"),
     ("space", "add to / remove from playlists"),
     ("x", "delete playlist or collection · remove entry · stop stream · delete history entry"),
     ("J / K", "move a playlist (or custom-sorted collection) entry down / up"),
     ("+", "add to / remove from watchlist"),
     ("C", "add to / remove from collections"),
-    ("T", "audio & subtitles for a whole show or season"),
+    ("T", "audio & subtitles for a whole show or season (r there: remember)"),
     ("c", "related & similar, cast & crew, genres and tags"),
     ("e", "edit details, genres, labels (renames a playlist); menu: poster, background, match"),
     ("S", "scan library for new files"),
     ("b / B", "go to the season or album / the show or artist"),
     ("m  .", "actions menu (more options)"),
+    ("", "Selecting several items"),
+    ("tab", "mark / unmark the item and move on"),
+    ("^a", "mark everything shown (loads a whole library first)"),
+    ("M", "with items marked: actions for them (otherwise mute); esc clears the marks"),
+    ("n N w u D", "with items marked: queue next / at the end · mark watched / unwatched · download"),
+    ("space  C", "with items marked: add them to a playlist / collection (or a new one)"),
+    ("x", "with items marked in a playlist or collection: remove them"),
     ("", "Downloads, Live TV, Activity, Server, Settings"),
     ("enter", "a row's main action: play, pause/resume download, retry, watch, record, run, change"),
     ("x", "remove a download · delete a rule · cancel a task · stop a transcode"),
@@ -61,13 +75,15 @@ pub const HELP: &[(&str, &str)] = &[
     ("l", "a channel's later programs · a library's settings"),
     ("/", "search server settings (or any list)"),
     ("", "Finding things"),
-    ("f", "search the server, grouped by type (tab: next type)"),
+    ("f", "search the server, grouped by type (tab: next type; ^a: all servers, enter: choose a copy)"),
+    ("r", "on Pick something to watch: reroll the candidates"),
     ("/", "filter this column"),
     ("s", "sort (the server's sorts in a library)"),
     ("F", "library filters (unwatched, genre, HDR…)"),
     ("A", "jump to a letter (library sorted by title)"),
     ("t", "switch type: shows / seasons / episodes…"),
     ("v", "library views: recommended, collections, folders…"),
+    ("W", "saved views of this library: apply, save the current one, x deletes (shared with the desktop app)"),
     ("H", "hide / show watched"),
     ("", "Other"),
     ("i", "toggle details panel"),
@@ -145,10 +161,30 @@ pub(super) fn draw_modal(f: &mut Frame, app: &App, theme: &Theme) {
             let lines: Vec<Line> = list_lines(&rows, *cursor, theme, area.width as usize - 2).into_iter().skip(skip).collect();
             f.render_widget(Paragraph::new(lines).block(modal_block(format!(" {section_title} "), theme)), area);
         }
+        Modal::Copies(p) => {
+            let rows: Vec<String> = p
+                .group
+                .copies
+                .iter()
+                .map(|c| {
+                    let quality: Vec<String> = c.versions.iter().map(|v| v.label.clone()).collect();
+                    let q = if quality.is_empty() { String::new() } else { format!("  {}", quality.join(", ")) };
+                    format!("{}{}{q}", c.server_name, if c.current { " (this server)" } else { "" })
+                })
+                .collect();
+            let area = centered(screen, 64, rows.len() as u16 + 4);
+            f.render_widget(Clear, area);
+            let mut lines = list_lines(&rows, p.cursor, theme, area.width as usize - 2);
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(" enter play · p from start · l browse · esc cancel", Style::default().fg(theme.dim))));
+            f.render_widget(Paragraph::new(lines).block(modal_block(format!(" {} ", truncate(&p.group.title, 50)), theme)), area);
+        }
         Modal::Filter(p) => draw_filters(f, app, p, theme),
         Modal::Tracks(m) => draw_tracks(f, app, m, theme),
         Modal::Queue { sel } => super::player::draw_queue(f, app, *sel, theme),
         Modal::Lyrics { manual } => super::player::draw_lyrics(f, app, *manual, theme),
+        Modal::Player { cursor } => super::player::draw_player(f, app, *cursor, theme),
+        Modal::Failure { cursor } => super::player::draw_failure(f, app, *cursor, theme),
         Modal::Menu(m) => {
             let width = 46u16;
             let area = centered(screen, width, m.rows.len() as u16 + 2);
@@ -223,6 +259,7 @@ pub(super) fn draw_modal(f: &mut Frame, app: &App, theme: &Theme) {
             );
         }
         Modal::Confirm(c) => {
+            let resume = matches!(c.action, ConfirmAction::ResumeQueue);
             let width = (c.message.width() as u16 + 6).clamp(30, 70);
             let wrapped = (c.message.width() as u16).div_ceil(width - 4).max(1);
             let area = centered(screen, width, wrapped + 4 + u16::from(wrapped > 1));
@@ -232,9 +269,11 @@ pub(super) fn draw_modal(f: &mut Frame, app: &App, theme: &Theme) {
                 Line::raw(""),
                 Line::from(vec![
                     Span::styled("y", Style::default().fg(theme.accent).bold()),
-                    Span::raw(" yes   "),
+                    Span::raw(if resume { " resume   " } else { " yes   " }),
                     Span::styled("n", Style::default().fg(theme.accent).bold()),
-                    Span::raw(" no"),
+                    Span::raw(if resume { " not now   " } else { " no" }),
+                    Span::styled(if resume { "x" } else { "" }, Style::default().fg(theme.accent).bold()),
+                    Span::raw(if resume { " forget" } else { "" }),
                 ]),
             ];
             f.render_widget(
@@ -523,7 +562,7 @@ fn draw_tracks(f: &mut Frame, app: &App, m: &TracksModal, theme: &Theme) {
     let hint = match (m.progress, m.choosing) {
         (Some(_), _) => " updating… ",
         (_, Some(_)) => " enter choose · esc back ",
-        _ => " enter choose · ←/→ change · a apply · esc close ",
+        _ => " enter choose · ←/→ change · r remember · a apply · esc close ",
     };
     let block = modal_block(format!(" Audio & subtitles · {} ", truncate(&m.title, 48)), theme).title_bottom(Line::from(Span::styled(hint, dim)));
     let mut lines = vec![Line::from(Span::styled(" Pick tracks in one episode; the closest match is selected in every other.", dim)), Line::raw("")];
@@ -560,7 +599,17 @@ fn draw_tracks(f: &mut Frame, app: &App, m: &TracksModal, theme: &Theme) {
         };
         lines.push(line);
     }
-    let apply = if v.plan.episodes > 0 { format!("Apply to {}", eps(v.plan.episodes)) } else { "Apply".into() };
+    lines.push(Line::from(vec![
+        Span::styled(format!(" [{}] ", if m.remember { "x" } else { " " }), if m.remember { Style::default().fg(theme.accent).bold() } else { dim }),
+        Span::styled("Remember for this show (r): use these languages for new episodes too", dim),
+    ]));
+    let apply = if v.plan.episodes > 0 {
+        format!("Apply to {}", eps(v.plan.episodes))
+    } else if m.remember && m.can_apply() {
+        "Remember".into()
+    } else {
+        "Apply".into()
+    };
     let apply_style = if !m.can_apply() {
         dim
     } else if m.cursor == TRACK_FIELDS.len() {

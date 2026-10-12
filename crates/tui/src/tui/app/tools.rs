@@ -19,9 +19,14 @@ impl App {
         }
         let mut items = vec![Item::nav("Home", Source::Home)];
         items.extend(self.sections.iter().cloned());
-        items.extend([Item::nav("Playlists", Source::Path(PLAYLISTS.into())), Item::nav("Watchlist", Source::Watchlist), Item::nav("Search", Source::Search)]);
-        // Like the GUI's sidebar, Downloads only shows once there is one.
-        if !self.downloads.is_empty() {
+        items.extend([
+            Item::nav("Playlists", Source::Path(PLAYLISTS.into())),
+            Item::nav("Watchlist", Source::Watchlist),
+            Item::nav("Pick something to watch", Source::Pick),
+            Item::nav("Search", Source::Search),
+        ]);
+        // Like the GUI's sidebar, Downloads only shows once there is one (or a smart download policy).
+        if !self.downloads.is_empty() || patina_core::smart::overview(&self.core).policies.iter().any(|p| p.active) {
             items.push(Item::nav("Downloads", Source::Downloads));
         }
         if self.live_tv {
@@ -65,9 +70,16 @@ impl App {
     /// Rows of a listing built from local state.
     pub(super) fn local_items(&self, source: &Source) -> Vec<Item> {
         match source {
-            Source::Downloads => rows::downloads(&self.downloads),
-            Source::Settings => rows::settings(&self.core.settings(), self.mpv_probe.as_ref(), self.session.as_ref(), self.offline),
+            Source::Downloads => {
+                let mut items = rows::smart_downloads(&patina_core::smart::overview(&self.core));
+                items.extend(rows::downloads(&self.downloads));
+                items
+            }
+            Source::Settings => {
+                rows::settings(&self.core.settings(), self.mpv_probe.as_ref(), self.session.as_ref(), self.offline, self.auto_prefs().as_ref())
+            }
             Source::ServerLibraries => rows::libraries(&self.sections, &self.activities),
+            Source::Pick => pick::screen(&self.pick),
             _ => Vec::new(),
         }
     }
@@ -126,8 +138,9 @@ impl App {
             Act::Program { .. } => Record,
             Act::MoreHistory => Later,
             Act::Butler { .. } => Start,
-            Act::Server(_) | Act::Account(_) | Act::OpenUrl(_) => Run,
-            Act::Pref { .. } | Act::Setting(_) => Change,
+            Act::Server(_) | Act::Account(_) | Act::OpenUrl(_) | Act::AutoClear | Act::SmartRun => Run,
+            Act::Pref { .. } | Act::Setting(_) | Act::Auto(_) | Act::AutoShow { .. } | Act::Budget | Act::Policy(_) => Change,
+            Act::Pick(field) => return self.pick_row(*field),
             Act::Library(_) => return self.row_menu(item),
             _ => return,
         };
@@ -144,6 +157,7 @@ impl App {
             Act::Transcode(_) => RowOp::Kill,
             Act::Butler { .. } => RowOp::Stop,
             Act::Library(_) => RowOp::DeleteLibrary,
+            Act::Policy(_) | Act::AutoShow { .. } => RowOp::Remove,
             _ => return false,
         };
         self.run_row(op);
@@ -192,7 +206,21 @@ impl App {
                 rows.extend([(StartAll, "Start all tasks", ""), (StopAll, "Stop all tasks", "")]);
             }
             Act::Server(_) | Act::Account(_) | Act::OpenUrl(_) => rows.push((Run, "Run", "enter")),
-            Act::Pref { .. } | Act::Setting(_) => rows.push((Change, "Change…", "enter")),
+            Act::Pref { .. } | Act::Setting(_) | Act::Auto(_) => rows.push((Change, "Change…", "enter")),
+            Act::AutoShow { .. } => rows.extend([(Change, "Edit…", "enter"), (Remove, "Clear this show's preferences…", "x")]),
+            Act::AutoClear => rows.push((Run, "Clear all rules…", "enter")),
+            Act::Budget => rows.push((Change, "Set the storage budget…", "enter")),
+            Act::SmartRun => rows.push((Run, "Check now", "enter")),
+            Act::Policy(p) => {
+                rows.push((Change, "Change how many to keep…", "enter"));
+                rows.push((KeepWatched, if p.policy.delete_watched { "Keep watched downloads" } else { "Remove downloads once watched" }, ""));
+                rows.push((Toggle, if p.policy.enabled { "Pause" } else { "Resume" }, ""));
+                rows.push((Run, "Check now", ""));
+                rows.push((Remove, "Stop keeping downloaded…", "x"));
+                if p.downloads > 0 {
+                    rows.push((RemoveFiles, "Stop keeping and delete its downloads…", ""));
+                }
+            }
             Act::Library(d) => {
                 let id = d.key.clone().unwrap_or_default();
                 let scanning = d.refreshing || self.activities.iter().any(|a| a.section_id.as_deref() == Some(id.as_str()));
@@ -235,6 +263,9 @@ impl App {
         };
         let title = item.title().to_string();
         use RowOp::*;
+        if self.auto_row_op(op, &r.act) {
+            return;
+        }
         match (op, r.act) {
             (OpenFolder, _) => self.open_downloads_folder(),
             (Play, Act::Download(d)) => self.play_downloads(vec![d.id.clone()]),

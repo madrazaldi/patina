@@ -3,6 +3,7 @@
 // Keeps a console window from opening alongside the app on Windows release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod auto;
 mod commands;
 mod images;
 mod remote;
@@ -40,8 +41,8 @@ fn main() {
     std::thread::spawn(patina_core::images::prune_cache);
 
     tauri::Builder::default()
-        .register_asynchronous_uri_scheme_protocol(images::SCHEME, |_ctx, request, responder| {
-            images::handle(request, responder)
+        .register_asynchronous_uri_scheme_protocol(images::SCHEME, |ctx, request, responder| {
+            images::handle(ctx.app_handle().clone(), request, responder)
         })
         .setup(|app| {
             let runtime = tauri::async_runtime::handle().inner().clone();
@@ -84,6 +85,12 @@ fn main() {
             commands::children,
             commands::find_by_guid,
             commands::set_watched,
+            commands::set_watched_many,
+            commands::undo_last,
+            commands::undo_action,
+            commands::pick_options,
+            commands::pick_something,
+            commands::search_all_servers,
             commands::rate,
             commands::select_streams,
             commands::refresh_metadata,
@@ -98,9 +105,28 @@ fn main() {
             commands::delete_playlist,
             commands::play,
             commands::control,
+            commands::tune,
+            commands::playback_state,
+            commands::playback_failure,
+            commands::recover_playback,
+            commands::dismiss_failure,
+            commands::saved_queue,
+            commands::resume_saved,
+            commands::forget_saved,
             commands::tracks_load,
             commands::tracks_view,
             commands::tracks_apply,
+            auto::playback_prefs,
+            auto::set_playback_prefs,
+            auto::playback_prefs_shows,
+            auto::preferred_version,
+            auto::tracks_remember,
+            auto::smart_downloads,
+            auto::set_smart_download,
+            auto::update_smart_download,
+            auto::remove_smart_download,
+            auto::set_download_budget,
+            auto::run_smart_downloads,
             commands::sessions,
             commands::terminate_session,
             commands::history,

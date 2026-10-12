@@ -186,7 +186,7 @@ fn meta(item: &Item, ctx: &RowCtx) -> (String, Style) {
     }
 }
 
-fn row_line(item: &Item, width: usize, ctx: &RowCtx) -> Line<'static> {
+fn row_line(item: &Item, width: usize, ctx: &RowCtx, marked: bool) -> Line<'static> {
     let glyph = status_glyph(item, ctx);
     let title = if ctx.full_titles || ctx.sessions || ctx.history {
         item.full_title()
@@ -212,8 +212,10 @@ fn row_line(item: &Item, width: usize, ctx: &RowCtx) -> Line<'static> {
     } else {
         Style::default()
     };
+    // A `+` in the margin marks an item picked for a bulk action.
+    let margin = if marked { Span::styled("+", Style::default().fg(ctx.theme.accent).bold()) } else { Span::raw(" ") };
     Line::from(vec![
-        Span::raw(" "),
+        margin,
         glyph,
         Span::raw(" "),
         Span::styled(title, title_style),
@@ -270,6 +272,9 @@ pub(super) fn draw_columns(f: &mut Frame, app: &mut App, theme: &Theme, area: Re
                 Style::default().fg(theme.dim),
             ));
         }
+        if !col.marks.is_empty() {
+            title_spans.push(Span::styled(format!("+{} marked ", col.marks.len()), Style::default().fg(theme.accent).bold()));
+        }
         if col.loading {
             title_spans.push(Span::styled(
                 format!("{} ", spinner(app_ref)),
@@ -310,10 +315,10 @@ pub(super) fn draw_columns(f: &mut Frame, app: &mut App, theme: &Theme, area: Re
         if !bottom.is_empty() {
             block = block.title_bottom(Line::from(bottom));
         }
-        if focused && col.view.len() > inner_h {
+        if focused && col.len() > inner_h {
             block = block.title_bottom(
                 Line::from(Span::styled(
-                    format!(" {}/{} ", col.cursor + 1, col.view.len()),
+                    format!(" {}/{} ", col.cursor + 1, col.len()),
                     Style::default().fg(theme.dim),
                 ))
                 .right_aligned(),
@@ -330,7 +335,7 @@ pub(super) fn draw_columns(f: &mut Frame, app: &mut App, theme: &Theme, area: Re
             history: matches!(col.source, Source::History(_)),
         };
 
-        if col.view.is_empty() {
+        if col.len() == 0 {
             let msg = if let Some(e) = &col.error {
                 Line::from(vec![Span::styled(
                     format!(" {} ", truncate(e, inner.width as usize)),
@@ -365,14 +370,14 @@ pub(super) fn draw_columns(f: &mut Frame, app: &mut App, theme: &Theme, area: Re
         }
 
         let width = inner.width as usize;
-        let lines: Vec<Line> = col
-            .view
-            .iter()
-            .enumerate()
-            .skip(col.scroll)
+        let lines: Vec<Line> = (col.scroll..col.len())
             .take(inner.height as usize)
-            .map(|(pos, &i)| {
-                let line = row_line(&col.items[i], width, &ctx);
+            .map(|pos| {
+                // A row of a windowed listing whose page hasn't arrived yet.
+                let Some(item) = col.item_at(pos) else {
+                    return Line::from(Span::styled("  ⋯", Style::default().fg(theme.dim)));
+                };
+                let line = row_line(item, width, &ctx, col.marks.contains(item));
                 match pos == col.cursor {
                     true if focused => highlight(line, width, selected_style(theme)),
                     true => highlight(line, width, Style::default().bg(theme.surface)),
@@ -384,7 +389,7 @@ pub(super) fn draw_columns(f: &mut Frame, app: &mut App, theme: &Theme, area: Re
         scrollbar(
             f,
             rect,
-            col.view.len(),
+            col.len(),
             inner.height as usize,
             col.scroll,
             border,

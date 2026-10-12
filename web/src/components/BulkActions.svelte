@@ -9,6 +9,15 @@
   async function run(action: "queue" | "download" | "watched") {
     const list = $state.snapshot(items), scope = app.scope;
     busy = true; done = 0; failures = [];
+    if (action === "watched") {
+      // One request, so it is announced once and undone together.
+      try {
+        await api.setWatchedMany(list.map((item) => item.ratingKey!), true);
+        if (app.scope === scope) clear();
+      } catch (e) { failures.push(String(e)); }
+      finally { busy = false; }
+      return;
+    }
     try {
       for (const item of list) {
         if (app.scope !== scope) { failures.push("Stopped because the account or server changed."); break; }
@@ -17,12 +26,10 @@
             await api.queueItems(list);
             done = list.length;
             break;
-          } else if (action === "download") await api.download(item.ratingKey!);
-          else await api.setWatched(item.ratingKey!, true);
+          } else await api.download(item.ratingKey!);
           done++;
         } catch (e) { failures.push(`${item.title}: ${String(e)}`); if (action === "queue") break; }
       }
-      if (action === "watched") app.refresh();
       if (!failures.length) { app.toast(`${done} titles updated`); clear(); }
     } finally { busy = false; }
   }

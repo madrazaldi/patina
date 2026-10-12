@@ -17,8 +17,9 @@ impl App {
             let mut req = req;
             if matches!(req.item.kind(), "show" | "season") && !req.shuffle && req.item.on_deck.is_none() {
                 let opts = MetadataOptions { on_deck: true, ..Default::default() };
-                let server = core.server().map_err(err)?;
-                if let Some(full) = server.metadata(req.item.rating_key(), opts).await.map_err(err)? {
+                let server = patina_core::servers::server_of(&core, &req.item).await.map_err(err)?;
+                if let Some(mut full) = server.metadata(req.item.rating_key(), opts).await.map_err(err)? {
+                    full.set_server_id(req.item.server_id());
                     req.item = full;
                 }
             }
@@ -59,7 +60,12 @@ impl App {
                 _ => None,
             };
             let item = match parent {
-                Some((rk, kind)) => Metadata { rating_key: Some(rk), kind: Some(kind.into()), ..Default::default() },
+                Some((rk, kind)) => {
+                    let mut parent = Metadata { rating_key: Some(rk), kind: Some(kind.into()), ..Default::default() };
+                    // The season or album is on the episode's or track's server.
+                    parent.set_server_id(item.server_id());
+                    parent
+                }
                 None => item.meta,
             };
             return self.start_play(PlayRequest { item, shuffle: true, ..Default::default() }, Vec::new());
@@ -78,6 +84,7 @@ impl App {
             return;
         }
         let Some(key) = item.rating_key.clone() else { return };
+        let on = item.server_id().map(str::to_string);
         let mut m = PlayOptionsModal {
             item: None,
             opts: PlayOptions::with_quality(self.core.settings().player.quality().id),
@@ -89,9 +96,14 @@ impl App {
         let (core, tx) = (self.core.clone(), self.tx.clone());
         tokio::spawn(async move {
             let r = async {
-                let server = core.server().map_err(err)?;
+                let server = patina_core::servers::server_for(&core, on.as_deref()).await.map_err(err)?;
                 let m = server.metadata(&key, MetadataOptions::default()).await.map_err(err)?;
-                m.map(|m| Box::new(Item::from(m))).ok_or_else(|| "Item not found".to_string())
+                m.map(|mut m| {
+                    m.set_server_id(on.as_deref());
+                    let version = patina_core::prefs::preferred_version(&core, &m);
+                    (Box::new(Item::from(m)), version)
+                })
+                .ok_or_else(|| "Item not found".to_string())
             }
             .await;
             let _ = tx.send(Msg::PlayOptionsItem(r));
@@ -108,15 +120,16 @@ impl App {
         let req = PlayRequest {
             item: item.meta.clone(),
             resume: !opts.from_start,
-            media_index: opts.media_index,
+            media_index: Some(opts.media_index),
             quality: Some(QUALITIES[opts.quality.min(QUALITIES.len() - 1)].id.to_string()),
             ..Default::default()
         };
         let core = self.core.clone();
+        let item_meta = item.meta.clone();
         self.info(format!("Starting {}…", item.full_title()));
         self.spawn_op(Refresh::Nothing, async move {
             if choose && let Some(part) = part {
-                let server = core.server().map_err(err)?;
+                let server = patina_core::servers::server_of(&core, &item_meta).await.map_err(err)?;
                 if let Err(e) = server.select_streams(part, opts.audio_stream_id, opts.subtitle_stream_id, true).await {
                     tracing::warn!("failed to save stream selection: {e}");
                 }

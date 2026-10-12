@@ -2,9 +2,10 @@
   // Online subtitle search for a movie or episode, shown while `app.subtitleTarget` is set.
   import { untrack } from "svelte";
   import { Download } from "@lucide/svelte";
+  import { modal } from "../lib/dialog";
   import { api } from "../lib/api";
   import * as plex from "../lib/plex";
-  import { act, app, message } from "../lib/state.svelte";
+  import { act, app, captureScope, message } from "../lib/state.svelte";
   import type { Metadata, Stream } from "../lib/types";
 
   // [ISO 639-1, ISO 639-2 (as Plex reports stream languages), name]
@@ -53,6 +54,8 @@
   const ALIASES: Record<string, string> = { zho: "zh", ces: "cs", nld: "nl", fra: "fr", deu: "de", ell: "el", isl: "is", msa: "ms", fas: "fa", ron: "ro", slk: "sk" };
 
   let item = $derived(app.subtitleTarget);
+  // The account and server the dialog opened on: responses and writes for any other one are dropped.
+  let guard = captureScope();
   let language = $state("en");
   let hearingImpaired = $state(false);
   let forced = $state(false);
@@ -77,11 +80,12 @@
     const target = item;
     if (!target) return;
     const run = ++generation;
+    const asked = guard;
     results = null;
     error = undefined;
     api.searchSubtitles(target.ratingKey ?? "", language, hearingImpaired, forced).then(
-      (r) => run === generation && (results = r),
-      (e) => run === generation && (error = message(e)),
+      (r) => run === generation && asked.valid() && (results = r),
+      (e) => run === generation && asked.valid() && (error = message(e)),
     );
   }
 
@@ -89,6 +93,7 @@
     const target = item;
     busy = null;
     if (!target) return;
+    guard = captureScope();
     language = defaultLanguage(target);
     hearingImpaired = false;
     forced = false;
@@ -101,6 +106,7 @@
 
   async function fetchSub(s: Stream) {
     if (!item || !s.key || busy) return;
+    if (!guard.valid()) { app.subtitleTarget = null; return; }
     busy = s.key;
     const ok = await act(api.downloadSubtitle(item.ratingKey ?? "", s.key), "Subtitle downloaded", true);
     busy = null;
@@ -108,81 +114,77 @@
   }
 </script>
 
-<svelte:window onkeydown={(e) => e.key === "Escape" && item && close()} />
-
 {#if item}
-  <div class="modal-backdrop" role="presentation" onclick={close}>
-    <div class="modal wide" role="dialog" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
-      <h2>Search subtitles</h2>
-      <p class="desc">{plex.fullTitle(item)}</p>
+  <dialog class="modal wide" use:modal={close} aria-labelledby="subtitle-title">
+    <h2 id="subtitle-title">Search subtitles</h2>
+    <p class="desc">{plex.fullTitle(item)}</p>
 
-      <div class="filters">
-        <select
-          class="select"
-          value={language}
-          onchange={(e) => {
-            language = e.currentTarget.value;
-            search();
-          }}
-        >
-          {#each LANGUAGES as [code, , name] (code)}<option value={code}>{name}</option>{/each}
-        </select>
-        <button
-          class={["chip", { active: hearingImpaired }]}
-          onclick={() => {
-            hearingImpaired = !hearingImpaired;
-            search();
-          }}>Hearing impaired</button
-        >
-        <button
-          class={["chip", { active: forced }]}
-          onclick={() => {
-            forced = !forced;
-            search();
-          }}>Forced only</button
-        >
+    <div class="filters">
+      <select
+        class="select"
+        value={language}
+        onchange={(e) => {
+          language = e.currentTarget.value;
+          search();
+        }}
+      >
+        {#each LANGUAGES as [code, , name] (code)}<option value={code}>{name}</option>{/each}
+      </select>
+      <button
+        class={["chip", { active: hearingImpaired }]}
+        onclick={() => {
+          hearingImpaired = !hearingImpaired;
+          search();
+        }}>Hearing impaired</button
+      >
+      <button
+        class={["chip", { active: forced }]}
+        onclick={() => {
+          forced = !forced;
+          search();
+        }}>Forced only</button
+      >
+    </div>
+
+    {#if error}
+      <div class="error-box">{error}</div>
+    {:else if results === null}
+      <div class="loading">
+        <div class="spinner"></div>
+        <span class="faint">Searching subtitle providers…</span>
       </div>
-
-      {#if error}
-        <div class="error-box">{error}</div>
-      {:else if results === null}
-        <div class="loading">
-          <div class="spinner"></div>
-          <span class="faint">Searching subtitle providers…</span>
-        </div>
-      {:else if results.length === 0}
-        <p class="faint">Nothing found for this language.</p>
-      {:else}
-        <div class="rows results">
-          {#each results as s, i (s.key ?? i)}
-            <div class="list-row result">
-              <div class="grow">
-                <div class="t" title={s.displayTitle ?? s.title}>{s.displayTitle ?? s.title ?? "Subtitle"}</div>
-                <div class="s">
-                  {[s.providerTitle, s.title && s.title !== s.displayTitle ? s.title : null].filter(Boolean).join(" · ")}
-                </div>
-              </div>
-              <div class="end">
-                {#if s.perfectMatch}<span class="tag accent">Perfect match</span>{/if}
-                {#if s.hearingImpaired}<span class="tag">SDH</span>{/if}
-                {#if s.forced}<span class="tag">Forced</span>{/if}
-                {#if s.score != null}<span class="score">{s.score}</span>{/if}
-                {#if s.downloaded}
-                  <span class="faint done">Downloaded</span>
-                {:else}
-                  <button class="btn sm" disabled={!s.key || !!busy} onclick={() => fetchSub(s)}>
-                    {#if busy && busy === s.key}<span class="spinner small"></span>{:else}<Download size={13} />{/if}Download
-                  </button>
-                {/if}
+    {:else if results.length === 0}
+      <p class="faint">Nothing found for this language.</p>
+    {:else}
+      <div class="rows results">
+        {#each results as s, i (s.key ?? i)}
+          <div class="list-row result">
+            <div class="grow">
+              <div class="t" title={s.displayTitle ?? s.title}>{s.displayTitle ?? s.title ?? "Subtitle"}</div>
+              <div class="s">
+                {[s.providerTitle, s.title && s.title !== s.displayTitle ? s.title : null].filter(Boolean).join(" · ")}
               </div>
             </div>
-          {/each}
-        </div>
-      {/if}
+            <div class="end">
+              {#if s.perfectMatch}<span class="tag accent">Perfect match</span>{/if}
+              {#if s.hearingImpaired}<span class="tag">SDH</span>{/if}
+              {#if s.forced}<span class="tag">Forced</span>{/if}
+              {#if s.score != null}<span class="score">{s.score}</span>{/if}
+              {#if s.downloaded}
+                <span class="faint done">Downloaded</span>
+              {:else}
+                <button class="btn sm" disabled={!s.key || !!busy} onclick={() => fetchSub(s)}>
+                  {#if busy && busy === s.key}<span class="spinner small"></span>{:else}<Download size={13} />{/if}Download
+                </button>
+              {/if}
+            </div>
+          </div>
+        {/each}
+      </div>
+    {/if}
 
-      <div class="foot"><button class="btn quiet" disabled={!!busy} onclick={close}>Close</button></div>
-    </div>
-  </div>
+    <div class="foot"><button class="btn quiet" disabled={!!busy} onclick={close}>Close</button></div>
+  </dialog>
 {/if}
 
 <style>

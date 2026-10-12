@@ -3,6 +3,7 @@
 use anyhow::{Result, anyhow};
 
 use crate::player::{self, PlayRequest};
+use crate::recovery::{self, SavedQueueView, Scope};
 use crate::state::AppState;
 use crate::{downloads, livetv};
 
@@ -28,4 +29,29 @@ pub async fn livetv_watch(app: &AppState, dvr: &str, channel: &str, title: &str)
     }
     player::play(app.clone(), PlayRequest { item, live: true, resume: false, ..Default::default() });
     Ok(())
+}
+
+/// The queue that was playing when Patina last stopped (for this account and server), to offer a Resume.
+pub fn saved_queue(app: &AppState) -> Option<SavedQueueView> {
+    let scope = Scope::of(&app.session()?);
+    recovery::load_queue(&scope)?.view()
+}
+
+/// Play the saved queue again from where it stopped.
+pub fn resume_saved(app: &AppState) -> Result<()> {
+    let session = app.session().ok_or_else(|| anyhow!("Not connected to a server."))?;
+    let saved = recovery::load_queue(&Scope::of(&session)).ok_or_else(|| anyhow!("There is no saved queue to resume."))?;
+    let item = saved.items[saved.current].clone();
+    let selection = if saved.items.len() > 1 { saved.items.clone() } else { Vec::new() };
+    player::play_from(app.clone(), PlayRequest { item, selection, resume: true, quality: saved.quality.clone(), ..Default::default() }, saved.position_ms);
+    Ok(())
+}
+
+/// Forget the saved queue.
+pub fn forget_saved(app: &AppState) {
+    if let Some(session) = app.session()
+        && let Err(e) = recovery::clear_queue(&Scope::of(&session))
+    {
+        tracing::debug!("could not forget the saved queue: {e:#}");
+    }
 }

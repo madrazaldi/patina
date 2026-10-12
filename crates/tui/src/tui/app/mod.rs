@@ -4,22 +4,31 @@
 //! `search` and `login`.
 
 mod actions;
+mod auto;
+mod bulk;
 mod edit;
 mod keys;
 mod library;
 mod login;
 mod menu;
 mod nav;
+mod pick;
 mod playback;
+mod player_panel;
 mod queue;
 mod search;
 mod tools;
 mod tracks;
+mod undo;
+mod xsearch;
+mod views;
 
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use patina_core::config::TuiSettings;
+use patina_core::controls::{self, PlaybackState};
+use patina_core::failure::{self, PlaybackFailure};
 use patina_core::downloads::{self, Download};
 use patina_core::ops::lists;
 use patina_core::player::{self, QueueCommand};
@@ -35,6 +44,7 @@ use crate::item::{Item, Kind};
 use crate::search::Fuzzy;
 
 pub use playback::{active_download, build_option_rows};
+pub use xsearch::{badges, status_line};
 pub use queue::{LYRICS_HOLD, active_line, playing_lines, up_next};
 
 pub const PLAYLISTS: &str = "/playlists";
@@ -63,6 +73,27 @@ pub enum Msg {
         generation: u64,
         error: String,
     },
+    /// One page of a listing shown a window at a time.
+    Page {
+        id: u64,
+        generation: u64,
+        page: usize,
+        items: Vec<Item>,
+        total: Option<usize>,
+    },
+    PageFailed {
+        id: u64,
+        generation: u64,
+        page: usize,
+        error: String,
+    },
+    /// A saved view with its sort and filters looked up, ready for the column `id`.
+    ViewApplied {
+        id: u64,
+        name: String,
+        view: Box<crate::tui::source::LibraryView>,
+        extras: Option<patina_core::ops::views::TuiExtras>,
+    },
     SectionCount(String, usize),
     Detail(String, Box<Item>),
     DetailFailed(String),
@@ -71,6 +102,17 @@ pub enum Msg {
         groups: Vec<Item>,
     },
     SearchFailed(String, String),
+    /// Results so far of a search across all servers.
+    XSearch {
+        generation: u64,
+        query: String,
+        results: Box<patina_core::ops::xsearch::Results>,
+    },
+    PickOptions(Result<patina_core::ops::pick::PickOptions, String>),
+    Picked {
+        generation: u64,
+        result: Result<patina_core::ops::pick::PickResult, String>,
+    },
     OpDone {
         result: Result<Option<String>, String>,
         refresh: Refresh,
@@ -80,7 +122,8 @@ pub enum Msg {
         playlist_key: String,
         result: Result<Option<i64>, String>,
     },
-    PlayOptionsItem(Result<Box<Item>, String>),
+    /// The play-options dialog's item, with the version the playback preferences pick.
+    PlayOptionsItem(Result<(Box<Item>, usize), String>),
     /// GUIDs on the account's watchlist.
     Watchlisted(HashSet<String>),
     CollectionRows(Result<Vec<CollectionRow>, String>),
@@ -113,8 +156,6 @@ pub enum Msg {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Refresh {
     Nothing,
-    /// Watch state or ratings changed: every view refetches (via a revision).
-    WatchState,
     /// Playlist contents or the playlist list changed.
     Playlists,
     /// Reload the columns showing these paths.
@@ -155,6 +196,8 @@ pub struct SearchState {
     pub pending: bool,
     pub dirty_at: Option<Instant>,
     pub error: Option<String>,
+    /// The request for the current query; replaced, and so aborted, as the query changes.
+    pub task: crate::tui::task::TaskSlot,
 }
 
 /// The sign-in screens (everything before [`Stage::Ready`]).
@@ -192,17 +235,27 @@ pub struct App {
 
     pub modal: Option<Modal>,
     pub search: Option<SearchState>,
+    /// Searching all servers from the search overlay.
+    pub xs: xsearch::XSearch,
+    /// The "Pick something to watch" screen.
+    pub pick: pick::PickState,
     pub notice: Option<Notice>,
     pub pending: usize,
     pub now_playing: Option<NowPlaying>,
     /// When `now_playing` last changed, to interpolate the position between ticks.
     np_at: Instant,
     pub queue: Option<QueueView>,
+    /// Volume, speed, repeat, sleep timer, chapters and diagnostics of the running player.
+    pub playback: Option<PlaybackState>,
+    /// Why playback last failed, until it is retried or dismissed.
+    pub failure: Option<PlaybackFailure>,
     /// Lyrics by track rating key; `None` while loading.
     lyrics: Option<queue::LyricsSlot>,
     /// Tracks to append once the play queue of `.0` (a rating key) is running.
     queue_after: Option<(String, Vec<Metadata>)>,
     pub downloads: Vec<Download>,
+    /// A saved view being looked up; replaced, and so aborted, by the next one.
+    view_task: crate::tui::task::TaskSlot,
 
     pub show_inspector: bool,
     pub inspector_scroll: u16,
@@ -220,7 +273,9 @@ pub struct App {
 }
 
 fn detail_kind(item: &Item) -> bool {
+    // Details are fetched from the current server, so items found on another server have none.
     item.rating_key.is_some()
+        && item.server_id().is_none()
         && matches!(
             item.kind(),
             Kind::Movie
@@ -261,14 +316,19 @@ impl App {
             revision_due: None,
             modal: None,
             search: None,
+            xs: Default::default(),
+            pick: Default::default(),
             notice: None,
             pending: 0,
             now_playing: None,
             np_at: Instant::now(),
             queue: None,
+            playback: controls::playback_state(),
+            failure: failure::current(),
             lyrics: None,
             queue_after: None,
             downloads: downloads::list(),
+            view_task: crate::tui::task::TaskSlot::default(),
             inspector_scroll: 0,
             last_selected: None,
             list_height: 20,
@@ -333,6 +393,7 @@ impl App {
         self.load_watchlist_guids();
         self.check_live_tv();
         self.after_selection_change();
+        self.offer_resume();
     }
 
     fn load_watchlist_guids(&self) {
@@ -399,11 +460,12 @@ impl App {
         item.rating_key
             .as_ref()
             .and_then(|k| self.details.get(k))
-            .filter(|_| item.kind() != Kind::Playlist && item.session.is_none())
+            .filter(|_| item.kind() != Kind::Playlist && item.session.is_none() && item.server_id().is_none())
             .or(Some(item))
     }
 
     fn after_selection_change(&mut self) {
+        self.page_in();
         let identity = self.selected().map(Column::identity);
         if identity != self.last_selected {
             self.last_selected = identity;
@@ -502,10 +564,14 @@ impl App {
                     return;
                 }
                 col.loading = false;
+                col.mark_all_on_load = false;
                 col.error = Some(error.clone());
                 let title = col.title.clone();
                 self.error(format!("Loading {title}: {error}"));
             }
+            Msg::ViewApplied { id, name, view, extras } => self.on_view_applied(id, name, *view, extras),
+            Msg::Page { id, generation, page, items, total } => self.on_page(id, generation, page, items, total),
+            Msg::PageFailed { id, generation, page, error } => self.on_page_failed(id, generation, page, error),
             Msg::SectionCount(id, n) => {
                 self.counts.insert(id, n);
             }
@@ -528,6 +594,15 @@ impl App {
                 }
                 self.after_selection_change();
             }
+            Msg::XSearch { generation, query, results } => self.on_xsearch(generation, query, *results),
+            Msg::PickOptions(result) => {
+                match result {
+                    Ok(o) => self.pick.options = Some(o),
+                    Err(e) => tracing::warn!("could not load the pick options: {e}"),
+                }
+                self.refresh_local(&Source::Pick);
+            }
+            Msg::Picked { generation, result } => self.on_picked(generation, result),
             Msg::SearchFailed(query, e) => {
                 if let Some(s) = &mut self.search
                     && s.input.trim() == query
@@ -571,9 +646,10 @@ impl App {
                 self.apply_refresh(Refresh::Playlists);
             }
             Msg::PlayOptionsItem(result) => match result {
-                Ok(item) => {
+                Ok((item, version)) => {
                     if let Some(Modal::PlayOptions(m)) = &mut self.modal {
                         m.item = Some(*item);
+                        m.opts.media_index = version;
                         build_option_rows(m);
                     }
                 }
@@ -700,12 +776,14 @@ impl App {
                 self.np_at = Instant::now();
                 patina_core::presence::update(self.now_playing.as_ref(), &self.core.settings().player);
                 match (&self.now_playing, &self.modal) {
-                    (None, Some(Modal::Queue { .. } | Modal::Lyrics { .. })) => self.modal = None,
+                    (None, Some(Modal::Queue { .. } | Modal::Lyrics { .. } | Modal::Player { .. })) => self.modal = None,
                     (Some(_), Some(Modal::Lyrics { .. })) => self.load_lyrics(),
                     _ => {}
                 }
             }
             CoreEvent::Queue(q) => self.on_queue(q),
+            CoreEvent::PlaybackState(state) => self.playback = state.map(|b| *b),
+            CoreEvent::PlaybackFailure(f) => self.on_failure(f.map(|b| *b)),
             CoreEvent::Activities(list) => {
                 self.activities = list;
                 self.refresh_local(&Source::ServerLibraries);
@@ -715,10 +793,12 @@ impl App {
                     }
                 }
             }
+            CoreEvent::Changes(_) => {}
             CoreEvent::Revision(_) => {
                 self.revision_due.get_or_insert_with(|| Instant::now() + REVISION_DELAY);
             }
             CoreEvent::Toast(t) if t.error => self.error(t.text),
+            CoreEvent::Toast(t) if t.undo.is_some() => self.info(undo::undo_notice(&t.text)),
             CoreEvent::Toast(t) => self.info(t.text),
             CoreEvent::Downloads(list) => {
                 let was_empty = self.downloads.is_empty();

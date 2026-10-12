@@ -1,13 +1,15 @@
 <script lang="ts">
   import { ExternalLink } from "@lucide/svelte";
   import Img from "../components/Img.svelte";
+  import { modal } from "../lib/dialog";
   import { api } from "../lib/api";
   import { initials } from "../lib/format";
   import { img } from "../lib/images";
   import { resource } from "../lib/resource.svelte";
   import { nav } from "../lib/router.svelte";
-  import { app, message } from "../lib/state.svelte";
-  import type { HomeUser } from "../lib/types";
+  import { act, app, message } from "../lib/state.svelte";
+  import PlaybackRulesForm from "../components/PlaybackRulesForm.svelte";
+  import type { HomeUser, PlaybackPrefs, PlaybackRules, ShowRules } from "../lib/types";
 
   let p = $derived(app.settings?.player);
   let ui = $derived(app.settings?.ui);
@@ -23,6 +25,59 @@
     );
   }
   test();
+
+  // Automatic playback preferences (profile level); per-show ones are listed below them.
+  let prefs = $state<PlaybackPrefs>();
+  let shows = $state<ShowRules[]>([]);
+  let prefsError = $state<string>();
+  let rulesSet = $derived(prefs ? Object.values(prefs.profile).some((v) => v != null) : false);
+
+  async function loadPrefs() {
+    try {
+      [prefs, shows] = await Promise.all([api.playbackPrefs(null), api.playbackPrefsShows()]);
+      prefsError = undefined;
+    } catch (e) {
+      prefsError = message(e);
+    }
+  }
+  // Runs on open, and again for another account or server (each has its own rules).
+  $effect(() => {
+    app.scope;
+    loadPrefs();
+  });
+
+  async function saveProfile(rules: PlaybackRules) {
+    try {
+      await api.setPlaybackPrefs(null, null, rules);
+      await loadPrefs();
+    } catch (e) {
+      app.error(e);
+    }
+  }
+
+  async function clearShow(s: ShowRules) {
+    if (await act(api.setPlaybackPrefs(s.ratingKey, s.title, {}), "Cleared")) loadPrefs();
+  }
+
+  /** "English audio · subtitles for foreign dialogue · 1080p" */
+  function summary(r: PlaybackRules) {
+    const bits: string[] = [];
+    if (r.audioLanguages?.length) bits.push(`${r.audioLanguages.join(", ")} audio`);
+    if (r.subtitles && r.subtitles !== "keep")
+      bits.push(
+        r.subtitles === "off"
+          ? "no subtitles"
+          : r.subtitles === "always"
+            ? `subtitles${r.subtitleLanguages?.length ? ` (${r.subtitleLanguages.join(", ")})` : ""}`
+            : "subtitles for foreign dialogue",
+      );
+    if (r.forced && r.forced !== "auto") bits.push(`${r.forced} forced`);
+    if (r.avoidCommentary != null) bits.push(r.avoidCommentary ? "skip commentary" : "allow commentary");
+    if (r.resolution && r.resolution !== "any") bits.push(r.resolution === "4k" ? "4K" : r.resolution === "sd" ? "SD" : `${r.resolution}p`);
+    if (r.codec) bits.push(r.codec);
+    if (r.hdr && r.hdr !== "any") bits.push(r.hdr === "prefer" ? "HDR" : "SDR");
+    return bits.join(" · ") || "No rules";
+  }
 
   const home = resource(() => (app.hasTv ? api.homeUsers() : Promise.resolve([])));
   let pinFor = $state<HomeUser | null>(null);
@@ -166,6 +221,39 @@
     </section>
 
     <section>
+      <div class="section-head">
+        <h2>Automatic playback</h2>
+        {#if rulesSet}<button class="more" onclick={() => saveProfile({})}>Clear all</button>{/if}
+      </div>
+      <p class="muted intro">
+        Audio, subtitle and version choices made for you when something starts playing, for the signed-in profile on
+        this server. Shows can override these from their page. Applies to new episodes too.
+      </p>
+      {#if prefsError}
+        <div class="error-box">{prefsError}</div>
+      {:else if prefs}
+        <PlaybackRulesForm rules={prefs.profile} onsave={saveProfile} />
+        {#if shows.length}
+          <h3 class="sub-head">Shows with their own preferences</h3>
+          <div class="rows">
+            {#each shows as s (s.ratingKey)}
+              <div class="setting">
+                <div class="label">
+                  <b>{s.title}</b>
+                  <span>{summary(s.rules)}</span>
+                </div>
+                <div class="control">
+                  <button class="btn sm" onclick={() => nav.push({ name: "item", ratingKey: s.ratingKey })}>Open</button>
+                  <button class="btn sm danger" onclick={() => clearShow(s)}>Clear</button>
+                </div>
+              </div>
+            {/each}
+          </div>
+        {/if}
+      {/if}
+    </section>
+
+    <section>
       <div class="section-head"><h2>Appearance</h2></div>
       <div class="rows">
         <div class="setting">
@@ -257,25 +345,23 @@
 
   {#if pinFor}
     {@const u = pinFor}
-    <div class="modal-backdrop" role="presentation" onclick={() => (pinFor = null)}>
-      <div class="modal" role="dialog" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
-        <h2>Enter PIN</h2>
-        <p class="desc">{u.title ?? u.username}'s profile is protected.</p>
-        <!-- svelte-ignore a11y_autofocus -->
-        <input
-          class="input pin"
-          type="password"
-          maxlength="4"
-          autofocus
-          bind:value={pin}
-          onkeydown={(e) => e.key === "Enter" && switchTo(u, pin)}
-        />
-        <div class="foot">
-          <button class="btn quiet" onclick={() => (pinFor = null)}>Cancel</button>
-          <button class="btn primary" onclick={() => switchTo(u, pin)}>Switch</button>
-        </div>
+    <dialog class="modal" use:modal={() => (pinFor = null)} aria-labelledby="pin-title">
+      <h2 id="pin-title">Enter PIN</h2>
+      <p class="desc">{u.title ?? u.username}'s profile is protected.</p>
+      <input
+        class="input pin"
+        type="password"
+        maxlength="4"
+        aria-label="PIN"
+        data-initial-focus
+        bind:value={pin}
+        onkeydown={(e) => e.key === "Enter" && switchTo(u, pin)}
+      />
+      <div class="foot">
+        <button class="btn quiet" onclick={() => (pinFor = null)}>Cancel</button>
+        <button class="btn primary" onclick={() => switchTo(u, pin)}>Switch</button>
       </div>
-    </div>
+    </dialog>
   {/if}
 {/if}
 
@@ -285,6 +371,14 @@
   }
   .intro {
     margin-bottom: 8px;
+  }
+  .sub-head {
+    margin: 22px 0 6px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-3);
   }
   .ok {
     color: var(--text-2) !important;

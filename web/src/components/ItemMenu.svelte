@@ -8,6 +8,7 @@
     Circle,
     Crosshair,
     Download,
+    CloudDownload,
     Eraser,
     ExternalLink,
     EyeOff,
@@ -24,16 +25,18 @@
     RotateCcw,
     ScanLine,
     Shuffle,
+    SlidersHorizontal,
     Trash,
     Tv,
     User,
     Wallpaper,
   } from "@lucide/svelte";
   import { api } from "../lib/api";
+  import { menu as menunav } from "../lib/menu";
   import { download, downloaded, enqueue, play, setWatched } from "../lib/actions.svelte";
   import * as plex from "../lib/plex";
   import { nav } from "../lib/router.svelte";
-  import { act, app } from "../lib/state.svelte";
+  import { act, app, captureScope } from "../lib/state.svelte";
   import type { Metadata } from "../lib/types";
 
   let el: HTMLDivElement | undefined = $state();
@@ -60,6 +63,7 @@
 
   async function remove(target: Metadata) {
     const rk = target.ratingKey ?? "";
+    const guard = captureScope();
     const collection = plex.kind(target) === "collection";
     const ok = await app.confirm(`Delete “${plex.title(target)}”?`, {
       text: collection
@@ -68,7 +72,8 @@
       action: "Delete",
       danger: true,
     });
-    if (!ok) return;
+    // The rating key belongs to the server the menu opened on.
+    if (!ok || !guard.valid()) return;
     const onPage = nav.route.name === "item" && nav.route.ratingKey === rk;
     if (await act(collection ? api.deleteCollection(rk) : api.deleteItem(rk), "Deleted", true)) {
       if (onPage) nav.back();
@@ -88,6 +93,8 @@
   {@const queueable = plex.canPlay(item) && !["photo", "photoalbum"].includes(kind)}
   {@const saved = downloaded(item)}
   {@const inLibrary = LIBRARY.includes(kind)}
+  {@const foreign = item.patinaServer}
+  {@const where = foreign ? (app.session?.servers.find((s) => s.id === foreign)?.name ?? "another server") : ""}
   <div
     class="scrim"
     role="presentation"
@@ -97,10 +104,11 @@
       close();
     }}
   ></div>
-  <div class="menu" bind:this={el} bind:clientWidth={width} bind:clientHeight={height} style:left="{x}px" style:top="{y}px">
+  <div class="menu" use:menunav={close} aria-label={plex.fullTitle(item)} bind:this={el} bind:clientWidth={width} bind:clientHeight={height} style:left="{x}px" style:top="{y}px">
     <div class="head">
       <b>{plex.fullTitle(item)}</b>
       {#if plex.subtitle(item)}<span>{plex.subtitle(item)}</span>{/if}
+      {#if where}<span>On {where}</span>{/if}
     </div>
 
     {#if plex.canPlay(item)}
@@ -123,13 +131,13 @@
 
     {#if (kind === "episode" || kind === "track") && item.grandparentRatingKey}
       {@const show = item.grandparentRatingKey}
-      <button onclick={run(() => nav.push({ name: "item", ratingKey: show }))}>
+      <button onclick={run(() => nav.push({ name: "item", ratingKey: show, server: foreign }))}>
         {#if kind === "track"}<User />Go to artist{:else}<Tv />Go to show{/if}
       </button>
     {/if}
     {#if ["episode", "track", "season"].includes(kind) && item.parentRatingKey}
       {@const parent = item.parentRatingKey}
-      <button onclick={run(() => nav.push({ name: "item", ratingKey: parent }))}>
+      <button onclick={run(() => nav.push({ name: "item", ratingKey: parent, server: foreign }))}>
         <Layers />{kind === "track" ? "Go to album" : kind === "season" ? "Go to show" : "Go to season"}
       </button>
     {/if}
@@ -139,11 +147,13 @@
         {#if watched}<Circle />Mark as unwatched{:else}<CircleCheck />Mark as watched{/if}
       </button>
     {/if}
+    <!-- What follows edits the connected server, so it is not offered for an item found on another one. -->
+    {#if !foreign}
     {#if resume}
-      <button onclick={run(() => act(api.clearProgress(rk), "Progress cleared", true))}><Eraser />Clear progress</button>
+      <button onclick={run(() => act(api.clearProgress(rk)))}><Eraser />Clear progress</button>
     {/if}
     {#if kind === "episode" || (kind === "movie" && resume)}
-      <button onclick={run(() => act(api.removeFromContinueWatching(rk), "Removed from Continue Watching", true))}>
+      <button onclick={run(() => act(api.removeFromContinueWatching(rk)))}>
         <EyeOff />Remove from Continue Watching
       </button>
     {/if}
@@ -155,6 +165,7 @@
     {/if}
     {#if plex.supportsTracks(item)}
       <button onclick={run(() => (app.tracksTarget = item))}><Captions />Audio & subtitles…</button>
+      <button onclick={run(() => (app.prefsTarget = item))}><SlidersHorizontal />Playback preferences…</button>
     {/if}
     {#if discover}
       <button onclick={run(() => act(api.setWatchlisted(discover, true), "Added to watchlist"))}>
@@ -171,6 +182,9 @@
       {:else}
         <button onclick={run(() => download(item))}><Download />Download</button>
       {/if}
+    {/if}
+    {#if ["show", "season", "playlist"].includes(kind)}
+      <button onclick={run(() => (app.keepTarget = item))}><CloudDownload />Keep next unwatched downloaded…</button>
     {/if}
 
     {#if app.owned && kind !== "playlist"}
@@ -201,6 +215,7 @@
           ),
         )}><ExternalLink />Open in Plex Web</button
       >
+    {/if}
     {/if}
   </div>
 {/if}

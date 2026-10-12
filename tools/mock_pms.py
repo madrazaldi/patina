@@ -16,6 +16,7 @@ and any token.
 import argparse
 import json
 import os
+import random
 import re
 import sys
 import time
@@ -24,13 +25,26 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 MACHINE = "mock-machine-0001"
+NAME = "Mock Server"
+# Two instances with different --seed values serve distinguishable libraries that overlap
+# (same titles and guids, different rating keys' contents, different quality).
+SEED = 0
+# Extra seconds every search takes, to simulate a slow server.
+SEARCH_DELAY = 0
+# Servers a mocked plex.tv (/api/v2/resources) reports: [(port, name, machine id)].
+SERVERS = []
 MEDIA = "."
 EVENTS = []
 DOWNLOAD_DELAY = 0
 RESUME_VALIDATOR = "normal"
 MISSING_METADATA = set()
+REPORT_DELAY = 0
+REPORT_STATUS = 200
 DROP_DOWNLOAD_ONCE = False
 DROPPED_DOWNLOAD = False
+# --large N adds an "Archive" library (section 4) and a "Marathon" playlist (960) of N entries each,
+# to exercise paging, on-demand loading and cancellation.
+LARGE = 0
 
 GENRES = ["Drama", "Science Fiction", "Thriller", "Comedy", "Animation", "Mystery"]
 MOVIE_TITLES = [
@@ -38,6 +52,8 @@ MOVIE_TITLES = [
     "Paper Moons", "The Long Exposure", "Salt & Static", "Glass Orchard", "Lanterns",
     "Midnight Transit", "A Field of Echoes", "Tidewater", "The Cartographer", "Low Orbit",
     "Signal Fires", "Hollow Crown", "Bright Minutes", "The Understudy", "Ember Season",
+    "Wire Garden", "Night Ferry", "The Tin Orchard", "Slow Weather", "Cold Frequency",
+    "Amber Static", "Dockside", "The Last Switchboard", "Pale Meridian", "Harbor Vow",
 ]
 SHOW_TITLES = ["Station Eleven Below", "The Weatherman", "Parallel Lines", "Harbor Lights"]
 EPG = "/tv.plex.providers.epg.cloud:2"
@@ -77,29 +93,37 @@ def stream_list(part_id):
 
 def media_for(rk):
     part_id = int(rk)
+    hd = SEED > 0
     return [{
-        "id": part_id, "duration": 180000, "bitrate": 6200, "width": 1280, "height": 720, "aspectRatio": 1.78,
-        "audioChannels": 2, "audioCodec": "aac", "videoCodec": "h264", "videoResolution": "720",
+        "id": part_id, "duration": 180000, "bitrate": 12400 if hd else 6200, "width": 1920 if hd else 1280,
+        "height": 1080 if hd else 720, "aspectRatio": 1.78,
+        "audioChannels": 6 if hd else 2, "audioCodec": "aac", "videoCodec": "hevc" if hd else "h264",
+        "videoResolution": "1080" if hd else "720",
         "container": "mkv", "videoFrameRate": "24p",
         "Part": [{"id": part_id, "key": f"/library/parts/{part_id}/1700000000/file.mkv", "duration": 180000,
-                  "file": f"/media/movies/{rk}.mkv", "size": os.path.getsize(os.path.join(MEDIA, "movie.mkv")),
+                  "file": f"/media/movies/{rk}.mkv", "size": os.path.getsize(os.path.join(MEDIA, "movie.mkv")) * (4 if hd else 1),
                   "container": "mkv", "Stream": stream_list(part_id)}],
     }]
 
 
+def title_index(i):
+    return (i + SEED * 10) % len(MOVIE_TITLES)
+
+
 def movie(i):
     rk = str(100 + i)
+    t = title_index(i)
     state = STATE.setdefault(rk, {"viewCount": 1 if i % 5 == 3 else 0, "viewOffset": 61000 if i == 0 else 0})
     m = {
-        "ratingKey": rk, "key": f"/library/metadata/{rk}", "guid": f"plex://movie/5d77{rk}", "type": "movie",
-        "title": MOVIE_TITLES[i % len(MOVIE_TITLES)], "year": 2014 + i % 11, "contentRating": ["PG-13", "R", "PG"][i % 3],
+        "ratingKey": rk, "key": f"/library/metadata/{rk}", "guid": f"plex://movie/5d77{100 + t}", "type": "movie",
+        "title": MOVIE_TITLES[t], "year": 2014 + t % 11, "contentRating": ["PG-13", "R", "PG"][t % 3],
         "summary": "A quiet engineer discovers that the old copper lines beneath the city still carry voices — "
                    "and one of them knows her name. A mock-server feature used to exercise Patina's detail page.",
         "tagline": "Every signal leaves a trace.", "studio": "Mock Pictures",
-        "rating": 7.1 + (i % 3) / 2, "audienceRating": 8.0 - (i % 4) / 3,
-        "duration": 180000, "addedAt": int(time.time()) - i * 86400, "originallyAvailableAt": f"{2014 + i % 11}-05-0{1 + i % 9}",
+        "rating": 7.1 + (t % 3) / 2, "audienceRating": 8.0 - (t % 4) / 3,
+        "duration": (70 + (t * 13) % 80) * 60000, "addedAt": int(time.time()) - i * 86400, "originallyAvailableAt": f"{2014 + i % 11}-05-0{1 + i % 9}",
         "thumb": img("thumb", i % 8), "art": img("art", i % 8), "librarySectionID": 1,
-        "Genre": [{"id": 10 + (i % len(GENRES)), "tag": GENRES[i % len(GENRES)], "filter": f"genre={10 + i % len(GENRES)}"}],
+        "Genre": [{"id": 10 + (t % len(GENRES)), "tag": GENRES[t % len(GENRES)], "filter": f"genre={10 + t % len(GENRES)}"}],
         "Director": [{"id": 200, "tag": "Ada Lindqvist", "filter": "director=200"}],
         "Role": [{"id": 300 + j, "tag": n, "role": r, "filter": f"actor={300 + j}"} for j, (n, r) in
                  enumerate([("Mara Okafor", "Iris"), ("Tomas Reyes", "Hale"), ("June Park", "Operator"),
@@ -111,11 +135,19 @@ def movie(i):
     return m
 
 
+def big_movie(i):
+    """Entry `i` of the --large library: a generated movie with a stable, sortable title."""
+    base = movie(i % 20)
+    rk = str(10000 + i)
+    return dict(base, ratingKey=rk, key=f"/library/metadata/{rk}", guid=f"plex://movie/big{rk}", title=f"Archive {i + 1:05d}",
+                librarySectionID=4, viewCount=1 if i % 7 == 0 else 0, addedAt=int(time.time()) - i * 60)
+
+
 def show(i):
     rk = str(500 + i)
     return {
         "ratingKey": rk, "key": f"/library/metadata/{rk}/children", "guid": f"plex://show/5e{rk}", "type": "show",
-        "title": SHOW_TITLES[i], "year": 2019 + i, "summary": "An anthology of small towns and strange weather.",
+        "title": SHOW_TITLES[i], "year": 2019 + i, "duration": 45 * 60000, "audienceRating": 7.5 + i / 4, "summary": "An anthology of small towns and strange weather.",
         "thumb": img("thumb", (i + 3) % 8), "art": img("art", (i + 3) % 8), "childCount": 2, "leafCount": 6,
         "viewedLeafCount": 1 if i == 0 else 0, "librarySectionID": 2, "contentRating": "TV-14",
         "Genre": [{"id": 12, "tag": "Mystery", "filter": "genre=12"}],
@@ -214,6 +246,11 @@ def playlist():
             "title": PLAYLIST["title"], "summary": PLAYLIST["summary"], "leafCount": len(PLAYLIST["items"]), "duration": 180000 * len(PLAYLIST["items"])}
 
 
+def big_playlist():
+    return {"ratingKey": "960", "key": "/playlists/960/items", "type": "playlist", "playlistType": "video", "smart": False,
+            "title": "Marathon", "summary": "", "leafCount": LARGE, "duration": 180000 * LARGE}
+
+
 def artwork(rk, kind):
     return [{"key": f"/library/metadata/{rk}/{kind}/{1700000000 + i}", "ratingKey": f"upload://{kind}/{i}",
              "thumb": img(kind if kind == "art" else "thumb", i), "provider": ["local", "tmdb", "fanart"][i % 3], "selected": i == 0}
@@ -253,10 +290,16 @@ def edit_lists(self, p, q):
         return mc()
     if p == "/playlists" and self.command == "GET":
         kind = q.get("playlistType", ["video"])[0]
-        return mc(Metadata=[] if PLAYLIST["gone"] or kind != "video" else [playlist()])
+        lists = [] if PLAYLIST["gone"] or kind != "video" else [playlist()]
+        return mc(Metadata=lists + ([big_playlist()] if LARGE and kind == "video" else []))
     if p == "/playlists" and self.command == "POST":
         self.record("create_playlist", q)
         return mc(Metadata=[dict(playlist(), ratingKey="951", title=q.get("title", [""])[0])])
+    if LARGE and p in ("/playlists/960", "/playlists/960/items"):
+        if p.endswith("/items"):
+            self.record("big playlist page", {"start": q.get("X-Plex-Container-Start", ["0"]), "size": q.get("X-Plex-Container-Size", ["-"])})
+            return page([dict(big_movie(i), playlistItemID=70000 + i) for i in range(LARGE)], q)
+        return mc(Metadata=[big_playlist()])
     m = re.fullmatch(r"/playlists/950(/items(?:/(\d+)(/move)?)?)?", p)
     if m:
         sub, entry, move = m.groups()
@@ -341,6 +384,8 @@ def find(rk):
         return season((n - 600) // 10, n % 10)
     if 1000 <= n < 2000:
         return episode((n - 1000) // 100, (n % 100) // 10, n % 10)
+    if LARGE and 10000 <= n < 10000 + LARGE:
+        return big_movie(n - 10000)
     if n == 900 and not COLLECTION["gone"]:
         return collection()
     if n == 3000:
@@ -484,7 +529,7 @@ PREFS, SECTION_PREFS = {}, {}
 HOURS = "|".join(f"{h}:{h % 12 or 12} {'am' if h < 12 else 'pm'}" for h in range(24))
 # A sample of real server settings, with Plex's groups and the butler's.
 SERVER_PREFS = [
-    {"id": "FriendlyName", "label": "Friendly name", "summary": "The name of this server.", "type": "text", "value": "Mock Server", "group": "general"},
+    {"id": "FriendlyName", "label": "Friendly name", "summary": "The name of this server.", "type": "text", "value": NAME, "group": "general"},
     {"id": "logDebug", "label": "Enable Plex Media Server debug logging", "type": "bool", "value": True, "group": "general", "advanced": True},
     {"id": "ScheduledLibraryUpdatesEnabled", "label": "Update my library periodically", "type": "bool", "value": True, "group": "library"},
     {"id": "FSEventLibraryUpdatesEnabled", "label": "Scan my library automatically", "type": "bool", "value": False, "group": "library"},
@@ -652,7 +697,7 @@ class Handler(BaseHTTPRequestHandler):
         m = re.fullmatch(r"/library/sections/(\d+)/(firstCharacter|folder)", p)
         if m:
             sid, what = m.groups()
-            items = all_movies() if sid == "1" else all_shows()
+            items = all_movies() if sid == "1" else [big_movie(i) for i in range(LARGE)] if sid == "4" else all_shows()
             if what == "firstCharacter":
                 counts = {}
                 for i in sorted(items, key=lambda i: i["title"]):
@@ -673,6 +718,12 @@ class Handler(BaseHTTPRequestHandler):
             years = sorted({m.get("year") for m in all_movies() if m.get("year")}, reverse=True)
             return self.send_json(mc(Directory=[{"key": str(y), "title": str(y)} for y in years]))
         # --- playback reporting -------------------------------------------------
+        if p in ("/:/timeline", "/:/scrobble", "/:/unscrobble") or re.fullmatch(r"/library/parts/\d+", p):
+            # Simulate a slow or failing server for playback reports.
+            time.sleep(REPORT_DELAY)
+            if REPORT_STATUS != 200:
+                self.record("failed report " + p, q)
+                return self.send_json(mc(), REPORT_STATUS)
         if p == "/:/timeline":
             self.record("timeline", q)
             rk = q["ratingKey"][0]
@@ -688,6 +739,8 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/:/progress":
             self.record("progress", q)
             STATE.setdefault(q["key"][0], {})["viewOffset"] = int(q["time"][0])
+            if int(q["time"][0]) > 0:
+                HIDDEN.discard(q["key"][0])
             return self.send_json(mc())
         if p == "/actions/removeFromContinueWatching":
             self.record("removeFromContinueWatching", q)
@@ -731,8 +784,20 @@ class Handler(BaseHTTPRequestHandler):
         # --- server ----------------------------------------------------------------
         if p == "/identity":
             return self.send_json(mc(machineIdentifier=MACHINE, version="1.41.0.9999", claimed=True))
+        # --- a mocked plex.tv (point Patina at it with PATINA_PLEX_TV_URL, debug builds) ----
+        if p == "/api/v2/user":
+            return self.send_json({"id": 1, "uuid": "mock-account-uuid", "username": "tester", "title": "tester",
+                                   "email": "tester@example.com", "authToken": "x", "subscription": {"active": True}})
+        if p == "/api/v2/resources":
+            return self.send_json([
+                {"name": name, "product": "Plex Media Server", "productVersion": "1.41.0.9999", "platform": "MacOSX",
+                 "clientIdentifier": machine, "provides": "server", "owned": True, "presence": True, "httpsRequired": False,
+                 "accessToken": "token-" + machine,
+                 "connections": [{"protocol": "http", "address": "127.0.0.1", "port": port, "uri": f"http://127.0.0.1:{port}",
+                                  "local": True, "relay": False}]}
+                for port, name, machine in SERVERS])
         if p == "/":
-            return self.send_json(mc(friendlyName="Mock Server", machineIdentifier=MACHINE, version="1.41.0.9999",
+            return self.send_json(mc(friendlyName=NAME, machineIdentifier=MACHINE, version="1.41.0.9999",
                                      platform="MacOSX", platformVersion="27.0", myPlexUsername="tester",
                                      myPlexSubscription=True, transcoderVideo=True))
         if p == "/library/sections":
@@ -743,7 +808,8 @@ class Handler(BaseHTTPRequestHandler):
                  "Location": [{"id": 2, "path": "/media/tv"}], "scannedAt": int(time.time()) - 7200},
                 {"key": "3", "title": "Music", "type": "artist", "agent": "tv.plex.agents.music", "scanner": "Plex Music",
                  "Location": [{"id": 3, "path": "/media/music"}], "scannedAt": int(time.time()) - 7200},
-            ]))
+            ] + ([{"key": "4", "title": "Archive", "type": "movie", "agent": "tv.plex.agents.movie", "scanner": "Plex Movie",
+                   "Location": [{"id": 4, "path": "/media/archive"}], "scannedAt": int(time.time()) - 7200}] if LARGE else [])))
         if p == "/hubs":
             movies = all_movies()
             cont = [m for m in movies + [episode(0, 1, 2)] if (m.get("viewOffset") or m["type"] == "episode") and m["ratingKey"] not in HIDDEN]
@@ -765,7 +831,7 @@ class Handler(BaseHTTPRequestHandler):
             items = all_movies() if m.group(1) == "1" else all_shows()
             return self.send_json(mc(Hub=[{"hubIdentifier": "section.recent", "title": "Recently Added", "type": "movie", "Metadata": items[:10]},
                                           {"hubIdentifier": "section.random", "title": "Rediscover", "type": "movie", "Metadata": items[::-1][:10]}]))
-        m = re.fullmatch(r"/library/sections/(\d+)/(all|sorts|genre|collections|filters)", p)
+        m = re.fullmatch(r"/library/sections/(\d+)/(all|sorts|genre|contentRating|collections|filters)", p)
         if m:
             sid, what = m.groups()
             if what == "sorts":
@@ -773,9 +839,15 @@ class Handler(BaseHTTPRequestHandler):
                                                     [("titleSort", "Title"), ("addedAt", "Date Added"), ("year", "Year"), ("rating", "Rating")]]))
             if what == "genre":
                 return self.send_json(mc(Directory=[{"key": str(10 + i), "title": g} for i, g in enumerate(GENRES)]))
+            if what == "contentRating":
+                shown = all_movies() if sid == "1" else all_shows()
+                return self.send_json(mc(Directory=[{"key": c, "title": c} for c in sorted({i["contentRating"] for i in shown})]))
             if what == "collections":
                 return self.send_json(mc(Metadata=[]))
-            items = all_movies() if sid == "1" else [artist()] if sid == "3" else all_shows()
+            items = all_movies() if sid == "1" else [artist()] if sid == "3" else [big_movie(i) for i in range(LARGE)] if sid == "4" else all_shows()
+            if sid == "4":
+                self.record("big library page", {"start": q.get("X-Plex-Container-Start", ["0"]), "size": q.get("X-Plex-Container-Size", ["-"]),
+                                                  "sort": q.get("sort", [""]), "unwatched": q.get("unwatched", [""])})
             if sid == "3" and q.get("type") in (["9"], ["10"]):
                 items = [album()] if q["type"] == ["9"] else children("3100")
             if sid == "2" and q.get("type") in (["3"], ["4"]):
@@ -783,7 +855,17 @@ class Handler(BaseHTTPRequestHandler):
                 items = seasons if q["type"] == ["3"] else [e for s in seasons for e in children(s["ratingKey"])]
             for tag, field in (("genre", "Genre"), ("actor", "Role"), ("director", "Director")):
                 for want in q.get(tag, []):
-                    items = [i for i in items if any(str(g["id"]) == want for g in i.get(field, []))]
+                    wanted = want.split(",")
+                    items = [i for i in items if any(str(g["id"]) in wanted for g in i.get(field, []))]
+            if "contentRating" in q:
+                wanted = q["contentRating"][0].split(",")
+                items = [i for i in items if i.get("contentRating") in wanted]
+            # Numeric filters: key>> is "at least", key<< is "at most".
+            for key, field in (("year", "year"), ("audienceRating", "audienceRating"), ("duration", "duration")):
+                if key + ">>" in q:
+                    items = [i for i in items if float(i.get(field) or 0) >= float(q[key + ">>"][0])]
+                if key + "<<" in q:
+                    items = [i for i in items if i.get(field) and float(i[field]) <= float(q[key + "<<"][0])]
             if "year" in q:
                 items = [i for i in items if str(i.get("year")) in q["year"]]
             if q.get("hdr") == ["1"]:
@@ -795,6 +877,8 @@ class Handler(BaseHTTPRequestHandler):
             keyf = {"titleSort": lambda i: i["title"], "addedAt": lambda i: i.get("addedAt", 0), "year": lambda i: i.get("year", 0),
                     "rating": lambda i: i.get("rating", 0)}.get(key, lambda i: i["title"])
             items = sorted(items, key=keyf, reverse=sort.endswith(":desc"))
+            if key == "random":
+                random.shuffle(items)
             return self.send_json(page(items, q))
         m = re.fullmatch(r"/library/metadata/(\d+(?:,\d+)+)", p)
         if m:
@@ -845,6 +929,8 @@ class Handler(BaseHTTPRequestHandler):
             self.record("playqueue", q)
             return self.send_json(mc(Metadata=items, playQueueID=77, playQueueSelectedItemID=sel, playQueueTotalCount=len(items)))
         if p == "/hubs/search":
+            if SEARCH_DELAY:
+                time.sleep(SEARCH_DELAY)
             query = q.get("query", [""])[0].lower()
             ms = [m for m in all_movies() if query in m["title"].lower()]
             ss = [s for s in all_shows() if query in s["title"].lower()]
@@ -905,7 +991,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    global MEDIA, DOWNLOAD_DELAY, DROP_DOWNLOAD_ONCE, RESUME_VALIDATOR, MISSING_METADATA
+    global MEDIA, DOWNLOAD_DELAY, DROP_DOWNLOAD_ONCE, RESUME_VALIDATOR, MISSING_METADATA, LARGE, REPORT_DELAY, REPORT_STATUS
+    global MACHINE, NAME, SEED, SEARCH_DELAY, SERVERS
     ap = argparse.ArgumentParser()
     ap.add_argument("--media", default=".")
     ap.add_argument("--port", type=int, default=32499)
@@ -913,7 +1000,20 @@ def main():
     ap.add_argument("--drop-download-once", action="store_true", help="Interrupt the first media transfer")
     ap.add_argument("--resume-validator", choices=["normal", "missing", "changed"], default="normal", help="Simulate unverified range responses")
     ap.add_argument("--missing-metadata", action="append", default=[], help="Return 404 for this rating key")
+    ap.add_argument("--name", default=NAME, help="Friendly name of this server")
+    ap.add_argument("--machine", default=MACHINE, help="Machine identifier of this server")
+    ap.add_argument("--seed", type=int, default=0, help="Library variant: servers with different seeds share some titles")
+    ap.add_argument("--search-delay", type=float, default=0, help="Seconds every search takes (a slow server)")
+    ap.add_argument("--servers", default="", help="Mocked plex.tv server list: port:name:machine,port:name:machine")
+    ap.add_argument("--large", type=int, default=0, help="Add an Archive library and a Marathon playlist with this many entries")
+    ap.add_argument("--report-delay", type=float, default=0, help="Seconds to hold timeline, scrobble and stream-selection requests")
+    ap.add_argument("--report-status", type=int, default=200, help="Answer those requests with this HTTP status")
     a = ap.parse_args()
+    NAME, MACHINE, SEED, SEARCH_DELAY = a.name, a.machine, a.seed, a.search_delay
+    SERVERS = [(int(port), name, machine) for port, name, machine in (e.split(":") for e in a.servers.split(",") if e)]
+    LARGE = a.large
+    REPORT_DELAY = a.report_delay
+    REPORT_STATUS = a.report_status
     DOWNLOAD_DELAY = a.download_delay
     DROP_DOWNLOAD_ONCE = a.drop_download_once
     RESUME_VALIDATOR = a.resume_validator

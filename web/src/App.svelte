@@ -15,6 +15,7 @@
   import Home from "./pages/Home.svelte";
   import Item from "./pages/Item.svelte";
   import Library from "./pages/Library.svelte";
+  import Pick from "./pages/Pick.svelte";
   import Playlist from "./pages/Playlist.svelte";
   import Playlists from "./pages/Playlists.svelte";
   import Search from "./pages/Search.svelte";
@@ -70,11 +71,13 @@
           {:else if route.name === "library"}
             <Library id={route.id} />
           {:else if route.name === "item"}
-            <Item ratingKey={route.ratingKey} />
+            <Item ratingKey={route.ratingKey} server={route.server} />
           {:else if route.name === "browse"}
             <Browse path={route.path} title={route.title} />
           {:else if route.name === "search"}
             <Search />
+          {:else if route.name === "pick"}
+            <Pick />
           {:else if route.name === "playlists"}
             <Playlists />
           {:else if route.name === "playlist"}

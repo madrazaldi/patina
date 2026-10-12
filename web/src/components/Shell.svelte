@@ -5,14 +5,20 @@
   import type { Snippet } from "svelte";
   import ArtworkDialog from "./ArtworkDialog.svelte";
   import CollectionDialog from "./CollectionDialog.svelte";
+  import CommandPalette from "./CommandPalette.svelte";
+  import { menu as menunav } from "../lib/menu";
   import EditDialog from "./EditDialog.svelte";
   import Img from "./Img.svelte";
   import ItemMenu from "./ItemMenu.svelte";
   import MatchDialog from "./MatchDialog.svelte";
   import NowPlaying from "./NowPlaying.svelte";
+  import PlaybackFailure from "./PlaybackFailure.svelte";
   import PlaylistDialog from "./PlaylistDialog.svelte";
+  import ResumeQueue from "./ResumeQueue.svelte";
   import SubtitleDialog from "./SubtitleDialog.svelte";
   import TrackDialog from "./TrackDialog.svelte";
+  import ShowPrefsDialog from "./ShowPrefsDialog.svelte";
+  import KeepDialog from "./KeepDialog.svelte";
   import { api } from "../lib/api";
   import { initials } from "../lib/format";
   import { img } from "../lib/images";
@@ -44,7 +50,15 @@
     const t = e.target as HTMLElement | null;
     const typing = t && ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName);
     const mod = e.metaKey || e.ctrlKey;
-    if ((e.key === "/" && !typing) || (mod && (e.key === "k" || e.key === "f"))) {
+    const editing = typing || !!t?.isContentEditable;
+    if (mod && e.key.toLowerCase() === "k") {
+      e.preventDefault();
+      app.palette = true;
+    } else if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "z" && !editing) {
+      // Not while typing: a text field keeps its own undo.
+      e.preventDefault();
+      void app.undoLatest();
+    } else if ((e.key === "/" && !typing) || (mod && e.key === "f")) {
       e.preventDefault();
       searchInput?.focus();
       searchInput?.select();
@@ -94,6 +108,7 @@
     <div class="group">
       {@render link({ name: "home" }, "Home")}
       {@render link({ name: "search" }, "Search")}
+      {@render link({ name: "pick" }, "Pick something")}
       {#if app.hasTv}{@render link({ name: "watchlist" }, "Watchlist")}{/if}
       {@render link({ name: "playlists" }, "Playlists")}
       {#if app.liveTv}{@render link({ name: "livetv" }, "Live TV")}{/if}
@@ -167,6 +182,8 @@
         <button class="btn sm" onclick={() => { app.refresh(); api.reloadSections().catch((e) => app.error(e)); }}>Retry</button>
       </div>
     {/if}
+    <PlaybackFailure />
+    <ResumeQueue />
     <div id="content" class="content">
       {@render children()}
     </div>
@@ -177,7 +194,7 @@
 
 {#if userMenu}
   <div class="scrim" role="presentation" onclick={() => (userMenu = false)}></div>
-  <div class="menu" style="left: 12px; bottom: 64px; width: 220px">
+  <div class="menu" use:menunav={() => (userMenu = false)} aria-label="Account" style="left: 12px; bottom: 64px; width: 220px">
     {#if session && session.servers.length > 1}
       <div class="head"><span>Switch server</span></div>
       {#each session.servers as s (s.id)}
@@ -205,8 +222,11 @@
 {/if}
 
 <ItemMenu />
+{#if app.palette}<CommandPalette />{/if}
 <PlaylistDialog />
 <TrackDialog />
+<ShowPrefsDialog />
+<KeepDialog />
 <CollectionDialog />
 <EditDialog />
 <ArtworkDialog />
