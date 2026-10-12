@@ -31,6 +31,9 @@ RESUME_VALIDATOR = "normal"
 MISSING_METADATA = set()
 DROP_DOWNLOAD_ONCE = False
 DROPPED_DOWNLOAD = False
+# --large N adds an "Archive" library (section 4) and a "Marathon" playlist (960) of N entries each,
+# to exercise paging, on-demand loading and cancellation.
+LARGE = 0
 
 GENRES = ["Drama", "Science Fiction", "Thriller", "Comedy", "Animation", "Mystery"]
 MOVIE_TITLES = [
@@ -109,6 +112,14 @@ def movie(i):
     }
     m.update({k: v for k, v in state.items() if v})
     return m
+
+
+def big_movie(i):
+    """Entry `i` of the --large library: a generated movie with a stable, sortable title."""
+    base = movie(i % 20)
+    rk = str(10000 + i)
+    return dict(base, ratingKey=rk, key=f"/library/metadata/{rk}", guid=f"plex://movie/big{rk}", title=f"Archive {i + 1:05d}",
+                librarySectionID=4, viewCount=1 if i % 7 == 0 else 0, addedAt=int(time.time()) - i * 60)
 
 
 def show(i):
@@ -214,6 +225,11 @@ def playlist():
             "title": PLAYLIST["title"], "summary": PLAYLIST["summary"], "leafCount": len(PLAYLIST["items"]), "duration": 180000 * len(PLAYLIST["items"])}
 
 
+def big_playlist():
+    return {"ratingKey": "960", "key": "/playlists/960/items", "type": "playlist", "playlistType": "video", "smart": False,
+            "title": "Marathon", "summary": "", "leafCount": LARGE, "duration": 180000 * LARGE}
+
+
 def artwork(rk, kind):
     return [{"key": f"/library/metadata/{rk}/{kind}/{1700000000 + i}", "ratingKey": f"upload://{kind}/{i}",
              "thumb": img(kind if kind == "art" else "thumb", i), "provider": ["local", "tmdb", "fanart"][i % 3], "selected": i == 0}
@@ -253,10 +269,16 @@ def edit_lists(self, p, q):
         return mc()
     if p == "/playlists" and self.command == "GET":
         kind = q.get("playlistType", ["video"])[0]
-        return mc(Metadata=[] if PLAYLIST["gone"] or kind != "video" else [playlist()])
+        lists = [] if PLAYLIST["gone"] or kind != "video" else [playlist()]
+        return mc(Metadata=lists + ([big_playlist()] if LARGE and kind == "video" else []))
     if p == "/playlists" and self.command == "POST":
         self.record("create_playlist", q)
         return mc(Metadata=[dict(playlist(), ratingKey="951", title=q.get("title", [""])[0])])
+    if LARGE and p in ("/playlists/960", "/playlists/960/items"):
+        if p.endswith("/items"):
+            self.record("big playlist page", {"start": q.get("X-Plex-Container-Start", ["0"]), "size": q.get("X-Plex-Container-Size", ["-"])})
+            return page([dict(big_movie(i), playlistItemID=70000 + i) for i in range(LARGE)], q)
+        return mc(Metadata=[big_playlist()])
     m = re.fullmatch(r"/playlists/950(/items(?:/(\d+)(/move)?)?)?", p)
     if m:
         sub, entry, move = m.groups()
@@ -341,6 +363,8 @@ def find(rk):
         return season((n - 600) // 10, n % 10)
     if 1000 <= n < 2000:
         return episode((n - 1000) // 100, (n % 100) // 10, n % 10)
+    if LARGE and 10000 <= n < 10000 + LARGE:
+        return big_movie(n - 10000)
     if n == 900 and not COLLECTION["gone"]:
         return collection()
     if n == 3000:
@@ -652,7 +676,7 @@ class Handler(BaseHTTPRequestHandler):
         m = re.fullmatch(r"/library/sections/(\d+)/(firstCharacter|folder)", p)
         if m:
             sid, what = m.groups()
-            items = all_movies() if sid == "1" else all_shows()
+            items = all_movies() if sid == "1" else [big_movie(i) for i in range(LARGE)] if sid == "4" else all_shows()
             if what == "firstCharacter":
                 counts = {}
                 for i in sorted(items, key=lambda i: i["title"]):
@@ -743,7 +767,8 @@ class Handler(BaseHTTPRequestHandler):
                  "Location": [{"id": 2, "path": "/media/tv"}], "scannedAt": int(time.time()) - 7200},
                 {"key": "3", "title": "Music", "type": "artist", "agent": "tv.plex.agents.music", "scanner": "Plex Music",
                  "Location": [{"id": 3, "path": "/media/music"}], "scannedAt": int(time.time()) - 7200},
-            ]))
+            ] + ([{"key": "4", "title": "Archive", "type": "movie", "agent": "tv.plex.agents.movie", "scanner": "Plex Movie",
+                   "Location": [{"id": 4, "path": "/media/archive"}], "scannedAt": int(time.time()) - 7200}] if LARGE else [])))
         if p == "/hubs":
             movies = all_movies()
             cont = [m for m in movies + [episode(0, 1, 2)] if (m.get("viewOffset") or m["type"] == "episode") and m["ratingKey"] not in HIDDEN]
@@ -775,7 +800,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(mc(Directory=[{"key": str(10 + i), "title": g} for i, g in enumerate(GENRES)]))
             if what == "collections":
                 return self.send_json(mc(Metadata=[]))
-            items = all_movies() if sid == "1" else [artist()] if sid == "3" else all_shows()
+            items = all_movies() if sid == "1" else [artist()] if sid == "3" else [big_movie(i) for i in range(LARGE)] if sid == "4" else all_shows()
+            if sid == "4":
+                self.record("big library page", {"start": q.get("X-Plex-Container-Start", ["0"]), "size": q.get("X-Plex-Container-Size", ["-"]),
+                                                  "sort": q.get("sort", [""]), "unwatched": q.get("unwatched", [""])})
             if sid == "3" and q.get("type") in (["9"], ["10"]):
                 items = [album()] if q["type"] == ["9"] else children("3100")
             if sid == "2" and q.get("type") in (["3"], ["4"]):
@@ -905,7 +933,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    global MEDIA, DOWNLOAD_DELAY, DROP_DOWNLOAD_ONCE, RESUME_VALIDATOR, MISSING_METADATA
+    global MEDIA, DOWNLOAD_DELAY, DROP_DOWNLOAD_ONCE, RESUME_VALIDATOR, MISSING_METADATA, LARGE
     ap = argparse.ArgumentParser()
     ap.add_argument("--media", default=".")
     ap.add_argument("--port", type=int, default=32499)
@@ -913,7 +941,9 @@ def main():
     ap.add_argument("--drop-download-once", action="store_true", help="Interrupt the first media transfer")
     ap.add_argument("--resume-validator", choices=["normal", "missing", "changed"], default="normal", help="Simulate unverified range responses")
     ap.add_argument("--missing-metadata", action="append", default=[], help="Return 404 for this rating key")
+    ap.add_argument("--large", type=int, default=0, help="Add an Archive library and a Marathon playlist with this many entries")
     a = ap.parse_args()
+    LARGE = a.large
     DOWNLOAD_DELAY = a.download_delay
     DROP_DOWNLOAD_ONCE = a.drop_download_once
     RESUME_VALIDATOR = a.resume_validator

@@ -98,7 +98,7 @@ impl App {
                     .map(|p| {
                         let (server, key) = (server.clone(), key.clone());
                         async move {
-                            let entries = server.playlist_items(p.rating_key(), 0, 5000).await.map_err(err)?.metadata;
+                            let entries = lists::playlist_entries(&server, p.rating_key()).await.map_err(err)?.0;
                             let entry_id = entries.iter().find(|e| e.rating_key.as_deref() == Some(key.as_str())).and_then(|e| e.playlist_item_id);
                             Ok::<_, String>(PlaylistRow { playlist: Item::from(p), entry_id, busy: false })
                         }
@@ -145,7 +145,7 @@ impl App {
                     }
                     None => {
                         server.add_to_playlist(&playlist_key, &server.item_uri(&[&item_key])).await.map_err(err)?;
-                        let entries = server.playlist_items(&playlist_key, 0, 5000).await.map_err(err)?.metadata;
+                        let entries = lists::playlist_entries(&server, &playlist_key).await.map_err(err)?.0;
                         Ok(entries.iter().rev().find(|e| e.rating_key.as_deref() == Some(item_key.as_str())).and_then(|e| e.playlist_item_id).or(Some(0)))
                     }
                 }
@@ -158,6 +158,12 @@ impl App {
     pub(super) fn submit_input(&mut self, input: Input) {
         let value = input.value.trim().to_string();
         match input.purpose {
+            InputPurpose::SaveView => self.save_view(&value),
+            InputPurpose::NewCollectionWith { section_id, kind, rating_keys } => {
+                if !value.is_empty() {
+                    self.create_collection_with(value, section_id, kind, rating_keys);
+                }
+            }
             InputPurpose::Rate { rating_key } => self.submit_rating(rating_key, &value),
             InputPurpose::ServerUrl => {
                 if value.is_empty() {
@@ -288,6 +294,7 @@ impl App {
     pub(super) fn run_confirmed(&mut self, action: ConfirmAction) {
         match action {
             ConfirmAction::Logout => session::sign_out(&self.core),
+            action @ (ConfirmAction::RemoveMarkedFromPlaylist { .. } | ConfirmAction::RemoveMarkedFromCollection { .. }) => self.run_bulk_remove(action),
             ConfirmAction::DeletePlaylist { playlist_id } => {
                 self.server_op(Refresh::Playlists, "Playlist deleted", move |s| async move { s.delete_playlist(&playlist_id).await })
             }

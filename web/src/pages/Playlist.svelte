@@ -94,13 +94,16 @@
 {:else}
   {@const { playlist, items } = data.data}
   {@const total = items.reduce((n, m) => n + (m.duration ?? 0), 0)}
+  {@const cutOff = data.data.total > items.length}
   <div class="page">
     <header class="head">
       <div class="cover"><Img src={img(playlist.composite ?? playlist.thumb, 480, 480)} /></div>
       <div>
         <div class="kicker">{playlist.smart ? "Smart playlist" : "Playlist"}</div>
         <h1 class="serif">{playlist.title}</h1>
-        <div class="muted">{items.length} items · {duration(total)}</div>
+        <div class="muted">
+          {cutOff ? `Showing the first ${items.length.toLocaleString()} of ${data.data.total.toLocaleString()} items` : `${items.length} items`} · {duration(total)}
+        </div>
         {#if playlist.summary}<p class="summary">{playlist.summary}</p>{/if}
         <div class="actions">
           <button class="btn primary lg" disabled={!items.length} onclick={() => play(playlist)}>

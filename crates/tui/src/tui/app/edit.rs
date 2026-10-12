@@ -236,6 +236,8 @@ impl App {
     pub(super) fn pick_selected(&mut self, p: Picker) {
         let Some((entry, _)) = p.rows.into_iter().nth(p.cursor) else { return };
         match (p.kind, entry) {
+            (PickKind::Views, entry) => self.pick_view(entry),
+            (kind @ (PickKind::BulkPlaylist { .. } | PickKind::BulkCollection { .. }), entry) => self.pick_bulk_target(kind, entry),
             (PickKind::Sort, PickEntry::Sort(d)) => self.choose_sort(*d),
             (PickKind::Letters, PickEntry::Letter(l, at)) => self.jump_to_letter(&l, at),
             (PickKind::Artwork { rating_key, art }, PickEntry::ArtworkFromUrl) => {

@@ -16,19 +16,19 @@ The desktop app and the terminal client have the same features; the terminal cli
 - **Sign in** with the plex.tv browser flow, a plex.tv/link code, email and password (with 2FA), or a direct server URL and token. Switch between Plex Home users (PIN-protected profiles supported) and between servers.
 - **Server connections:** Patina tries every connection a server advertises at the same time. It prefers local, then remote, then relay.
 - **Home layout:** choose Customize Home to reorder or hide rows and use a compact Continue Watching list. Layouts are saved per account and server.
-- **Saved views and bulk actions (desktop):** name and save a library filter/sort combination, then restore it in one click. Select several titles to queue, download, mark watched, or add to a playlist.
+- **Saved views and bulk actions:** name and save a library filter/sort combination, then restore it in one click. Select several titles to queue, download, mark watched, or add to a playlist or collection. Both clients keep saved views in the same settings, so a view saved in one is in the other (the terminal client also remembers hide-watched and its `/` filter, which the desktop app ignores).
 - **Command palette (desktop):** press **Cmd/Ctrl+K** to jump to any page, library or playlist, control playback (play/pause, next, previous, stop, show the queue), open a saved view, switch server or user, and change settings, all by typing a few letters. The last entry, "Search for …", takes what you typed to the search box (`/` and Cmd/Ctrl+F still focus search directly).
 - **Keyboard and screen readers (desktop):** every editor and picker is a modal dialog with a named heading, initial focus, Tab that stays inside, Escape to close and focus returned to where you were. The now-playing seek bar is a slider: use the arrow keys (5 seconds), PageUp/PageDown (1 minute), Home and End. Editors close when you switch account or server, so an edit can never land on the wrong one.
 - **Home:** a featured banner (step through recent and in-progress titles) plus every hub the server offers (Continue Watching, Recently Added, and so on).
 - **Connection recovery:** a connection indicator reports reconnection, and failed page refreshes keep saved results visible with a Retry action.
 - **Live updates:** Patina follows the server's notification stream. New and changed items appear without reloading, watch state played on other devices updates, and library scans show their progress in the sidebar. Only the library that changed refetches, starting with the pages on screen; the rest refresh when you scroll to them.
-- **Libraries:** a poster grid that keeps loading as you scroll. Sort by any server sort, combine any of the server's filters (genre, year, resolution, actor, unwatched, HDR, and so on), jump to a letter with the A–Z rail, and switch between types (shows/seasons/episodes, artists/albums/tracks). Each library also has Recommended, Collections and Folders tabs. Returning from details preserves filters, loaded results, scroll and keyboard focus. Large desktop libraries render only the visible cards and fetch the pages needed for A–Z jumps.
+- **Libraries:** a poster grid that keeps loading as you scroll. Sort by any server sort, combine any of the server's filters (genre, year, resolution, actor, unwatched, HDR, and so on), jump to a letter with the A–Z rail, and switch between types (shows/seasons/episodes, artists/albums/tracks). Each library also has Recommended, Collections and Folders tabs. Returning from details preserves filters, loaded results, scroll and keyboard focus. Large desktop libraries render only the visible cards and fetch the pages needed for A–Z jumps. The terminal client likewise fetches only the pages around the cursor in a big library, and loads the whole library only when you filter, hide watched titles, sort locally or select all.
 - **Detail pages:** backdrop art, ratings, cast, extras, related and similar titles (sonically similar music, too), seasons and episodes, albums and tracks. Pick the version, audio track and subtitle track; your choice is saved to Plex. Search for subtitles online and download them. Mark items watched, clear progress, remove them from Continue Watching, rate them, and add them to playlists, collections or your watchlist.
 - **Editing (owners only):** edit titles, summaries, dates, genres and labels (edited fields are locked), choose posters and backgrounds, fix matches, and delete items.
 - **Collections:** create them, add and remove items, reorder custom-sorted ones, and set how they show in the library.
 - **Audio & subtitles for whole shows** (like [PASTA](https://github.com/cglatot/pasta)): from a show, season or episode, pick an audio and/or subtitle track in one episode and Patina selects the closest match in every episode of the season or show. It matches on language first (and forced vs. full subtitles), then title, codec and channels. It shows which episodes have no match before you apply, and it leaves them unchanged. You can also turn subtitles off everywhere.
 - **Search** as you type, grouped by type, including people and tags.
-- **Playlists** (create, add, remove, reorder by dragging, rename, clear, delete) and your plex.tv **Watchlist**. Watchlist items link to the copy on your server when there is one. Availability is checked a few titles at a time, rechecked when the library changes, and a failed check is reported with a Retry instead of showing the title as missing.
+- **Playlists** (create, add, remove, reorder by dragging, rename, clear, delete; playlists of any length are read in pages, up to 100,000 entries, and a cut-off is shown) and your plex.tv **Watchlist**. Watchlist items link to the copy on your server when there is one. Availability is checked a few titles at a time, rechecked when the library changes, and a failed check is reported with a Retry instead of showing the title as missing.
 - **Downloads:** download a movie, episode, season, show, album or artist for offline playback. Downloads play in mpv even when the server can't be reached. Pause and resume in either client; interrupted transfers retry and resume after restart when the server supplies a file validator and supports byte ranges (otherwise they safely restart). Patina checks free space before transferring. Offline resume points are saved locally; watch progress syncs on reconnect to the original account/server, with newer server watch activity taking precedence. Older downloads without an account identity retain local resume points but do not sync automatically.
 - **Live TV & DVR** (with a tuner): a channel guide with what's on now and next, watching channels, recording programs, and managing upcoming recordings and recording rules.
 - **Activity:** live sessions (with transcode details and the option to stop a stream), watch history, and background tasks and transcoder sessions.
@@ -146,6 +146,13 @@ When the server can't be reached, `d` browses and plays your downloads offline.
 | `S` | Scan library for new files |
 | `b` / `B` | Go to the season or album / the show or artist |
 | `m` or `.` | Actions menu (more options) |
+| **Selecting several items** | |
+| `Tab` | Mark / unmark the item and move on (a `+` shows in the margin) |
+| `^a` | Mark everything shown (a library shown a page at a time is loaded in full first) |
+| `M` | Actions for the marked items; `Esc` clears the marks |
+| `n` `N` `w` `u` `D` | With items marked: queue next / at the end · mark watched / unwatched · download them all |
+| `Space` `C` | With items marked: add them to a playlist / collection, or start a new one |
+| `x` | With items marked inside a playlist or collection: remove them |
 | **Downloads, Live TV, Activity, Server, Settings** | |
 | `Enter` | A row's main action: play, pause/resume download, retry, watch, record, run, change |
 | `x` | Remove a download · delete a rule · cancel a task · stop a transcode |
@@ -160,6 +167,7 @@ When the server can't be reached, `d` browses and plays your downloads offline.
 | `A` | Jump to a letter (library sorted by title) |
 | `t` | Switch type: shows / seasons / episodes… |
 | `v` | Library views: recommended, collections, folders… |
+| `V` | Saved views of this library: apply one, save the current sort and filters, `x` deletes |
 | `H` | Hide / show watched |
 | **Other** | |
 | `i` | Toggle details panel |
@@ -234,6 +242,9 @@ The Rust integration test starts `tools/mock_pms.py` on an ephemeral localhost p
 
 ```sh
 python3 tools/mock_pms.py --media /path/to/media --port 32499
+
+# Add a 5,000-title library and a 5,000-entry playlist, to try paging
+python3 tools/mock_pms.py --media /path/to/media --port 32499 --large 5000
 
 # Desktop app: the same
 XDG_CONFIG_HOME=/tmp/patina-dev bun run tauri dev

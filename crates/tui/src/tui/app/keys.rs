@@ -73,6 +73,9 @@ impl App {
     pub(super) fn normal_key(&mut self, key: KeyEvent) {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         let page = self.list_height.max(2) as isize;
+        if self.marks_key(key) {
+            return;
+        }
         let Some(col) = self.columns.last_mut() else { return };
         match key.code {
             KeyCode::Char('q') => self.quit = true,
@@ -154,7 +157,12 @@ impl App {
             KeyCode::Char('J') => self.move_entry(true),
             KeyCode::Char('K') => self.move_entry(false),
             KeyCode::Char('f') => self.open_search(),
-            KeyCode::Char('/') => col.filtering = true,
+            KeyCode::Char('/') => {
+                col.filtering = true;
+                // Filtering ranks every title, not just the ones loaded.
+                let idx = self.columns.len() - 1;
+                self.go_full(idx);
+            }
             KeyCode::Char('s') if col.library().is_some() => self.open_sort(),
             KeyCode::Char('s') => {
                 let cursor = SortKey::ALL.iter().position(|k| *k == col.sort).unwrap_or(0);
@@ -164,7 +172,11 @@ impl App {
             KeyCode::Char('A') => self.open_letters(),
             KeyCode::Char('t') => self.cycle_type(),
             KeyCode::Char('v') => self.open_browse(),
+            KeyCode::Char('V') => self.open_views(),
             KeyCode::Char('H') => {
+                let idx = self.columns.len() - 1;
+                self.go_full(idx);
+                let col = &mut self.columns[idx];
                 col.hide_watched = !col.hide_watched;
                 let on = col.hide_watched;
                 col.rebuild(&mut self.fuzzy);
@@ -449,6 +461,10 @@ impl App {
                 } else {
                     Some(Modal::Edit(m))
                 }
+            }
+            Modal::Pick(p) if matches!(p.kind, PickKind::Views) && key.code == KeyCode::Char('x') => {
+                self.forget_view(p);
+                return;
             }
             Modal::Pick(mut p) => {
                 // Letters jump directly; arrows move.

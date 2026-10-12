@@ -3,12 +3,14 @@
 use patina_core::config::QUALITIES;
 use patina_core::ops::library::FilterView;
 use patina_core::ops::server::LibraryForm;
+use patina_core::ops::views::SavedView;
 use patina_core::tracks;
 use patina_plex::{Directory, HomeUser, MatchResult, Stream, stream_type};
 
 use crate::item::Item;
 
 use super::column::SortKey;
+use super::marks::BulkOp;
 use super::rows::SettingKey;
 use super::source::Source;
 
@@ -54,6 +56,8 @@ pub enum Modal {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuAction {
+    /// An action on every marked item.
+    Bulk(BulkOp),
     Play,
     PlayFromStart,
     PlayNext,
@@ -151,6 +155,14 @@ pub struct Menu {
 // ---- text input ----------------------------------------------------------
 
 pub enum InputPurpose {
+    /// Name for the library view in the last column, to save.
+    SaveView,
+    /// Name for a new collection holding the marked items.
+    NewCollectionWith {
+        section_id: String,
+        kind: u32,
+        rating_keys: Vec<String>,
+    },
     NewPlaylist {
         rating_keys: Vec<String>,
         kind: &'static str,
@@ -242,6 +254,16 @@ pub struct Input {
 // ---- confirmation --------------------------------------------------------
 
 pub enum ConfirmAction {
+    /// Take the marked entries out of a playlist.
+    RemoveMarkedFromPlaylist {
+        playlist_id: String,
+        entries: Vec<i64>,
+    },
+    /// Take the marked items out of a collection.
+    RemoveMarkedFromCollection {
+        collection_id: String,
+        rating_keys: Vec<String>,
+    },
     DeletePlaylist {
         playlist_id: String,
     },
@@ -526,6 +548,12 @@ pub struct EditModal {
 // ---- generic background-loaded picker ------------------------------------
 
 pub enum PickKind {
+    /// Saved views of the library in the last column.
+    Views,
+    /// A playlist for the marked items (their keys, and the playlist type).
+    BulkPlaylist { keys: Vec<String>, kind: &'static str },
+    /// A collection for the marked items.
+    BulkCollection { keys: Vec<String>, section_id: String, kind: u32 },
     /// Server sorts of the library listing in the last column.
     Sort,
     /// A–Z jump in the library listing in the last column.
@@ -546,6 +574,14 @@ pub enum PickKind {
 }
 
 pub enum PickEntry {
+    /// A saved view.
+    View(Box<SavedView>),
+    /// "Save the current view".
+    SaveView,
+    /// A playlist or collection (id, title).
+    Target(String, String),
+    /// "New playlist / collection".
+    NewTarget,
     Sort(Box<Directory>),
     /// A letter and the row it starts at.
     Letter(String, usize),

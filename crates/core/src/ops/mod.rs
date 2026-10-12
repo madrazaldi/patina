@@ -7,3 +7,4 @@ pub mod lists;
 pub mod playback;
 pub mod server;
 pub mod setup;
+pub mod views;

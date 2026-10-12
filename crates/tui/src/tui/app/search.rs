@@ -5,6 +5,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use super::{App, Msg, SEARCH_DELAY, SearchState, err};
 use crate::item::Item;
 use crate::tui::column::Column;
+use crate::tui::task::TaskSlot;
 use crate::tui::source::{Source, search_groups};
 
 /// Results per type, as on the GUI.
@@ -37,11 +38,13 @@ impl App {
         if query.chars().count() < MIN_QUERY {
             s.set_groups(Vec::new());
             s.pending = false;
+            s.task.cancel();
             return;
         }
         s.pending = true;
         let (core, tx) = (self.core.clone(), self.tx.clone());
-        tokio::spawn(async move {
+        // Replaces (and aborts) the previous query's request.
+        s.task.spawn(async move {
             let result = match core.server() {
                 Ok(server) => server.search_hubs(&query, PER_TYPE, None).await.map(search_groups).map_err(err),
                 Err(e) => Err(err(e)),
@@ -64,11 +67,14 @@ impl App {
             pending: false,
             dirty_at: None,
             error: None,
+            task: TaskSlot::default(),
         });
     }
 
     pub(super) fn search_changed(&mut self) {
         let Some(s) = &mut self.search else { return };
+        // Whatever is still running answers an earlier query.
+        s.task.cancel();
         s.error = None;
         s.dirty_at = Some(Instant::now());
         s.pending = s.input.trim().chars().count() >= MIN_QUERY;
@@ -155,6 +161,7 @@ mod tests {
             pending: false,
             dirty_at: None,
             error: None,
+            task: TaskSlot::default(),
         };
         s.set_groups(vec![group("a", 2), group("b", 1)]);
         assert_eq!(s.results.iter().map(|i| i.title()).collect::<Vec<_>>(), ["a0", "a1", "b0"]);

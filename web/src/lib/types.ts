@@ -437,6 +437,8 @@ export interface PinView {
 export interface PlaylistView {
   playlist: Metadata;
   items: Metadata[];
+  /** Entries the server reports; larger than `items.length` only if loading was cut short. */
+  total: number;
 }
 
 export interface HistoryPage {
