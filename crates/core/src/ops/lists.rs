@@ -44,13 +44,59 @@ pub async fn watchlisted(app: &AppState, discover_id: &str) -> Result<bool> {
 pub struct PlaylistView {
     pub playlist: Metadata,
     pub items: Vec<Metadata>,
+    /// How many entries the server says the playlist has; more than
+    /// `items.len()` only when the safety limit cut loading short.
+    pub total: usize,
 }
+
+/// Entries requested per page of a playlist.
+pub const PLAYLIST_PAGE: u32 = 1000;
+/// A runaway guard: no front end loads more entries than this.
+pub const PLAYLIST_LIMIT: usize = 100_000;
 
 pub async fn playlist(app: &AppState, id: &str) -> Result<Option<PlaylistView>> {
     let server = app.server()?;
     let Some(playlist) = server.playlist(id).await? else { return Ok(None) };
-    let items = server.playlist_items(id, 0, 2000).await?.metadata;
-    Ok(Some(PlaylistView { playlist, items }))
+    let (items, total) = playlist_entries(&server, id).await?;
+    Ok(Some(PlaylistView { playlist, items, total }))
+}
+
+/// Every entry of a playlist (paging through the server's limit) and the
+/// total the server reports.
+pub async fn playlist_entries(server: &patina_plex::PlexServer, id: &str) -> Result<(Vec<Metadata>, usize)> {
+    collect_pages(PLAYLIST_PAGE, PLAYLIST_LIMIT, |start, size| async move {
+        let mc = server.playlist_items(id, start, size).await?;
+        let total = mc.total_size.or(mc.size).map(|n| n.max(0) as usize);
+        Ok((mc.metadata, total))
+    })
+    .await
+}
+
+/// Fetch consecutive pages until the reported total, a short page, or
+/// `limit` entries. `fetch(start, size)` returns a page and the total the
+/// server reports (when it does). The returned total is what the server
+/// said, or what was loaded when it said nothing.
+pub(crate) async fn collect_pages<T, F, Fut>(size: u32, limit: usize, mut fetch: F) -> Result<(Vec<T>, usize)>
+where
+    F: FnMut(u32, u32) -> Fut,
+    Fut: std::future::Future<Output = Result<(Vec<T>, Option<usize>)>>,
+{
+    let mut items: Vec<T> = Vec::new();
+    let mut total: Option<usize> = None;
+    loop {
+        let (page, reported) = fetch(items.len() as u32, size).await?;
+        total = reported.or(total);
+        let got = page.len();
+        items.extend(page);
+        // Without a total a short page means the end; with one keep going
+        // until it is reached, since servers may cap pages below `size`.
+        let done = got == 0 || total.map_or(got < size as usize, |t| items.len() >= t) || items.len() >= limit;
+        if done {
+            items.truncate(limit);
+            let total = total.unwrap_or(items.len());
+            return Ok((items, total));
+        }
+    }
 }
 
 /// Add an item to an existing playlist, or to a new one called `title` of `kind`.
@@ -100,4 +146,60 @@ pub async fn delete_history(app: &AppState, key: &str) -> Result<()> {
 /// The id at the end of a key like `/status/sessions/history/12`.
 pub(crate) fn last_segment(key: &str) -> &str {
     key.rsplit('/').next().unwrap_or(key)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    type Page = Result<(Vec<usize>, Option<usize>)>;
+
+    /// A fake paged source of `n` numbers that serves at most `cap` per request.
+    fn source(n: usize, cap: usize, report_total: bool) -> impl FnMut(u32, u32) -> std::future::Ready<Page> {
+        move |start, size| {
+            let (start, take) = (start as usize, (size as usize).min(cap));
+            let page: Vec<usize> = (start..n.min(start + take)).collect();
+            std::future::ready(Ok((page, report_total.then_some(n))))
+        }
+    }
+
+    #[tokio::test]
+    async fn collects_every_page() {
+        let (items, total) = collect_pages(1000, 100_000, source(2500, 1000, true)).await.unwrap();
+        assert_eq!((items.len(), total), (2500, 2500));
+        assert!(items.iter().enumerate().all(|(i, v)| i == *v));
+    }
+
+    #[tokio::test]
+    async fn exact_multiples_and_empty() {
+        let (items, total) = collect_pages(1000, 100_000, source(2000, 1000, true)).await.unwrap();
+        assert_eq!((items.len(), total), (2000, 2000));
+        let (items, total) = collect_pages(1000, 100_000, source(2000, 1000, false)).await.unwrap();
+        assert_eq!((items.len(), total), (2000, 2000));
+        let (items, total) = collect_pages(1000, 100_000, source(0, 1000, true)).await.unwrap();
+        assert_eq!((items.len(), total), (0, 0));
+    }
+
+    #[tokio::test]
+    async fn server_page_cap_below_requested_size() {
+        // The server hands out 300 at a time even though 1000 were requested.
+        let (items, total) = collect_pages(1000, 100_000, source(1000, 300, true)).await.unwrap();
+        assert_eq!((items.len(), total), (1000, 1000));
+    }
+
+    #[tokio::test]
+    async fn limit_truncates_but_keeps_the_true_total() {
+        let (items, total) = collect_pages(1000, 2500, source(10_000, 1000, true)).await.unwrap();
+        assert_eq!(items.len(), 2500);
+        assert_eq!(total, 10_000, "a cut-off load must not look complete");
+    }
+
+    #[tokio::test]
+    async fn errors_bubble_up() {
+        let r = collect_pages::<usize, _, _>(10, 100, |start, _| async move {
+            if start == 0 { Ok(((0..10).collect(), Some(30))) } else { Err(anyhow!("boom")) }
+        })
+        .await;
+        assert!(r.is_err());
+    }
 }

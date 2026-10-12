@@ -266,6 +266,8 @@ pub struct Inner {
     /// Bumped whenever the session changes, which stops the previous
     /// server's notification listener.
     pub live_generation: AtomicU64,
+    /// The running notification listener, aborted when it is replaced or stopped.
+    pub(crate) live_task: Mutex<Option<tokio::task::AbortHandle>>,
     /// Bumped to abandon an in-flight PIN sign-in.
     pub login_attempt: AtomicU64,
     /// Servers offered on the "choose a server" screen.
@@ -302,6 +304,7 @@ impl AppState {
             revision: AtomicU64::new(0),
             connected: AtomicBool::new(true),
             live_generation: AtomicU64::new(0),
+            live_task: Mutex::new(None),
             login_attempt: AtomicU64::new(0),
             pending: Mutex::new(None),
             tracks: Mutex::new(None),

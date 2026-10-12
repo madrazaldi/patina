@@ -474,7 +474,7 @@ pub async fn run(command: Command) -> Result<()> {
         Command::Playlists { id, out } => {
             let items = match id {
                 None => server.playlists(None, None).await?,
-                Some(id) => server.playlist_items(&id, 0, 5000).await?.metadata,
+                Some(id) => lists::playlist_entries(&server, &id).await?.0,
             };
             print_items(&items.into_iter().map(Item::from).collect::<Vec<_>>(), out)?
         }
