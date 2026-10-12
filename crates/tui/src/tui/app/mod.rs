@@ -4,6 +4,7 @@
 //! `search` and `login`.
 
 mod actions;
+mod auto;
 mod bulk;
 mod edit;
 mod keys;

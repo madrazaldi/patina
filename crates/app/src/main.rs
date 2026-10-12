@@ -3,6 +3,7 @@
 // Keeps a console window from opening alongside the app on Windows release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod auto;
 mod commands;
 mod images;
 mod remote;
@@ -101,6 +102,17 @@ fn main() {
             commands::tracks_load,
             commands::tracks_view,
             commands::tracks_apply,
+            auto::playback_prefs,
+            auto::set_playback_prefs,
+            auto::playback_prefs_shows,
+            auto::preferred_version,
+            auto::tracks_remember,
+            auto::smart_downloads,
+            auto::set_smart_download,
+            auto::update_smart_download,
+            auto::remove_smart_download,
+            auto::set_download_budget,
+            auto::run_smart_downloads,
             commands::sessions,
             commands::terminate_session,
             commands::history,

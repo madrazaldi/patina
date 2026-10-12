@@ -8,6 +8,7 @@
     Circle,
     Crosshair,
     Download,
+    CloudDownload,
     Eraser,
     ExternalLink,
     EyeOff,
@@ -24,6 +25,7 @@
     RotateCcw,
     ScanLine,
     Shuffle,
+    SlidersHorizontal,
     Trash,
     Tv,
     User,
@@ -158,6 +160,7 @@
     {/if}
     {#if plex.supportsTracks(item)}
       <button onclick={run(() => (app.tracksTarget = item))}><Captions />Audio & subtitles…</button>
+      <button onclick={run(() => (app.prefsTarget = item))}><SlidersHorizontal />Playback preferences…</button>
     {/if}
     {#if discover}
       <button onclick={run(() => act(api.setWatchlisted(discover, true), "Added to watchlist"))}>
@@ -174,6 +177,9 @@
       {:else}
         <button onclick={run(() => download(item))}><Download />Download</button>
       {/if}
+    {/if}
+    {#if ["show", "season", "playlist"].includes(kind)}
+      <button onclick={run(() => (app.keepTarget = item))}><CloudDownload />Keep next unwatched downloaded…</button>
     {/if}
 
     {#if app.owned && kind !== "playlist"}

@@ -9,6 +9,7 @@ use patina_plex::{Directory, HomeUser, MatchResult, Stream, stream_type};
 
 use crate::item::Item;
 
+use super::auto::AutoField;
 use super::column::SortKey;
 use super::marks::BulkOp;
 use super::rows::SettingKey;
@@ -110,6 +111,10 @@ pub enum MenuAction {
     GoToParent,
     GoToGrandparent,
     DeleteHistory,
+    /// Automatic audio, subtitle and version rules of the show.
+    ShowPrefs,
+    /// Smart download: keep the next unwatched items downloaded.
+    KeepDownloaded,
     /// An action of a tool row.
     Row(RowOp),
 }
@@ -144,6 +149,12 @@ pub enum RowOp {
     BrowseLibrary,
     DeleteLibrary,
     Change,
+    /// Pause or resume a smart download policy.
+    Toggle,
+    /// Switch whether a policy removes downloads once watched.
+    KeepWatched,
+    /// Stop a policy and delete the downloads it fetched.
+    RemoveFiles,
 }
 
 pub struct Menu {
@@ -235,6 +246,23 @@ pub enum InputPurpose {
         id: String,
         name: String,
     },
+    /// An automatic playback rule of the profile, or of a show (rating key and title).
+    Auto {
+        field: AutoField,
+        show: Option<(String, String)>,
+    },
+    /// How many unwatched items a smart download keeps.
+    KeepNext {
+        rating_key: String,
+        title: String,
+        delete_watched: bool,
+    },
+    /// The storage budget in GB.
+    Budget,
+    /// How many unwatched items an existing policy keeps.
+    KeepPolicy {
+        id: String,
+    },
 }
 
 impl InputPurpose {
@@ -308,6 +336,15 @@ pub enum ConfirmAction {
     },
     DeleteHistory {
         key: String,
+    },
+    /// Clear the automatic playback rules of the profile, or of a show.
+    ClearAuto {
+        show: Option<(String, String)>,
+    },
+    /// Stop a smart download policy, optionally deleting what it fetched.
+    StopKeeping {
+        id: String,
+        delete_files: bool,
     },
 }
 
@@ -566,6 +603,10 @@ pub enum PickKind {
     Subtitles { rating_key: String },
     Users,
     Setting(SettingKey),
+    /// The fields of a show's automatic playback rules.
+    AutoShow { show: (String, String) },
+    /// The choices of one automatic playback rule.
+    Auto { field: AutoField, show: Option<(String, String)> },
     Pref { id: String, section: Option<String> },
     Servers,
     LibraryKind,
@@ -640,6 +681,8 @@ pub struct TracksModal {
     pub cursor: usize,
     /// The field whose choices are listed, and the cursor in them.
     pub choosing: Option<(usize, usize)>,
+    /// Also save the choices as the show's automatic playback rules.
+    pub remember: bool,
 }
 
 impl TracksModal {
@@ -664,6 +707,7 @@ impl TracksModal {
             progress: None,
             cursor: 0,
             choosing: None,
+            remember: false,
         })
     }
 
@@ -745,7 +789,7 @@ impl TracksModal {
     }
 
     pub fn can_apply(&self) -> bool {
-        self.progress.is_none() && self.view.as_ref().is_some_and(|v| !v.plan.changes.is_empty())
+        self.progress.is_none() && self.view.as_ref().is_some_and(|v| !v.plan.changes.is_empty() || (self.remember && !v.nothing_chosen))
     }
 }
 

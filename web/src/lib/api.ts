@@ -28,9 +28,15 @@ import type {
   PinView,
   PlayerSettings,
   PlaylistView,
+  PlaybackPrefs,
+  PlaybackRules,
   Pref,
   PrefGroup,
   Settings,
+  ShowRules,
+  SmartOverview,
+  SmartPolicy,
+  SmartReport,
   Snapshot,
   Tasks,
   TrackView,
@@ -221,6 +227,28 @@ export const api = {
     progress.onmessage = ([done, total]) => onProgress(done, total);
     return call("tracks_apply", { changes, progress });
   },
+
+  // Automatic playback preferences (per profile, and per show)
+  playbackPrefs: (show: string | null) => call<PlaybackPrefs>("playback_prefs", { show }),
+  setPlaybackPrefs: (show: string | null, title: string | null, rules: PlaybackRules) =>
+    call("set_playback_prefs", { show, title, rules }),
+  playbackPrefsShows: () => call<ShowRules[]>("playback_prefs_shows"),
+  /** Index of the version (Media) the rules prefer. */
+  preferredVersion: (item: Metadata) => call<number>("preferred_version", { item }),
+  /** Save what the track dialog chose as the show's rules. */
+  tracksRemember: (query: { show: string; season: number | null; reference: string | null; audio: number | null; subtitle: string }) =>
+    call("tracks_remember", { query }),
+
+  // Smart downloads
+  smartDownloads: () => call<SmartOverview>("smart_downloads"),
+  setSmartDownload: (ratingKey: string, keep: number, deleteWatched: boolean) =>
+    call<SmartPolicy>("set_smart_download", { ratingKey, keep, deleteWatched }),
+  updateSmartDownload: (id: string, patch: { keep?: number; deleteWatched?: boolean; enabled?: boolean }) =>
+    call("update_smart_download", { id, patch }),
+  removeSmartDownload: (id: string, deleteDownloads: boolean) => call("remove_smart_download", { id, deleteDownloads }),
+  /** Bytes all downloads together may use; null removes the limit. */
+  setDownloadBudget: (bytes: number | null) => call("set_download_budget", { bytes }),
+  runSmartDownloads: () => call<SmartReport>("run_smart_downloads"),
 
   // Activity
   sessions: () => call<Metadata[]>("sessions"),

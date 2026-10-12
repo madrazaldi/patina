@@ -12,7 +12,7 @@ use tauri::State;
 use tauri::ipc::Channel;
 
 /// Any failure, reported to the webview as its message.
-pub struct Error(String);
+pub struct Error(pub String);
 
 impl<E: Into<anyhow::Error>> From<E> for Error {
     fn from(e: E) -> Self {
@@ -26,7 +26,7 @@ impl Serialize for Error {
     }
 }
 
-type Res<T = ()> = Result<T, Error>;
+pub type Res<T = ()> = Result<T, Error>;
 type App<'a> = State<'a, AppState>;
 
 // App ------------------------------------------------------------------------

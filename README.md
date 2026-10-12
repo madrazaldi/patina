@@ -27,6 +27,8 @@ The desktop app and the terminal client have the same features; the terminal cli
 - **Editing (owners only):** edit titles, summaries, dates, genres and labels (edited fields are locked), choose posters and backgrounds, fix matches, and delete items.
 - **Collections:** create them, add and remove items, reorder custom-sorted ones, and set how they show in the library.
 - **Audio & subtitles for whole shows** (like [PASTA](https://github.com/cglatot/pasta)): from a show, season or episode, pick an audio and/or subtitle track in one episode and Patina selects the closest match in every episode of the season or show. It matches on language first (and forced vs. full subtitles), then title, codec and channels. It shows which episodes have no match before you apply, and it leaves them unchanged. You can also turn subtitles off everywhere.
+- **Automatic playback preferences:** remember your audio and subtitle languages, whether subtitles are on, off or only for foreign dialogue, forced vs. full subtitles, skipping commentary and audio-description tracks, and which version to play (resolution, codec, HDR). Set them for your profile in **Settings → Automatic playback**, and override them per show from the show's menu (**Playback preferences…**) or by ticking **Remember for this show** in the audio & subtitles dialog. They are applied every time something starts playing, so episodes added later follow them too. They reuse the whole-show track matching above (language first, forced vs. full, commentary by title). A choice you make by hand in the version picker or in mpv always wins. They are stored in `playback-prefs.json` next to the config file, per account and server.
+- **Smart downloads:** keep the next N unwatched episodes of a show, season or playlist downloaded (**Keep next unwatched downloaded…** on its page or menu), remove them after you watch them, and set an overall storage budget. Patina checks the policies at start, after playback, when the server reports changes and every few minutes, so new episodes are fetched on their own. Policies and the budget are managed on the Downloads page, are scoped to the account and server they were created on (they do nothing on another), and live in `smart-downloads.json`. Downloads you made yourself are never removed by a policy.
 - **Search** as you type, grouped by type, including people and tags.
 - **Playlists** (create, add, remove, reorder by dragging, rename, clear, delete; playlists of any length are read in pages, up to 100,000 entries, and a cut-off is shown) and your plex.tv **Watchlist**. Watchlist items link to the copy on your server when there is one. Availability is checked a few titles at a time, rechecked when the library changes, and a failed check is reported with a Retry instead of showing the title as missing.
 - **Downloads:** download a movie, episode, season, show, album or artist for offline playback. Downloads play in mpv even when the server can't be reached. Pause and resume in either client; interrupted transfers retry and resume after restart when the server supplies a file validator and supports byte ranges (otherwise they safely restart). Patina checks free space before transferring. Offline resume points are saved locally; watch progress syncs on reconnect to the original account/server, with newer server watch activity taking precedence. Older downloads without an account identity retain local resume points but do not sync automatically.
@@ -140,7 +142,8 @@ When the server can't be reached, `d` browses and plays your downloads offline.
 | `J` / `K` | Move a playlist (or custom-sorted collection) entry down / up |
 | `+` | Add to / remove from watchlist |
 | `C` | Add to / remove from collections |
-| `T` | Audio & subtitles for a whole show or season |
+| `T` | Audio & subtitles for a whole show or season (`r` there: also remember them for the show) |
+| `m`, then **Playback preferences for the show…** / **Keep next unwatched downloaded…** | Automatic audio, subtitle and version rules for a show · smart download of a show, season or playlist |
 | `c` | Related & similar, cast & crew, genres and tags |
 | `e` | Edit details, genres, labels (renames a playlist); menu: poster, background, match |
 | `S` | Scan library for new files |
@@ -155,7 +158,7 @@ When the server can't be reached, `d` browses and plays your downloads offline.
 | `x` | With items marked inside a playlist or collection: remove them |
 | **Downloads, Live TV, Activity, Server, Settings** | |
 | `Enter` | A row's main action: play, pause/resume download, retry, watch, record, run, change |
-| `x` | Remove a download · delete a rule · cancel a task · stop a transcode |
+| `x` | Remove a download · stop a smart download · clear a show's playback preferences · delete a rule · cancel a task · stop a transcode |
 | `a` | Play a downloaded show, album or all movies |
 | `l` | A channel's later programs · a library's settings |
 | `/` | Search server settings (or any list) |
@@ -203,11 +206,26 @@ patina-tui users [switch <name> [--pin PIN]]
 patina-tui mark watched|unwatched <key>
 patina-tui rate <key> [0-10]        omit the rating to clear it
 patina-tui scan [section] [--force]
+patina-tui downloads                downloaded items
+patina-tui downloads policy         smart download policies, the budget and what they use
+patina-tui downloads policy set <key> [--keep N] [--keep-watched]
+                                    keep the next N unwatched of a show, season or playlist
+patina-tui downloads policy pause|resume <policy>
+patina-tui downloads policy remove <policy> [--delete-files]
+patina-tui downloads policy budget <GB|off>
+patina-tui downloads policy run [--wait]
+                                    fetch and remove downloads to match the policies now
+patina-tui prefs [--show <key>]     automatic playback preferences of the profile, or a show
+patina-tui prefs [--show <key>] set [--audio eng,jpn] [--subtitle-languages …]
+          [--subtitles keep|off|always|foreign] [--forced auto|prefer|avoid|only]
+          [--commentary avoid|allow] [--resolution any|4k|1080|720|sd] [--codec hevc]
+          [--hdr any|prefer|avoid]
+patina-tui prefs [--show <key>] clear
 patina-tui url <key>                direct stream URL (contains your token)
 patina-tui config-path
 ```
 
-The listing commands (`libraries`, `ls`, `search`, `continue`, `recent`, `sessions`, `history`, `playlists`, `watchlist`) accept `--json` to print Plex's JSON instead of a table.
+The listing commands (`libraries`, `ls`, `search`, `continue`, `recent`, `sessions`, `history`, `playlists`, `watchlist`) accept `--json` to print Plex's JSON instead of a table. So do `downloads`, `downloads policy` (and its `run`) and `prefs`, which print Patina's own JSON.
 
 ## Regression checks
 

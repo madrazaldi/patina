@@ -595,6 +595,73 @@ export interface Download {
   state: DownloadState;
   error?: string;
   addedAt: number;
+  /** Id of the smart-download policy that fetched this, if any. */
+  policy?: string | null;
+}
+
+// Automatic playback preferences (crates/core/src/prefs.rs)
+export type SubtitleMode = "keep" | "off" | "always" | "foreign";
+export type ForcedMode = "auto" | "prefer" | "avoid" | "only";
+export type ResolutionPref = "any" | "4k" | "1080" | "720" | "sd";
+export type HdrMode = "any" | "prefer" | "avoid";
+
+/** Every field is optional; a missing one is "not set" (a show then inherits the profile's). */
+export interface PlaybackRules {
+  audioLanguages?: string[] | null;
+  subtitleLanguages?: string[] | null;
+  subtitles?: SubtitleMode | null;
+  forced?: ForcedMode | null;
+  avoidCommentary?: boolean | null;
+  resolution?: ResolutionPref | null;
+  codec?: string | null;
+  hdr?: HdrMode | null;
+}
+
+export interface PlaybackPrefs {
+  profile: PlaybackRules;
+  show: PlaybackRules | null;
+  effective: PlaybackRules;
+}
+
+export interface ShowRules {
+  ratingKey: string;
+  title: string;
+  rules: PlaybackRules;
+}
+
+// Smart downloads (crates/core/src/smart.rs)
+export interface SmartPolicy {
+  id: string;
+  account: string;
+  serverId: string;
+  serverName: string;
+  ratingKey: string;
+  target: "show" | "season" | "playlist";
+  title: string;
+  keep: number;
+  deleteWatched: boolean;
+  enabled: boolean;
+}
+
+export interface SmartPolicyView extends SmartPolicy {
+  /** Belongs to the connected account and server. */
+  active: boolean;
+  downloads: number;
+  bytes: number;
+}
+
+export interface SmartOverview {
+  policies: SmartPolicyView[];
+  /** Bytes; null when unlimited. */
+  budget: number | null;
+  used: number;
+}
+
+export interface SmartReport {
+  added: number;
+  removed: number;
+  overBudget: number;
+  errors: string[];
 }
 
 export interface LiveProgram {

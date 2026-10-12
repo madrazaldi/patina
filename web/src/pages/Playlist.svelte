@@ -116,6 +116,9 @@
             class="btn quiet lg"
             onclick={() => (editing = { title: playlist.title ?? "", summary: playlist.summary ?? "" })}>Edit</button
           >
+          {#if items.length}
+            <button class="btn quiet lg" onclick={() => (app.keepTarget = playlist)}>Keep downloaded</button>
+          {/if}
           {#if !playlist.smart && items.length}
             <button class="btn quiet lg" onclick={clear}>Clear</button>
           {/if}

@@ -1,6 +1,7 @@
 //! Terminal UI: Miller columns, a details panel, search and dialogs.
 
 mod app;
+mod auto;
 mod column;
 mod marks;
 mod modal;

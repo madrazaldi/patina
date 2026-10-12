@@ -266,6 +266,7 @@ async fn mpv_worker() {
         account: "alice".into(),
         validator: None,
         source_key: None,
+        policy: None,
     };
     let mut next = d.clone();
     next.id = "mock:alice:next".into();
