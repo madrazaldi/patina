@@ -188,6 +188,47 @@ pub struct Snapshot {
     pub revision: u64,
 }
 
+/// What the next [`CoreEvent::Revision`] covers, so views can refetch only what changed.
+/// `all` means the change could not be narrowed down (watch state, unknown sections).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct Changes {
+    pub all: bool,
+    /// Library section ids that changed.
+    pub sections: Vec<String>,
+    /// Rating keys that changed, when the server said which.
+    pub items: Vec<String>,
+}
+
+impl Changes {
+    pub fn everything() -> Self {
+        Self { all: true, ..Self::default() }
+    }
+
+    /// A change in one library section, optionally to one item.
+    pub fn section(section: Option<&str>, item: Option<&str>) -> Self {
+        let mut c = Self::default();
+        c.add(section, item);
+        c
+    }
+
+    /// Fold another change in. Without a section the change could be anywhere.
+    pub fn add(&mut self, section: Option<&str>, item: Option<&str>) {
+        match section {
+            Some(s) => {
+                if !self.sections.iter().any(|x| x == s) {
+                    self.sections.push(s.to_string());
+                }
+            }
+            None => self.all = true,
+        }
+        if let Some(i) = item
+            && !self.items.iter().any(|x| x == i)
+        {
+            self.items.push(i.to_string());
+        }
+    }
+}
+
 /// A state change for the front end.
 #[derive(Clone, Debug)]
 pub enum CoreEvent {
@@ -200,6 +241,9 @@ pub enum CoreEvent {
     Activities(Vec<ServerActivity>),
     /// Watch state may have changed; views refetch.
     Revision(u64),
+    /// What the revision that follows covers (sent just before it). A revision with
+    /// no preceding `Changes` may affect anything.
+    Changes(Changes),
     Toast(Toast),
     Downloads(Vec<Download>),
     /// Playback sessions on the server changed.
@@ -218,6 +262,7 @@ impl CoreEvent {
             Self::Queue(_) => "queue",
             Self::Activities(_) => "activities",
             Self::Revision(_) => "revision",
+            Self::Changes(_) => "library-changed",
             Self::Toast(_) => "toast",
             Self::Downloads(_) => "downloads",
             Self::SessionsChanged => "sessions-changed",
@@ -235,6 +280,7 @@ impl CoreEvent {
             Self::Queue(q) => serde_json::to_value(q),
             Self::Activities(a) => serde_json::to_value(a),
             Self::Revision(r) => Ok(json!(r)),
+            Self::Changes(c) => serde_json::to_value(c),
             Self::Toast(t) => serde_json::to_value(t),
             Self::Downloads(d) => serde_json::to_value(d),
             Self::SessionsChanged => Ok(Value::Null),
@@ -469,6 +515,12 @@ impl AppState {
     pub fn bump(&self) {
         let r = self.revision.fetch_add(1, Ordering::Relaxed) + 1;
         self.emit(CoreEvent::Revision(r));
+    }
+
+    /// Like [`bump`](Self::bump), telling front ends which sections and items changed.
+    pub fn bump_with(&self, changes: Changes) {
+        self.emit(CoreEvent::Changes(changes));
+        self.bump();
     }
 
     pub fn toast(&self, text: impl Into<String>) {
