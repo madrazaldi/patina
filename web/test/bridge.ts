@@ -32,6 +32,8 @@ const calls: { cmd: string; args: Record<string, any> }[] = [];
 let fail = false, delay = 0;
 const emit = (event: string, payload: unknown) => { const id = listeners.get(event); if (id !== undefined) callbacks.get(id)?.({ event, id, payload }); };
 const downloads = [{ id: "mock:alice:1", account: "alice", serverId: "mock", serverName: "Mock Server", item: item(1), size: 10000, received: 10000, state: "done", addedAt: 1 }];
+let profileRules: Record<string, unknown> = {};
+const smart = { policies: [{ id: "p1", account: "alice", serverId: "mock", serverName: "Mock Server", ratingKey: "500", target: "show", title: "Station Eleven Below", keep: 3, deleteWatched: true, enabled: true, active: true, downloads: 2, bytes: 2000 }], budget: null as number | null, used: 10000 };
 const test = {
   calls, settings,
   fail(value: boolean) { fail = value; },
@@ -52,6 +54,12 @@ Object.assign(window, { __PATINA_TEST__: test, __TAURI_INTERNALS__: {
     if (cmd === "info") return { version: "test", configPath: "isolated fixture", accents: [], qualities: [] };
     if (cmd === "downloads") return downloads;
     if (cmd === "livetv_available") return false;
+    if (cmd === "playback_prefs") return { profile: profileRules, show: args.show ? {} : null, effective: profileRules };
+    if (cmd === "playback_prefs_shows") return [{ ratingKey: "500", title: "Station Eleven Below", rules: { audioLanguages: ["ja"], subtitles: "always" } }];
+    if (cmd === "set_playback_prefs") { if (args.show == null) profileRules = args.rules; return; }
+    if (cmd === "smart_downloads") return structuredClone(smart);
+    if (cmd === "set_download_budget") { smart.budget = args.bytes; emit("downloads", downloads); return; }
+    if (cmd === "update_smart_download") { Object.assign(smart.policies[0], args.patch); emit("downloads", downloads); return; }
     if (cmd === "section_sorts") return [{ key: "titleSort", title: "Title" }, { key: "addedAt", title: "Date added" }];
     if (cmd === "section_filters") return [{ filter: "genre", title: "Genre", kind: "string" }];
     if (cmd === "section_filter_values") return [{ key: "10", title: "Drama" }];

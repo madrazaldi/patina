@@ -13,6 +13,8 @@
   import PlaylistDialog from "./PlaylistDialog.svelte";
   import SubtitleDialog from "./SubtitleDialog.svelte";
   import TrackDialog from "./TrackDialog.svelte";
+  import ShowPrefsDialog from "./ShowPrefsDialog.svelte";
+  import KeepDialog from "./KeepDialog.svelte";
   import { api } from "../lib/api";
   import { initials } from "../lib/format";
   import { img } from "../lib/images";
@@ -207,6 +209,8 @@
 <ItemMenu />
 <PlaylistDialog />
 <TrackDialog />
+<ShowPrefsDialog />
+<KeepDialog />
 <CollectionDialog />
 <EditDialog />
 <ArtworkDialog />

@@ -11,7 +11,7 @@
   import * as plex from "../lib/plex";
   import { nav } from "../lib/router.svelte";
   import { act, app } from "../lib/state.svelte";
-  import type { Download, Metadata } from "../lib/types";
+  import type { Download, Metadata, SmartOverview, SmartPolicyView } from "../lib/types";
 
   /** Offline: never link to server pages. */
   let { offline = false }: { offline?: boolean } = $props();
@@ -105,6 +105,55 @@
 
   const playIds = (ids: string[]) => act(api.playDownloads(ids));
 
+  // Smart downloads: policies that keep the next unwatched items downloaded
+  // (crates/core/src/smart.rs). Reloaded whenever downloads change.
+  let smart = $state<SmartOverview>();
+  $effect(() => {
+    app.downloads;
+    api.smartDownloads().then(
+      (o) => (smart = o),
+      () => {},
+    );
+  });
+  const GIB = 1024 ** 3;
+  let smartBusy = $state(false);
+
+  const patch = (p: SmartPolicyView, change: { keep?: number; deleteWatched?: boolean; enabled?: boolean }) =>
+    act(api.updateSmartDownload(p.id, change));
+
+  async function dropPolicy(p: SmartPolicyView) {
+    const ok = await app.confirm(`Stop keeping “${p.title}” downloaded?`, {
+      text: p.downloads
+        ? `The ${plural(p.downloads, "download")} it fetched stay on this computer until you delete them.`
+        : "Nothing it fetched is on this computer.",
+      action: "Stop keeping",
+    });
+    if (ok) await act(api.removeSmartDownload(p.id, false));
+  }
+
+  async function runNow() {
+    smartBusy = true;
+    try {
+      const r = await api.runSmartDownloads();
+      const bits = [
+        r.added ? `${plural(r.added, "item")} queued` : "",
+        r.removed ? `${plural(r.removed, "download")} removed` : "",
+        r.overBudget ? `${r.overBudget} left out (storage budget)` : "",
+        ...r.errors,
+      ].filter(Boolean);
+      app.toast(bits.join(" · ") || "Downloads already match the policies");
+    } catch (e) {
+      app.error(e);
+    }
+    smartBusy = false;
+  }
+
+  function setBudget(text: string) {
+    const gb = Number(text);
+    const value = text.trim() === "" || !(gb > 0) ? null : Math.round(gb * GIB);
+    return act(api.setDownloadBudget(value));
+  }
+
   async function remove(d: Download) {
     const done = d.state === "done";
     const ok = await app.confirm(done ? "Delete download?" : "Remove from downloads?", {
@@ -132,6 +181,82 @@
     </div>
     <button class="btn" onclick={() => act(api.openDownloadsFolder())}><FolderOpen size={14} />Open folder</button>
   </div>
+
+  {#if smart}
+    <div class="section-head">
+      <h2>Smart downloads</h2>
+      <div class="row-flex">
+        <span class="faint small">Keep the next unwatched episodes downloaded</span>
+        {#if smart.policies.some((p) => p.active)}
+          <button class="more" disabled={smartBusy} onclick={runNow}>Run now</button>
+        {/if}
+      </div>
+    </div>
+    <div class="rows">
+      {#each smart.policies as p (p.id)}
+        <div class={["setting", "policy", { dim: !p.enabled || !p.active }]}>
+          <div class="label">
+            <b>{p.title}</b>
+            <span class="num">
+              {p.target} · {p.serverName}{p.active ? "" : " (another account or server)"} · {plural(p.downloads, "download")}{p.bytes ? `, ${bytes(p.bytes)}` : ""}{p.enabled ? "" : " · paused"}
+            </span>
+          </div>
+          <div class="control">
+            <label class="inline" title="Unwatched items to keep">
+              Keep
+              <input
+                class="input num"
+                type="number"
+                min="1"
+                max="50"
+                style="width: 64px"
+                value={p.keep}
+                onchange={(e) => {
+                  const n = Math.floor(Number(e.currentTarget.value));
+                  if (n >= 1 && n <= 50) patch(p, { keep: n });
+                  else e.currentTarget.value = String(p.keep);
+                }}
+              />
+            </label>
+            <label class="inline" title="Delete downloads once they are watched">
+              <input type="checkbox" checked={p.deleteWatched} onchange={(e) => patch(p, { deleteWatched: e.currentTarget.checked })} />
+              Remove watched
+            </label>
+            <button class="icon-btn" title={p.enabled ? "Pause" : "Resume"} onclick={() => patch(p, { enabled: !p.enabled })}>
+              {#if p.enabled}<Pause />{:else}<Play />{/if}
+            </button>
+            <button class="icon-btn" title="Stop keeping downloaded" onclick={() => dropPolicy(p)}><Trash size={14} /></button>
+          </div>
+        </div>
+      {/each}
+      <div class="setting">
+        <div class="label">
+          <b>Storage budget</b>
+          <span class="num">
+            {bytes(smart.used)} used by downloads{smart.budget != null ? ` of ${bytes(smart.budget)}` : ""}. Smart downloads stop adding when the budget is full.
+          </span>
+        </div>
+        <div class="control">
+          <input
+            class="input num"
+            type="number"
+            min="0"
+            step="1"
+            style="width: 90px"
+            placeholder="No limit"
+            value={smart.budget != null ? Math.round((smart.budget / GIB) * 10) / 10 : ""}
+            onchange={(e) => setBudget(e.currentTarget.value)}
+          />
+          GB
+        </div>
+      </div>
+      {#if smart.policies.length === 0}
+        <div class="setting">
+          <div class="label"><span>Open a show, season or playlist and choose “Keep next unwatched downloaded”.</span></div>
+        </div>
+      {/if}
+    </div>
+  {/if}
 
   {#if app.downloads.length === 0}
     <Status
@@ -203,6 +328,16 @@
 <style>
   .small {
     font-size: 12px;
+  }
+  .policy.dim b {
+    color: var(--text-2);
+  }
+  .inline {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-2);
   }
   .section-head .row-flex {
     gap: 14px;

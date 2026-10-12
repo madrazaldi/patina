@@ -831,7 +831,7 @@ mod tests {
             state,
             error: None,
             added_at: 0,
-            account: String::new(), validator: None, source_key: None,
+            account: String::new(), validator: None, source_key: None, policy: None,
         }
     }
 

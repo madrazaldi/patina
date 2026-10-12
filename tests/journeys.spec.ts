@@ -209,3 +209,27 @@ test("server settings are grouped and task schedules live in Maintenance", async
   await expect(page.getByText("Every 3 days", { exact: true })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("server-maintenance.png"), animations: "disabled", fullPage: true });
 });
+
+test("automatic playback preferences are edited in Settings", async ({ page }) => {
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Automatic playback" })).toBeVisible();
+  await page.getByPlaceholder("Not set").first().fill("eng, ja");
+  await page.getByPlaceholder("Not set").first().press("Tab");
+  await expect.poll(() => page.evaluate(() => (window as any).__PATINA_TEST__.calls.filter((c: any) => c.cmd === "set_playback_prefs").map((c: any) => c.args.rules.audioLanguages))).toEqual([["eng", "ja"]]);
+  await expect(page.getByText("ja audio", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "Clear", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__PATINA_TEST__.calls.some((c: any) => c.cmd === "set_playback_prefs" && c.args.show === "500" && Object.keys(c.args.rules).length === 0))).toBe(true);
+});
+
+test("smart download policies and the storage budget live on the Downloads page", async ({ page }) => {
+  await page.getByRole("button", { name: "Downloads", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Smart downloads" })).toBeVisible();
+  await expect(page.getByText("Station Eleven Below")).toBeVisible();
+  await page.getByRole("spinbutton").first().fill("5");
+  await page.getByRole("spinbutton").first().press("Tab");
+  await page.getByPlaceholder("No limit").fill("20");
+  await page.getByPlaceholder("No limit").press("Tab");
+  await page.getByTitle("Pause", { exact: true }).click();
+  const calls = await page.evaluate(() => (window as any).__PATINA_TEST__.calls.filter((c: any) => c.cmd === "update_smart_download" || c.cmd === "set_download_budget").map((c: any) => [c.cmd, c.args.patch ?? c.args.bytes]));
+  expect(calls).toEqual([["update_smart_download", { keep: 5 }], ["set_download_budget", 20 * 1024 ** 3], ["update_smart_download", { enabled: false }]]);
+});

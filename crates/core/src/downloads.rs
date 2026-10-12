@@ -10,7 +10,7 @@ use patina_plex::{Metadata, MetadataOptions, PlexServer};
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt;
 
-use crate::state::{AppState, CoreEvent};
+use crate::state::{AppState, CoreEvent, Session};
 use crate::{config, storage};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -44,6 +44,10 @@ pub struct Download {
     pub validator: Option<String>,
     #[serde(default)]
     pub source_key: Option<String>,
+    /// Smart-download policy that fetched this file and may remove it again
+    /// (see [`crate::smart`]); `None` for downloads someone asked for by hand.
+    #[serde(default)]
+    pub policy: Option<String>,
 }
 
 static RUNNING: AtomicBool = AtomicBool::new(false);
@@ -79,16 +83,28 @@ pub fn poster(id: &str) -> Option<PathBuf> {
     entry(id)?.poster.map(PathBuf::from)
 }
 
+/// Identity of a download: one file per server, account and item.
+pub fn id_for(server_id: &str, account: &str, rating_key: &str) -> String {
+    format!("{server_id}:{account}:{rating_key}")
+}
+
 pub async fn enqueue(app: &AppState, rating_key: &str) -> Result<usize> {
     let session = app.session().ok_or_else(|| anyhow!("Not connected."))?;
     let server = &session.server;
     let item = server.metadata(rating_key, MetadataOptions::default()).await?.ok_or_else(|| anyhow!("Item not found."))?;
     let items = if item.is_playable() { vec![item] } else { server.all_leaves(rating_key).await?.metadata };
-    let account = crate::offline::account(&session);
+    add(app, &session, items, None)
+}
+
+/// Queue the playable items for the session's server and account; those
+/// already downloaded are skipped. `policy` marks them as managed by a smart
+/// download policy.
+pub(crate) fn add(app: &AppState, session: &Session, items: Vec<Metadata>, policy: Option<&str>) -> Result<usize> {
+    let account = crate::offline::account(session);
     let added = update(|list| {
         let mut added = 0;
         for item in items.into_iter().filter(|m| m.is_playable() && !m.media.is_empty()) {
-            let id = format!("{}:{}:{}", session.server_id, account, item.rating_key());
+            let id = id_for(&session.server_id, &account, item.rating_key());
             if list.iter().any(|d| d.id == id) {
                 continue;
             }
@@ -107,6 +123,7 @@ pub async fn enqueue(app: &AppState, rating_key: &str) -> Result<usize> {
                 account: account.clone(),
                 validator: None,
                 source_key: None,
+                policy: policy.map(str::to_string),
             });
             added += 1;
         }
@@ -115,6 +132,17 @@ pub async fn enqueue(app: &AppState, rating_key: &str) -> Result<usize> {
     emit(app);
     resume(app);
     Ok(added)
+}
+
+/// Change which policy owns downloads: `(download id, policy id or none)`.
+pub(crate) fn assign(changes: &[(String, Option<String>)]) -> Result<()> {
+    update(|list| {
+        for (id, policy) in changes {
+            if let Some(d) = list.iter_mut().find(|d| &d.id == id) {
+                d.policy = policy.clone();
+            }
+        }
+    })
 }
 
 pub fn remove(app: &AppState, id: &str) {

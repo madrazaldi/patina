@@ -15,6 +15,8 @@
   let reference = $state<string | null>(null);
   let audio = $state<number | null>(null);
   let subtitle = $state("keep");
+  /** Also save the choices as this show's playback preferences. */
+  let remember = $state(false);
   let view = $state<TrackView>();
   let progress = $state<[number, number] | null>(null);
   let busy = $derived(progress !== null);
@@ -45,6 +47,7 @@
     reference = k === "episode" ? (target.ratingKey ?? null) : null;
     audio = null;
     subtitle = "keep";
+    remember = false;
     const [rk] = showOf(target);
     if (!rk) {
       error = "This item doesn't belong to a show.";
@@ -76,11 +79,16 @@
     subtitle = "keep";
   }
 
+  let canApply = $derived(!!view && (view.plan.changes.length > 0 || (remember && !view.nothingChosen)));
+
   async function apply() {
     if (!view) return;
-    progress = [0, view.plan.changes.length];
+    const changes = view.plan.changes;
+    progress = [0, changes.length];
     try {
-      await api.tracksApply(view.plan.changes, (done, total) => (progress = [done, total]));
+      // Before applying: applying drops the loaded tracks the rules are read from.
+      if (remember && show[0]) await api.tracksRemember({ show: show[0], season, reference, audio, subtitle });
+      if (changes.length) await api.tracksApply(changes, (done, total) => (progress = [done, total]));
     } catch (e) {
       app.error(e);
     }
@@ -175,6 +183,14 @@
           </label>
         </div>
 
+        <label class="remember">
+          <input type="checkbox" bind:checked={remember} disabled={busy || view.nothingChosen} />
+          <span>
+            Remember for this show
+            <small>Use these languages for new episodes too, and whenever the show starts playing.</small>
+          </span>
+        </label>
+
         <div class="summary">
           {#if progress}
             <div class="bar"><i style:width="{(progress[0] / Math.max(1, progress[1])) * 100}%"></i></div>
@@ -207,8 +223,8 @@
 
       <div class="foot">
         <button class="btn quiet" disabled={busy} onclick={close}>Cancel</button>
-        <button class="btn primary" disabled={busy || !view || view.plan.changes.length === 0} onclick={apply}>
-          {view && view.plan.episodes > 0 ? `Apply to ${epCount(view.plan.episodes)}` : "Apply"}
+        <button class="btn primary" disabled={busy || !canApply} onclick={apply}>
+          {view && view.plan.episodes > 0 ? `Apply to ${epCount(view.plan.episodes)}` : remember && canApply ? "Remember" : "Apply"}
         </button>
       </div>
     </div>
@@ -239,6 +255,30 @@
   }
   label .select {
     width: 100%;
+  }
+  label.remember {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    margin-top: 16px;
+    cursor: pointer;
+  }
+  label.remember input {
+    margin-top: 2px;
+  }
+  label.remember span {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 400;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--text-1, inherit);
+  }
+  label.remember small {
+    display: block;
+    margin-top: 2px;
+    font-size: 11.5px;
+    color: var(--text-3);
   }
   .summary {
     display: flex;

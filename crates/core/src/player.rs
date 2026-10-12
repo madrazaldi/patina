@@ -465,7 +465,7 @@ async fn run(app: AppState, req: PlayRequest) -> Result<()> {
     // mpv playlist positions line up with `entries`.
     let mut start = 0;
     for (i, item) in queue.items.iter().enumerate() {
-        let media_index = if i == queue.start { req.media_index } else { 0 };
+        let media_index = crate::prefs::media_index(&app, item, if i == queue.start { req.media_index } else { 0 });
         let mut opts = vec![("force-media-title", item.full_title())];
         if i == queue.start
             && req.resume
@@ -654,6 +654,7 @@ impl Player {
                     && self.settings.sync_streams
                     && c.transcode_session.is_none()
                 {
+                    crate::prefs::apply_auto(&self.app, &self.server, &mut c.item, c.media_index);
                     apply_plex_streams(&self.server, &self.mpv, c).await;
                 }
             }

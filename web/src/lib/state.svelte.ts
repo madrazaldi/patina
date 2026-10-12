@@ -71,6 +71,10 @@ class App {
   playlistTarget = $state<Metadata | null>(null);
   /** Show, season or episode waiting for the bulk audio/subtitle dialog. */
   tracksTarget = $state<Metadata | null>(null);
+  /** Show, season or episode waiting for its automatic playback preferences. */
+  prefsTarget = $state<Metadata | null>(null);
+  /** Show, season or playlist waiting for the "keep next N downloaded" dialog. */
+  keepTarget = $state<Metadata | null>(null);
   /** Item waiting for the "add to collection" dialog. */
   collectionTarget = $state<Metadata | null>(null);
   /** Item waiting for the metadata editor. */

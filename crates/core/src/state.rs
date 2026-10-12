@@ -316,7 +316,7 @@ impl AppState {
                 let Some(inner) = weak.upgrade() else { break };
                 let app = Self(inner);
                 let list = crate::downloads::list();
-                let next = serde_json::to_string(&list).unwrap_or_default();
+                let next = serde_json::to_string(&list).unwrap_or_default() + &crate::smart::fingerprint();
                 if next != downloads { downloads = next; app.emit(CoreEvent::Downloads(list.clone())); }
                 if list.iter().any(|d| matches!(d.state, crate::downloads::State::Queued | crate::downloads::State::Downloading)) {
                     crate::downloads::resume(&app);
@@ -325,6 +325,10 @@ impl AppState {
                 let next = serde_json::to_string(&(&s.player, &s.ui, &s.tui)).unwrap_or_default();
                 if next != settings { settings = next; app.emit(CoreEvent::SettingsChanged); }
                 ticks += 1;
+                // Smart downloads follow watch state; check now and then even when nothing announces a change.
+                if ticks % 150 == 5 {
+                    crate::smart::reconcile_soon(&app);
+                }
                 if ticks % 15 == 1 {
                     let syncing = app.clone();
                     app.spawn(async move {
@@ -469,6 +473,8 @@ impl AppState {
     pub fn bump(&self) {
         let r = self.revision.fetch_add(1, Ordering::Relaxed) + 1;
         self.emit(CoreEvent::Revision(r));
+        // Watch state may have changed: smart downloads catch up.
+        crate::smart::reconcile_soon(self);
     }
 
     pub fn toast(&self, text: impl Into<String>) {
