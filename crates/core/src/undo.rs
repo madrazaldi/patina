@@ -149,9 +149,15 @@ pub fn last(app: &AppState) -> Option<(u64, String)> {
     app.undo.lock().unwrap().last(&scope).map(|e| (e.id, e.label.clone()))
 }
 
-fn record(app: &AppState, label: String, action: Action) -> Option<u64> {
-    let scope = current_scope(app)?;
-    Some(app.undo.lock().unwrap().push(&scope, label, action))
+/// Remember an action begun in `scope` (taken before its first request). Nothing is
+/// recorded if the account or server changed meanwhile: the action's rating keys and
+/// "current server" would then be read against the wrong one.
+fn record(app: &AppState, scope: Option<&str>, label: String, action: Action) -> Option<u64> {
+    let scope = scope?;
+    if current_scope(app).as_deref() != Some(scope) {
+        return None;
+    }
+    Some(app.undo.lock().unwrap().push(scope, label, action))
 }
 
 /// Toast `text`, offering undo when the action was recorded.
@@ -211,6 +217,8 @@ fn watch_label(found: &[Metadata], keys: usize, watched: bool) -> String {
 /// Mark items (or whole shows, seasons, albums) watched or unwatched on `server`
 /// (`None` for the current one), remembering how to put them back.
 pub async fn set_watched(app: &AppState, server_id: Option<&str>, keys: &[String], watched: bool) -> Result<()> {
+    let scope = current_scope(app);
+    let foreign = server_id.filter(|id| !servers::is_current(app, Some(id))).map(str::to_string);
     let server = servers::server_for(app, server_id).await?;
     // The earlier state is best effort: failing to read it must not stop the change.
     let before = leaf_states(&server, keys).await.ok();
@@ -219,13 +227,12 @@ pub async fn set_watched(app: &AppState, server_id: Option<&str>, keys: &[String
     }
     let undo = before.and_then(|(found, leaves)| {
         let restore = changing(leaves, watched);
-        let foreign = server_id.filter(|id| !servers::is_current(app, Some(id))).map(str::to_string);
         (!restore.is_empty()).then(|| (watch_label(&found, keys.len(), watched), Action::Watch { server: foreign, restore }))
     });
     let text = undo.as_ref().map(|(l, _)| l.clone()).unwrap_or_else(|| {
         if keys.len() == 1 { format!("Marked as {}", if watched { "watched" } else { "unwatched" }) } else { format!("Marked {} items {}", keys.len(), if watched { "watched" } else { "unwatched" }) }
     });
-    let id = undo.and_then(|(label, action)| record(app, label, action));
+    let id = undo.and_then(|(label, action)| record(app, scope.as_deref(), label, action));
     announce(app, text, id);
     app.bump_with(Changes::everything());
     Ok(())
@@ -233,13 +240,14 @@ pub async fn set_watched(app: &AppState, server_id: Option<&str>, keys: &[String
 
 /// Forget the resume position without changing the watched state.
 pub async fn clear_progress(app: &AppState, rating_key: &str) -> Result<()> {
+    let scope = current_scope(app);
     let server = app.server()?;
     let before = server.metadata(rating_key, Default::default()).await.ok().flatten();
     server.set_progress(rating_key, 0, "stopped").await?;
     let kept = before.as_ref().map(|m| m.view_offset.unwrap_or(0)).filter(|o| *o > 0);
     let id = kept.and_then(|offset| {
         let label = format!("Cleared progress of {}", before.as_ref().map(|m| m.title()).unwrap_or("the item"));
-        record(app, label, Action::Progress { server: None, rating_key: rating_key.to_string(), offset })
+        record(app, scope.as_deref(), label, Action::Progress { server: None, rating_key: rating_key.to_string(), offset })
     });
     announce(app, "Progress cleared".into(), id);
     app.bump_with(Changes::everything());
@@ -249,13 +257,14 @@ pub async fn clear_progress(app: &AppState, rating_key: &str) -> Result<()> {
 /// Hide an item from Continue Watching. Undo is offered when it had a resume position
 /// to bring back.
 pub async fn remove_from_continue_watching(app: &AppState, rating_key: &str) -> Result<()> {
+    let scope = current_scope(app);
     let server = app.server()?;
     let before = server.metadata(rating_key, Default::default()).await.ok().flatten();
     server.remove_from_continue_watching(rating_key).await?;
     let offset = before.as_ref().map(|m| m.view_offset.unwrap_or(0)).unwrap_or(0);
     let id = (offset > 0).then(|| {
         let label = format!("Removed {} from Continue Watching", before.as_ref().map(|m| m.title()).unwrap_or("the item"));
-        record(app, label, Action::Progress { server: None, rating_key: rating_key.to_string(), offset })
+        record(app, scope.as_deref(), label, Action::Progress { server: None, rating_key: rating_key.to_string(), offset })
     });
     announce(app, "Removed from Continue Watching".into(), id.flatten());
     app.bump_with(Changes::everything());
@@ -297,6 +306,7 @@ pub fn locate(slots: &[Slot], entry_id: i64) -> Option<(&Slot, Option<i64>)> {
 
 /// Remove one entry from a playlist, remembering where it was.
 pub async fn remove_from_playlist(app: &AppState, playlist: &str, entry_id: i64) -> Result<()> {
+    let scope = current_scope(app);
     let server = app.server()?;
     let slots = playlist_slots(&server, playlist).await.ok();
     let found = slots.as_deref().and_then(|s| locate(s, entry_id)).map(|(slot, after)| (slot.clone(), after));
@@ -304,7 +314,7 @@ pub async fn remove_from_playlist(app: &AppState, playlist: &str, entry_id: i64)
     let (text, id) = match found {
         Some((slot, after)) => {
             let label = format!("Removed {} from the playlist", slot.title);
-            let id = record(app, label.clone(), Action::PlaylistEntry { playlist: playlist.to_string(), rating_key: slot.rating_key, after });
+            let id = record(app, scope.as_deref(), label.clone(), Action::PlaylistEntry { playlist: playlist.to_string(), rating_key: slot.rating_key, after });
             (label, id)
         }
         None => ("Removed from the playlist".to_string(), None),

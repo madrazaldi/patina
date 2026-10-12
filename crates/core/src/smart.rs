@@ -396,7 +396,7 @@ pub struct Overview {
 pub fn overview(app: &AppState) -> Overview {
     let saved = load();
     let all = downloads::list();
-    let scope = crate::prefs::Scope::of(app);
+    let scope = crate::prefs::current_scope(app);
     let policies = saved
         .policies
         .into_iter()

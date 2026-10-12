@@ -271,8 +271,9 @@ pub async fn rate(app: App<'_>, rating_key: String, rating: Option<f64>) -> Res 
 
 /// Choose the audio and/or subtitle stream of a part (0 turns subtitles off).
 #[tauri::command]
-pub async fn select_streams(app: App<'_>, part_id: i64, audio: Option<i64>, subtitle: Option<i64>) -> Res {
-    Ok(app.server()?.select_streams(part_id, audio, subtitle, true).await?)
+/// `server` is the machine id of the server the item was found on (`None` for the connected one).
+pub async fn select_streams(app: App<'_>, part_id: i64, audio: Option<i64>, subtitle: Option<i64>, server: Option<String>) -> Res {
+    Ok(servers::server_for(&app, server.as_deref()).await?.select_streams(part_id, audio, subtitle, true).await?)
 }
 
 #[tauri::command]

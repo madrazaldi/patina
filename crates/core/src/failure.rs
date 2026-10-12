@@ -130,10 +130,17 @@ pub struct Report {
     pub remaining: usize,
     /// How to start the same playback again (from the failed item on).
     pub request: PlayRequest,
+    /// The account and server playback started on: its rating keys mean nothing elsewhere.
+    pub scope: Option<Scope>,
 }
 
 /// Publish a failure and keep what is needed to act on it.
 pub fn record(app: &AppState, report: Report) {
+    // A failure that arrives after switching account or server can't be retried here.
+    if report.scope != scope_of(app) {
+        tracing::info!("dropping a playback failure from another account or server");
+        return;
+    }
     // A failure from before mpv was involved already carries readable text; mpv's is translated.
     let (kind, reason, detail) = match report.kind {
         Some(kind) => (kind, report.error.unwrap_or_default(), None),
@@ -161,8 +168,7 @@ pub fn record(app: &AppState, report: Report) {
     };
     app.error(format!("Couldn't play {}: {}", failure.item.full_title(), failure.reason));
     app.emit(CoreEvent::PlaybackFailure(Some(Box::new(failure.clone()))));
-    let scope = scope_of(app);
-    *FAILED.lock().unwrap() = Some(Failed { failure, request: report.request, scope, at: Instant::now(), auto_retried: false });
+    *FAILED.lock().unwrap() = Some(Failed { failure, request: report.request, scope: report.scope, at: Instant::now(), auto_retried: false });
 }
 
 /// Turn what mpv said into a kind of failure and a sentence for people.

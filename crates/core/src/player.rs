@@ -131,9 +131,11 @@ pub enum QueueCommand {
 
 pub fn play(app: AppState, req: PlayRequest) {
     failure::clear(&app);
+    // The account and server this playback belongs to, for a failure reported after a switch.
+    let origin = app.session().as_ref().map(Scope::of);
     app.clone().spawn(async move {
         let retry = req.clone();
-        if let Err(e) = run(app.clone(), req).await {
+        if let Err(e) = run(app.clone(), req, origin.clone()).await {
             tracing::error!("playback failed: {e:#}");
             app.set_now_playing(None);
             app.set_queue(None);
@@ -152,6 +154,7 @@ pub fn play(app: AppState, req: PlayRequest) {
                     quality: retry.quality.clone().unwrap_or_else(|| app.settings().player.quality().id.to_string()),
                     remaining: retry.selection.len().saturating_sub(1),
                     request: retry,
+                    scope: origin,
                 },
             );
         }
@@ -469,6 +472,8 @@ struct Player {
     /// Machine id of `server` when it is not the session's own; queue items are tagged with it.
     server_tag: Option<String>,
     scope: Option<Scope>,
+    /// The account and connected server when playback started (`scope` is the item's server).
+    origin: Option<Scope>,
     settings: PlayerSettings,
     quality: &'static Quality,
     mpv: Arc<Mpv>,
@@ -541,7 +546,7 @@ fn release(mpv: &Arc<Mpv>) -> bool {
     }
 }
 
-async fn run(app: AppState, req: PlayRequest) -> Result<()> {
+async fn run(app: AppState, req: PlayRequest, origin: Option<Scope>) -> Result<()> {
     let _run = RunGuard::new();
     let session = app.session().ok_or_else(|| anyhow!("Not connected to a server."))?;
     // An item found on another server of the account plays, and reports, through that server.
@@ -592,6 +597,7 @@ async fn run(app: AppState, req: PlayRequest) -> Result<()> {
         server: server.clone(),
         server_tag,
         scope: Some(scope.clone()),
+        origin,
         settings: settings.clone(),
         quality: req.quality.as_deref().and_then(config::quality).unwrap_or_else(|| settings.quality()),
         mpv: mpv.clone(),
@@ -618,7 +624,7 @@ async fn run(app: AppState, req: PlayRequest) -> Result<()> {
     // mpv playlist positions line up with `entries`.
     let mut start = 0;
     for (i, item) in queue.items.iter().enumerate() {
-        let media_index = crate::prefs::media_index(&app, item, if i == queue.start { req.media_index } else { None });
+        let media_index = crate::prefs::media_index(Some(&scope), item, if i == queue.start { req.media_index } else { None });
         let mut opts = vec![("force-media-title", item.full_title())];
         if i == queue.start {
             p.initial_start = Some((item.rating_key().to_string(), 0));
@@ -909,7 +915,7 @@ impl Player {
                         if c.detail_pending {
                             c.streams_pending = true;
                         } else {
-                            crate::prefs::apply_auto(&self.app, &self.server, &mut c.item, c.media_index);
+                            crate::prefs::apply_auto(&self.app, self.scope.as_ref(), &self.server, &mut c.item, c.media_index);
                             apply_plex_streams(&self.server, &self.mpv, c).await;
                         }
                     }
@@ -991,6 +997,7 @@ impl Player {
                 quality: self.quality.id.to_string(),
                 remaining,
                 request,
+                scope: self.origin.clone(),
             },
         );
         // Everything failing in turn (or one item failing over and over under repeat-all) ends playback.
@@ -1215,7 +1222,7 @@ impl Player {
                 }
                 if c.streams_pending && c.loaded {
                     c.streams_pending = false;
-                    crate::prefs::apply_auto(&self.app, &self.server, &mut c.item, c.media_index);
+                    crate::prefs::apply_auto(&self.app, self.scope.as_ref(), &self.server, &mut c.item, c.media_index);
                     apply_plex_streams(&self.server, &self.mpv, c).await;
                 }
                 self.publish();

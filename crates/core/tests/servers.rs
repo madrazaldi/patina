@@ -252,13 +252,32 @@ async fn undo_history_is_dropped_when_the_server_changes() {
 }
 
 #[tokio::test]
+async fn an_action_finishing_after_a_switch_is_not_undoable_on_the_new_server() {
+    let (alpha, beta) = (Mock::start("Alpha", "alpha-late", 0, &["--report-delay", "1"]), Mock::start("Beta", "beta-late", 1, &[]));
+    let app = app(&alpha, &[&beta]);
+    let other = self::app(&beta, &[&alpha]);
+    // Alpha holds the scrobble; the switch to Beta happens while it is in flight.
+    let marking = {
+        let app = app.clone();
+        tokio::spawn(async move { undo::set_watched(&app, None, &["112".to_string()], true).await })
+    };
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    set_session(&app, other.session());
+    marking.await.unwrap().unwrap();
+    // Undo would unmark Beta's "112", a different item.
+    assert!(undo::last(&app).is_none());
+}
+
+#[tokio::test]
 async fn a_playback_failure_is_not_retried_on_another_server() {
     use patina_core::failure::{self, Phase, Recover, Report};
     use patina_core::player::PlayRequest;
+    use patina_core::recovery::Scope;
     let (alpha, beta) = (Mock::start("Alpha", "alpha-failure", 0, &[]), Mock::start("Beta", "beta-failure", 1, &[]));
     let app = app(&alpha, &[&beta]);
     let other = self::app(&beta, &[&alpha]);
     let item = app.server().unwrap().metadata("112", MetadataOptions::default()).await.unwrap().unwrap();
+    let on_alpha = app.session().as_ref().map(Scope::of);
     let report = || Report {
         item: item.clone(),
         error: Some("loading failed".into()),
@@ -269,6 +288,7 @@ async fn a_playback_failure_is_not_retried_on_another_server() {
         quality: "original".into(),
         remaining: 0,
         request: PlayRequest { item: item.clone(), ..Default::default() },
+        scope: on_alpha.clone(),
     };
 
     let _held = SESSIONS.lock().unwrap_or_else(|e| e.into_inner());
@@ -281,4 +301,8 @@ async fn a_playback_failure_is_not_retried_on_another_server() {
     app.set_session(other.session(), vec![]);
     assert!(failure::current().is_none());
     assert!(failure::recover(&app, Recover::Retry).is_err());
+
+    // Alpha's playback failing late, after the switch, is not offered on Beta either.
+    failure::record(&app, report());
+    assert!(failure::current().is_none());
 }

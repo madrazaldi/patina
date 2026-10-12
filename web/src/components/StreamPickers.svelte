@@ -9,6 +9,11 @@
 
   let { item, mediaIndex = $bindable(0) }: { item: Metadata; mediaIndex?: number } = $props();
 
+  // An item found on another server: its tracks are chosen there, and the connected
+  // server's owner rights (searching and deleting subtitle files) don't apply.
+  let foreign = $derived(item.patinaServer);
+  let owner = $derived(app.owned && !foreign);
+
   let media = $derived(item.Media[mediaIndex] ?? item.Media[0]);
   let part = $derived(media?.Part[0]);
   let audio = $derived(part ? plex.audioStreams(part) : []);
@@ -19,7 +24,7 @@
 
   function select(a?: number, s?: number) {
     if (part?.id == null) return;
-    act(api.selectStreams(part.id, a, s), undefined, true);
+    act(api.selectStreams(part.id, a, s, foreign), undefined, true);
   }
 
   async function removeSub(id: number, label: string) {
@@ -50,7 +55,7 @@
       <div class="field">
         <div class="head">
           <span>Subtitles</span>
-          {#if app.owned && ["movie", "episode"].includes(plex.kind(item))}
+          {#if owner && ["movie", "episode"].includes(plex.kind(item))}
             <button class="link" onclick={() => (app.subtitleTarget = item)}>Search…</button>
           {/if}
         </div>
@@ -66,7 +71,7 @@
               <option value={String(s.id)}>{plex.streamLabel(s)}{plex.isExternal(s) ? " · external" : ""}</option>
             {/each}
           </select>
-          {#if app.owned && external?.id != null}
+          {#if owner && external?.id != null}
             {@const id = external.id}
             {@const label = plex.streamLabel(external)}
             <button class="icon-btn" title="Delete this subtitle file" onclick={() => removeSub(id, label)}><Trash size={15} /></button>

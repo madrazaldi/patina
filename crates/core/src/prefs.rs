@@ -18,7 +18,7 @@ use patina_plex::{Media, Metadata, Part, PlexServer, Stream};
 use serde::{Deserialize, Serialize};
 
 use crate::state::AppState;
-use crate::{config, offline, storage};
+use crate::{config, storage};
 
 // Rules ----------------------------------------------------------------------
 
@@ -473,16 +473,20 @@ pub fn pick_version(r: &Resolved, versions: &[Media]) -> usize {
 // Storage ----------------------------------------------------------------------
 
 /// The account and server a rule belongs to.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Scope {
-    pub account: String,
-    pub server: String,
+pub use crate::recovery::Scope;
+
+/// The connected account and server.
+pub fn current_scope(app: &AppState) -> Option<Scope> {
+    app.session().as_ref().map(Scope::of)
 }
 
-impl Scope {
-    pub fn of(app: &AppState) -> Option<Scope> {
-        app.session().map(|s| Scope { account: offline::account(&s), server: s.server_id })
+/// The scope whose rules apply to `item`: its own server's when it was found on another one.
+pub fn scope_for(app: &AppState, item: &Metadata) -> Option<Scope> {
+    let mut scope = current_scope(app)?;
+    if let Some(id) = item.server_id() {
+        scope.server = id.to_string();
     }
+    Some(scope)
 }
 
 /// One saved set of rules: a profile's (`show` is `None`) or a show's.
@@ -571,7 +575,7 @@ pub struct ShowRules {
 }
 
 fn scope(app: &AppState) -> Result<Scope> {
-    Scope::of(app).ok_or_else(|| anyhow!("Not connected to a server."))
+    current_scope(app).ok_or_else(|| anyhow!("Not connected to a server."))
 }
 
 pub fn view(app: &AppState, show: Option<&str>) -> Result<View> {
@@ -656,32 +660,34 @@ pub fn remember_tracks(app: &AppState, q: &crate::tracks::Query) -> Result<()> {
 // Hooks used by playback -------------------------------------------------------
 
 /// The version of `item` to play: an explicit choice (`requested`, including
-/// the first version) always stands; otherwise the rules' pick.
-pub fn media_index(app: &AppState, item: &Metadata, requested: Option<usize>) -> usize {
+/// the first version) always stands; otherwise the pick of the rules of `scope`
+/// (the account and the server the item plays from).
+pub fn media_index(scope: Option<&Scope>, item: &Metadata, requested: Option<usize>) -> usize {
     if let Some(index) = requested {
         return index;
     }
     if item.media.len() < 2 || !matches!(item.kind(), "movie" | "episode") {
         return 0;
     }
-    let Some(scope) = Scope::of(app) else { return 0 };
-    pick_version(&effective(&load(), &scope, show_of(item)).resolve(), &item.media)
+    let Some(scope) = scope else { return 0 };
+    pick_version(&effective(&load(), scope, show_of(item)).resolve(), &item.media)
 }
 
 /// Which version of `item` the rules prefer (for pre-selecting it in a picker).
 pub fn preferred_version(app: &AppState, item: &Metadata) -> usize {
-    media_index(app, item, None)
+    media_index(scope_for(app, item).as_ref(), item, None)
 }
 
 /// Apply the rules to the streams of an item that is about to play: select the
 /// tracks in `item` (so mpv is given them) and save them to Plex in the
 /// background so other apps agree. A resumed item keeps the tracks it had.
-pub fn apply_auto(app: &AppState, server: &PlexServer, item: &mut Metadata, media_index: usize) {
+/// `scope` is the account and the server the item plays from.
+pub fn apply_auto(app: &AppState, scope: Option<&Scope>, server: &PlexServer, item: &mut Metadata, media_index: usize) {
     if !matches!(item.kind(), "movie" | "episode") || item.view_offset.unwrap_or(0) > 0 {
         return;
     }
-    let Some(scope) = Scope::of(app) else { return };
-    let rules = effective(&load(), &scope, show_of(item)).resolve();
+    let Some(scope) = scope else { return };
+    let rules = effective(&load(), scope, show_of(item)).resolve();
     if !rules.has_track_rules() {
         return;
     }

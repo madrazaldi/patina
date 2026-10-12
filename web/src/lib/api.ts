@@ -179,8 +179,9 @@ export const api = {
     return call<AllResults>("search_all_servers", { query, progress });
   },
   rate: (ratingKey: string, rating: number | null) => call("rate", { ratingKey, rating }),
-  selectStreams: (partId: number, audio?: number, subtitle?: number) =>
-    call("select_streams", { partId, audio, subtitle }),
+  /** `server` is the item's own server when it was found on another one. */
+  selectStreams: (partId: number, audio?: number, subtitle?: number, server?: string) =>
+    call("select_streams", { partId, audio, subtitle, server: server ?? null }),
   refreshMetadata: (ratingKey: string) => call("refresh_metadata", { ratingKey }),
   analyzeMetadata: (ratingKey: string) => call("analyze_metadata", { ratingKey }),
   removeFromContinueWatching: (ratingKey: string) => call("remove_from_continue_watching", { ratingKey }),
