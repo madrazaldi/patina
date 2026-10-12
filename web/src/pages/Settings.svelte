@@ -1,6 +1,7 @@
 <script lang="ts">
   import { ExternalLink } from "@lucide/svelte";
   import Img from "../components/Img.svelte";
+  import { modal } from "../lib/dialog";
   import { api } from "../lib/api";
   import { initials } from "../lib/format";
   import { img } from "../lib/images";
@@ -257,25 +258,23 @@
 
   {#if pinFor}
     {@const u = pinFor}
-    <div class="modal-backdrop" role="presentation" onclick={() => (pinFor = null)}>
-      <div class="modal" role="dialog" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
-        <h2>Enter PIN</h2>
-        <p class="desc">{u.title ?? u.username}'s profile is protected.</p>
-        <!-- svelte-ignore a11y_autofocus -->
-        <input
-          class="input pin"
-          type="password"
-          maxlength="4"
-          autofocus
-          bind:value={pin}
-          onkeydown={(e) => e.key === "Enter" && switchTo(u, pin)}
-        />
-        <div class="foot">
-          <button class="btn quiet" onclick={() => (pinFor = null)}>Cancel</button>
-          <button class="btn primary" onclick={() => switchTo(u, pin)}>Switch</button>
-        </div>
+    <dialog class="modal" use:modal={() => (pinFor = null)} aria-labelledby="pin-title">
+      <h2 id="pin-title">Enter PIN</h2>
+      <p class="desc">{u.title ?? u.username}'s profile is protected.</p>
+      <input
+        class="input pin"
+        type="password"
+        maxlength="4"
+        aria-label="PIN"
+        data-initial-focus
+        bind:value={pin}
+        onkeydown={(e) => e.key === "Enter" && switchTo(u, pin)}
+      />
+      <div class="foot">
+        <button class="btn quiet" onclick={() => (pinFor = null)}>Cancel</button>
+        <button class="btn primary" onclick={() => switchTo(u, pin)}>Switch</button>
       </div>
-    </div>
+    </dialog>
   {/if}
 {/if}
 

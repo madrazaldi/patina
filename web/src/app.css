@@ -686,15 +686,6 @@ p {
   margin: 4px 0;
 }
 
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  display: grid;
-  place-items: center;
-  background: rgba(0, 0, 0, 0.6);
-  animation: fade 0.15s var(--ease);
-}
 .modal {
   width: min(440px, calc(100vw - 48px));
   max-height: calc(100vh - 96px);
@@ -704,6 +695,14 @@ p {
   border: 1px solid var(--line-2);
   background: #141414;
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+}
+dialog.modal {
+  margin: auto;
+  color: var(--text);
+  animation: fade 0.15s var(--ease);
+}
+dialog.modal::backdrop {
+  background: rgba(0, 0, 0, 0.65);
 }
 .modal.wide {
   width: min(640px, calc(100vw - 48px));

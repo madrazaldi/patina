@@ -30,10 +30,11 @@
     Wallpaper,
   } from "@lucide/svelte";
   import { api } from "../lib/api";
+  import { menu as menunav } from "../lib/menu";
   import { download, downloaded, enqueue, play, setWatched } from "../lib/actions.svelte";
   import * as plex from "../lib/plex";
   import { nav } from "../lib/router.svelte";
-  import { act, app } from "../lib/state.svelte";
+  import { act, app, captureScope } from "../lib/state.svelte";
   import type { Metadata } from "../lib/types";
 
   let el: HTMLDivElement | undefined = $state();
@@ -60,6 +61,7 @@
 
   async function remove(target: Metadata) {
     const rk = target.ratingKey ?? "";
+    const guard = captureScope();
     const collection = plex.kind(target) === "collection";
     const ok = await app.confirm(`Delete “${plex.title(target)}”?`, {
       text: collection
@@ -68,7 +70,8 @@
       action: "Delete",
       danger: true,
     });
-    if (!ok) return;
+    // The rating key belongs to the server the menu opened on.
+    if (!ok || !guard.valid()) return;
     const onPage = nav.route.name === "item" && nav.route.ratingKey === rk;
     if (await act(collection ? api.deleteCollection(rk) : api.deleteItem(rk), "Deleted", true)) {
       if (onPage) nav.back();
@@ -97,7 +100,7 @@
       close();
     }}
   ></div>
-  <div class="menu" bind:this={el} bind:clientWidth={width} bind:clientHeight={height} style:left="{x}px" style:top="{y}px">
+  <div class="menu" use:menunav={close} aria-label={plex.fullTitle(item)} bind:this={el} bind:clientWidth={width} bind:clientHeight={height} style:left="{x}px" style:top="{y}px">
     <div class="head">
       <b>{plex.fullTitle(item)}</b>
       {#if plex.subtitle(item)}<span>{plex.subtitle(item)}</span>{/if}

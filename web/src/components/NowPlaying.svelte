@@ -63,6 +63,27 @@
     setTimeout(() => !scrubbing && (scrub = null), 2000);
   }
 
+  // Keyboard: arrows seek 5 s, PageUp/PageDown 60 s, Home/End jump to the ends. Repeated presses build on the
+  // pending target rather than on the lagging playback position.
+  let scrubTimer: ReturnType<typeof setTimeout> | undefined;
+  function seekKey(e: KeyboardEvent) {
+    if (!np || np.durationMs <= 0 || e.altKey || e.ctrlKey || e.metaKey) return;
+    const now = scrub != null ? scrub * np.durationMs : np.positionMs;
+    const step: Record<string, number> = { ArrowLeft: -5000, ArrowDown: -5000, ArrowRight: 5000, ArrowUp: 5000, PageDown: -60000, PageUp: 60000 };
+    let to: number;
+    if (e.key in step) to = now + step[e.key];
+    else if (e.key === "Home") to = 0;
+    // Stop just short of the end so End never skips to the next item by itself.
+    else if (e.key === "End") to = np.durationMs - 1000;
+    else return;
+    e.preventDefault();
+    to = Math.min(Math.max(0, to), Math.max(0, np.durationMs - 1000));
+    scrub = to / np.durationMs;
+    send({ kind: "seekTo", seconds: to / 1000 })();
+    clearTimeout(scrubTimer);
+    scrubTimer = setTimeout(() => !scrubbing && (scrub = null), 2000);
+  }
+
   $effect(() => {
     const pos = app.nowPlaying?.positionMs ?? 0;
     const target = scrub != null && np ? scrub * np.durationMs : null;
@@ -83,7 +104,15 @@
       <div
         class={["seek", { scrubbing: scrub != null }]}
         bind:this={seek}
-        role="presentation"
+        role="slider"
+        tabindex="0"
+        aria-label="Seek"
+        aria-orientation="horizontal"
+        aria-valuemin={0}
+        aria-valuemax={Math.round(np.durationMs / 1000)}
+        aria-valuenow={Math.round(position / 1000)}
+        aria-valuetext="{clock(position)} of {clock(np.durationMs)}"
+        onkeydown={seekKey}
         onpointerdown={(e) => {
           if (e.button !== 0) return;
           e.currentTarget.setPointerCapture(e.pointerId);
@@ -191,8 +220,13 @@
     height: 1px;
   }
   .seek:hover .line,
+  .seek:focus-visible .line,
   .seek.scrubbing .line {
     background: var(--line-2);
+  }
+  .seek:focus-visible .line {
+    height: 3px;
+    top: 3px;
   }
   .line i {
     display: block;

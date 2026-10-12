@@ -5,6 +5,8 @@
   import type { Snippet } from "svelte";
   import ArtworkDialog from "./ArtworkDialog.svelte";
   import CollectionDialog from "./CollectionDialog.svelte";
+  import CommandPalette from "./CommandPalette.svelte";
+  import { menu as menunav } from "../lib/menu";
   import EditDialog from "./EditDialog.svelte";
   import Img from "./Img.svelte";
   import ItemMenu from "./ItemMenu.svelte";
@@ -44,7 +46,10 @@
     const t = e.target as HTMLElement | null;
     const typing = t && ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName);
     const mod = e.metaKey || e.ctrlKey;
-    if ((e.key === "/" && !typing) || (mod && (e.key === "k" || e.key === "f"))) {
+    if (mod && e.key.toLowerCase() === "k") {
+      e.preventDefault();
+      app.palette = true;
+    } else if ((e.key === "/" && !typing) || (mod && e.key === "f")) {
       e.preventDefault();
       searchInput?.focus();
       searchInput?.select();
@@ -177,7 +182,7 @@
 
 {#if userMenu}
   <div class="scrim" role="presentation" onclick={() => (userMenu = false)}></div>
-  <div class="menu" style="left: 12px; bottom: 64px; width: 220px">
+  <div class="menu" use:menunav={() => (userMenu = false)} aria-label="Account" style="left: 12px; bottom: 64px; width: 220px">
     {#if session && session.servers.length > 1}
       <div class="head"><span>Switch server</span></div>
       {#each session.servers as s (s.id)}
@@ -205,6 +210,7 @@
 {/if}
 
 <ItemMenu />
+{#if app.palette}<CommandPalette />{/if}
 <PlaylistDialog />
 <TrackDialog />
 <CollectionDialog />

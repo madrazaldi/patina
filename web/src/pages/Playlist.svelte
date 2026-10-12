@@ -3,6 +3,7 @@
   import Img from "../components/Img.svelte";
   import Status from "../components/Status.svelte";
   import { enqueue, openMenu, play } from "../lib/actions.svelte";
+  import { modal } from "../lib/dialog";
   import { api } from "../lib/api";
   import { duration } from "../lib/format";
   import { img } from "../lib/images";
@@ -199,30 +200,21 @@
 {/if}
 
 {#if editing}
-  <div class="modal-backdrop" role="presentation" onclick={() => (editing = null)}>
-    <div
-      class="modal"
-      role="dialog"
-      tabindex="-1"
-      onclick={(e) => e.stopPropagation()}
-      onkeydown={(e) => e.key === "Escape" && (editing = null)}
-    >
-      <h2>Edit playlist</h2>
-      <label class="field">
-        <span>Title</span>
-        <!-- svelte-ignore a11y_autofocus -->
-        <input class="input" autofocus bind:value={editing.title} onkeydown={(e) => e.key === "Enter" && save()} />
-      </label>
-      <label class="field">
-        <span>Description</span>
-        <textarea class="input" rows="4" bind:value={editing.summary}></textarea>
-      </label>
-      <div class="foot">
-        <button class="btn quiet" onclick={() => (editing = null)}>Cancel</button>
-        <button class="btn primary" disabled={!editing.title.trim()} onclick={save}>Save</button>
-      </div>
+  <dialog class="modal" use:modal={() => (editing = null)} aria-labelledby="playlist-edit-title">
+    <h2 id="playlist-edit-title">Edit playlist</h2>
+    <label class="field">
+      <span>Title</span>
+      <input class="input" data-initial-focus bind:value={editing.title} onkeydown={(e) => e.key === "Enter" && save()} />
+    </label>
+    <label class="field">
+      <span>Description</span>
+      <textarea class="input" rows="4" bind:value={editing.summary}></textarea>
+    </label>
+    <div class="foot">
+      <button class="btn quiet" onclick={() => (editing = null)}>Cancel</button>
+      <button class="btn primary" disabled={!editing.title.trim()} onclick={save}>Save</button>
     </div>
-  </div>
+  </dialog>
 {/if}
 
 <style>

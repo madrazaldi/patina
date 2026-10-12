@@ -2,13 +2,16 @@
   // "Fix match" dialog, shown while `app.matchTarget` is set.
   import { untrack } from "svelte";
   import Img from "./Img.svelte";
+  import { modal } from "../lib/dialog";
   import { api } from "../lib/api";
   import { img } from "../lib/images";
   import * as plex from "../lib/plex";
-  import { act, app, message } from "../lib/state.svelte";
+  import { act, app, captureScope, message } from "../lib/state.svelte";
   import type { MatchResult } from "../lib/types";
 
   let item = $derived(app.matchTarget);
+  // The account and server the dialog opened on: responses and writes for any other one are dropped.
+  let guard = captureScope();
   let title = $state("");
   let year = $state("");
   let results = $state<MatchResult[] | null>(null);
@@ -22,13 +25,14 @@
     const target = item;
     if (!target) return;
     const run = ++generation;
+    const asked = guard;
     results = null;
     error = undefined;
     const y = Number(year.trim());
     const q = manual ? title.trim() || undefined : undefined;
     api.matches(target.ratingKey ?? "", q, manual && y ? y : undefined).then(
-      (r) => run === generation && (results = r),
-      (e) => run === generation && (error = message(e)),
+      (r) => run === generation && asked.valid() && (results = r),
+      (e) => run === generation && asked.valid() && (error = message(e)),
     );
   }
 
@@ -37,6 +41,7 @@
     const target = item;
     busy = false;
     if (!target) return;
+    guard = captureScope();
     title = plex.title(target);
     year = target.year != null ? String(target.year) : "";
     untrack(() => search(false));
@@ -48,6 +53,7 @@
 
   async function apply(r: MatchResult) {
     if (!item || !r.guid || busy) return;
+    if (!guard.valid()) { app.matchTarget = null; return; }
     busy = true;
     const ok = await act(api.applyMatch(item.ratingKey ?? "", r.guid, r.name), `Matched to “${r.name ?? ""}”`, true);
     busy = false;
@@ -62,59 +68,57 @@
       action: "Unmatch",
       danger: true,
     });
-    if (!ok) return;
+    if (!ok || !guard.valid()) return;
     if (await act(api.unmatch(target.ratingKey ?? ""), "Unmatched", true)) app.matchTarget = null;
   }
 </script>
 
 {#if item}
-  <div class="modal-backdrop" role="presentation" onclick={close}>
-    <div class="modal wide" role="dialog" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.key === "Escape" && close()}>
-      <h2>Fix match</h2>
-      <p class="desc">{plex.fullTitle(item)}</p>
+  <dialog class="modal wide" use:modal={close} aria-labelledby="match-title">
+    <h2 id="match-title">Fix match</h2>
+    <p class="desc">{plex.fullTitle(item)}</p>
 
-      <form
-        class="search"
-        onsubmit={(e) => {
-          e.preventDefault();
-          search(true);
-        }}
-      >
-        <input class="input grow" placeholder="Title" bind:value={title} />
-        <input class="input year num" placeholder="Year" inputmode="numeric" bind:value={year} />
-        <button class="btn" type="submit" disabled={!title.trim()}>Search</button>
-      </form>
+    <form
+      class="search"
+      onsubmit={(e) => {
+        e.preventDefault();
+        search(true);
+      }}
+    >
+      <input class="input grow" placeholder="Title" bind:value={title} />
+      <input class="input year num" placeholder="Year" inputmode="numeric" bind:value={year} />
+      <button class="btn" type="submit" disabled={!title.trim()}>Search</button>
+    </form>
 
-      {#if error}
-        <div class="error-box">{error}</div>
-      {:else if results === null}
-        <div class="spinner"></div>
-      {:else if results.length === 0}
-        <p class="faint">No matches. Try a different title or year.</p>
-      {:else}
-        <div class="rows results">
-          {#each results as r, i (r.guid ?? i)}
-            <button class="list-row clickable result" disabled={busy} onclick={() => apply(r)}>
-              <div class={["thumb", { square }]}><Img src={img(r.thumb, 96, square ? 96 : 144)} /></div>
-              <div class="grow">
-                <div class="t">
-                  {r.name}{#if r.year != null}<span class="faint"> ({r.year})</span>{/if}
-                  {#if r.matched}<span class="tag accent">Current</span>{/if}
-                </div>
-                {#if r.summary}<p class="sum">{r.summary}</p>{/if}
+    {#if error}
+      <div class="error-box">{error}</div>
+    {:else if results === null}
+      <div class="spinner"></div>
+    {:else if results.length === 0}
+      <p class="faint">No matches. Try a different title or year.</p>
+    {:else}
+      <div class="rows results">
+        {#each results as r, i (r.guid ?? i)}
+          <button class="list-row clickable result" disabled={busy} onclick={() => apply(r)}>
+            <div class={["thumb", { square }]}><Img src={img(r.thumb, 96, square ? 96 : 144)} /></div>
+            <div class="grow">
+              <div class="t">
+                {r.name}{#if r.year != null}<span class="faint"> ({r.year})</span>{/if}
+                {#if r.matched}<span class="tag accent">Current</span>{/if}
               </div>
-              <div class="end">{r.score != null ? `${r.score}%` : ""}</div>
-            </button>
-          {/each}
-        </div>
-      {/if}
-
-      <div class="foot">
-        <button class="btn quiet danger unmatch" disabled={busy} onclick={unmatch}>Unmatch</button>
-        <button class="btn quiet" disabled={busy} onclick={close}>Cancel</button>
+              {#if r.summary}<p class="sum">{r.summary}</p>{/if}
+            </div>
+            <div class="end">{r.score != null ? `${r.score}%` : ""}</div>
+          </button>
+        {/each}
       </div>
+    {/if}
+
+    <div class="foot">
+      <button class="btn quiet danger unmatch" disabled={busy} onclick={unmatch}>Unmatch</button>
+      <button class="btn quiet" disabled={busy} onclick={close}>Cancel</button>
     </div>
-  </div>
+  </dialog>
 {/if}
 
 <style>

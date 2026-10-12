@@ -1,8 +1,9 @@
 <script lang="ts">
   // Metadata editor, shown while `app.editTarget` is set. Only changed fields are sent.
+  import { modal } from "../lib/dialog";
   import { api, type TagEdit } from "../lib/api";
   import * as plex from "../lib/plex";
-  import { act, app, message } from "../lib/state.svelte";
+  import { act, app, captureScope, message } from "../lib/state.svelte";
   import type { Metadata, Tag } from "../lib/types";
 
   type Field = "title" | "titleSort" | "originalTitle" | "editionTitle" | "year" | "originallyAvailableAt" | "contentRating" | "studio" | "tagline" | "summary";
@@ -67,6 +68,9 @@
     return v;
   }
 
+  // The account and server the editor was opened on. A save or a late response from any other one is dropped.
+  let guard = captureScope();
+
   // Menu items may be partial, so edit the full item.
   $effect(() => {
     const target = item;
@@ -74,9 +78,10 @@
     error = undefined;
     busy = false;
     if (!target) return;
+    const opened = (guard = captureScope());
     api.metadata(target.ratingKey ?? "").then(
       (m) => {
-        if (app.editTarget !== target) return;
+        if (app.editTarget !== target || !opened.valid()) return;
         if (!m) {
           error = "This item no longer exists on the server.";
           return;
@@ -85,7 +90,7 @@
         form = { ...original };
         full = m;
       },
-      (e) => (error = message(e)),
+      (e) => app.editTarget === target && opened.valid() && (error = message(e)),
     );
   });
 
@@ -125,73 +130,72 @@
 
   async function save() {
     if (!full || !dirty || invalid) return;
+    // The editor holds a rating key from the server it was opened on; never send it to another one.
+    if (!guard.valid()) { app.editTarget = null; return; }
     const c = changes();
     busy = true;
     const ok = await act(api.editMetadata(full.ratingKey ?? "", c.fields, c.tags), "Saved", true);
     busy = false;
-    if (ok) app.editTarget = null;
+    if (ok && guard.valid()) app.editTarget = null;
   }
 </script>
 
-<svelte:window onkeydown={(e) => e.key === "Escape" && item && close()} />
-
 {#if item}
-  <div class="modal-backdrop" role="presentation" onclick={close}>
-    <div class="modal wide" role="dialog" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
-      <h2>Edit</h2>
-      <p class="desc">{plex.fullTitle(full ?? item)}</p>
+  <dialog class="modal wide" use:modal={close} aria-labelledby="edit-title">
+    <h2 id="edit-title">Edit</h2>
+    <p class="desc">{plex.fullTitle(full ?? item)}</p>
 
-      {#if error}
-        <div class="error-box">{error}</div>
-      {:else if !full}
-        <div class="spinner"></div>
-      {:else}
-        <form
-          class="fields"
-          onsubmit={(e) => {
-            e.preventDefault();
-            save();
-          }}
-        >
-          {#each short as f (f)}
-            <label class={{ wide: f === "title" || f === "tagline" }}>
-              <span>{label(f)}</span>
-              {#if f === "originallyAvailableAt"}
-                <input class="input" type="date" disabled={busy} bind:value={form[f]} />
-              {:else}
-                <input
-                  class="input"
-                  inputmode={f === "year" ? "numeric" : undefined}
-                  placeholder={f === "titleSort" ? (form.title ?? "") : ""}
-                  disabled={busy}
-                  bind:value={form[f]}
-                />
-              {/if}
-            </label>
-          {/each}
-          {#each tags as t (t)}
-            <label>
-              <span>{t === "genre" ? "Genres" : "Labels"}</span>
-              <input class="input" placeholder="Comma-separated" disabled={busy} bind:value={form[t]} />
-            </label>
-          {/each}
-          {#if fields.includes("summary")}
-            <label class="wide">
-              <span>Summary</span>
-              <textarea class="input area" rows="6" disabled={busy} bind:value={form.summary}></textarea>
-            </label>
-          {/if}
-          <button type="submit" hidden aria-hidden="true"></button>
-        </form>
-      {/if}
+    {#if error}
+      <div class="error-box">{error}</div>
+    {:else if !full}
+      <div class="spinner"></div>
+    {:else}
+      <form
+        class="fields"
+        onsubmit={(e) => {
+          e.preventDefault();
+          save();
+        }}
+      >
+        {#each short as f (f)}
+          <label class={{ wide: f === "title" || f === "tagline" }}>
+            <span>{label(f)}</span>
+            {#if f === "originallyAvailableAt"}
+              <input class="input" type="date" disabled={busy} bind:value={form[f]} />
+            {:else}
+              <input
+                class="input"
+                data-initial-focus={f === "title" ? "" : undefined}
+                inputmode={f === "year" ? "numeric" : undefined}
+                placeholder={f === "titleSort" ? (form.title ?? "") : ""}
+                disabled={busy}
+                bind:value={form[f]}
+              />
+            {/if}
+          </label>
+        {/each}
+        {#each tags as t (t)}
+          <label>
+            <span>{t === "genre" ? "Genres" : "Labels"}</span>
+            <input class="input" placeholder="Comma-separated" disabled={busy} bind:value={form[t]} />
+          </label>
+        {/each}
+        {#if fields.includes("summary")}
+          <label class="wide">
+            <span>Summary</span>
+            <textarea class="input area" rows="6" disabled={busy} bind:value={form.summary}></textarea>
+          </label>
+        {/if}
+        <button type="submit" hidden aria-hidden="true"></button>
+      </form>
+    {/if}
 
-      <div class="foot">
-        <span class={["hint", invalid ? "bad" : "faint"]}>{invalid ?? "Edited fields are locked, so refreshing metadata won't overwrite them."}</span>
-        <button class="btn quiet" disabled={busy} onclick={close}>Cancel</button>
-        <button class="btn primary" disabled={!dirty || !!invalid || busy} onclick={save}>{busy ? "Saving…" : "Save"}</button>
-      </div>
+    <div class="foot">
+      <span class={["hint", invalid ? "bad" : "faint"]}>{invalid ?? "Edited fields are locked, so refreshing metadata won't overwrite them."}</span>
+      <button class="btn quiet" disabled={busy} onclick={close}>Cancel</button>
+      <button class="btn primary" disabled={!dirty || !!invalid || busy} onclick={save}>{busy ? "Saving…" : "Save"}</button>
     </div>
-  </div>
+  </dialog>
 {/if}
 
 <style>
