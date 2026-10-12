@@ -73,6 +73,9 @@ impl App {
     pub(super) fn normal_key(&mut self, key: KeyEvent) {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         let page = self.list_height.max(2) as isize;
+        if self.marks_key(key) {
+            return;
+        }
         let Some(col) = self.columns.last_mut() else { return };
         match key.code {
             KeyCode::Char('q') => self.quit = true,
@@ -169,6 +172,7 @@ impl App {
             KeyCode::Char('A') => self.open_letters(),
             KeyCode::Char('t') => self.cycle_type(),
             KeyCode::Char('v') => self.open_browse(),
+            KeyCode::Char('V') => self.open_views(),
             KeyCode::Char('H') => {
                 let idx = self.columns.len() - 1;
                 self.go_full(idx);
@@ -457,6 +461,10 @@ impl App {
                 } else {
                     Some(Modal::Edit(m))
                 }
+            }
+            Modal::Pick(p) if matches!(p.kind, PickKind::Views) && key.code == KeyCode::Char('x') => {
+                self.forget_view(p);
+                return;
             }
             Modal::Pick(mut p) => {
                 // Letters jump directly; arrows move.

@@ -186,7 +186,7 @@ fn meta(item: &Item, ctx: &RowCtx) -> (String, Style) {
     }
 }
 
-fn row_line(item: &Item, width: usize, ctx: &RowCtx) -> Line<'static> {
+fn row_line(item: &Item, width: usize, ctx: &RowCtx, marked: bool) -> Line<'static> {
     let glyph = status_glyph(item, ctx);
     let title = if ctx.full_titles || ctx.sessions || ctx.history {
         item.full_title()
@@ -212,8 +212,10 @@ fn row_line(item: &Item, width: usize, ctx: &RowCtx) -> Line<'static> {
     } else {
         Style::default()
     };
+    // A `+` in the margin marks an item picked for a bulk action.
+    let margin = if marked { Span::styled("+", Style::default().fg(ctx.theme.accent).bold()) } else { Span::raw(" ") };
     Line::from(vec![
-        Span::raw(" "),
+        margin,
         glyph,
         Span::raw(" "),
         Span::styled(title, title_style),
@@ -269,6 +271,9 @@ pub(super) fn draw_columns(f: &mut Frame, app: &mut App, theme: &Theme, area: Re
                 format!("{} ", col.count_label()),
                 Style::default().fg(theme.dim),
             ));
+        }
+        if !col.marks.is_empty() {
+            title_spans.push(Span::styled(format!("+{} marked ", col.marks.len()), Style::default().fg(theme.accent).bold()));
         }
         if col.loading {
             title_spans.push(Span::styled(
@@ -372,7 +377,7 @@ pub(super) fn draw_columns(f: &mut Frame, app: &mut App, theme: &Theme, area: Re
                 let Some(item) = col.item_at(pos) else {
                     return Line::from(Span::styled("  ⋯", Style::default().fg(theme.dim)));
                 };
-                let line = row_line(item, width, &ctx);
+                let line = row_line(item, width, &ctx, col.marks.contains(item));
                 match pos == col.cursor {
                     true if focused => highlight(line, width, selected_style(theme)),
                     true => highlight(line, width, Style::default().bg(theme.surface)),

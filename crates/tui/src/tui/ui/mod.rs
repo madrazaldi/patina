@@ -267,6 +267,19 @@ fn draw_footer(f: &mut Frame, app: &App, theme: &Theme, area: Rect) {
         let mut line = key_hints(&hints, theme);
         line.spans.insert(0, Span::raw(" "));
         line
+    } else if let Some(col) = app.columns.last().filter(|c| !c.marks.is_empty()) {
+        // Marks are set: the keys now act on all of them.
+        let mut hints = vec![("tab", "mark"), ("M", "actions"), ("n/N", "queue"), ("w/u", "watched"), ("D", "download"), ("space", "playlist")];
+        if app.owned() {
+            hints.push(("C", "collection"));
+        }
+        if col.is_playlist().is_some() || (app.owned() && col.is_collection().is_some()) {
+            hints.push(("x", "remove"));
+        }
+        hints.push(("esc", "clear"));
+        let mut line = key_hints(&hints, theme);
+        line.spans.insert(0, Span::raw(" "));
+        line
     } else {
         let playable = app.selected().is_some_and(Item::is_playable);
         let mut hints = vec![("enter", if playable { "play" } else { "open" })];
@@ -278,6 +291,10 @@ fn draw_footer(f: &mut Frame, app: &App, theme: &Theme, area: Rect) {
         }
         if app.columns.last().is_some_and(|c| c.library().is_some()) {
             hints.push(("F", "filters"));
+            hints.push(("V", "views"));
+        }
+        if app.selected().is_some_and(crate::tui::marks::markable) {
+            hints.push(("tab", "mark"));
         }
         hints.extend([
             ("f", "search"),

@@ -297,6 +297,7 @@ impl App {
             GoToParent => self.go_to_parent(false),
             GoToGrandparent => self.go_to_parent(true),
             Row(op) => self.run_row(op),
+            Bulk(op) => self.bulk_run(op),
         }
     }
 }

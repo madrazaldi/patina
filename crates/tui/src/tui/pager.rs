@@ -46,6 +46,7 @@ impl Pager {
         self.size
     }
 
+    #[cfg(test)]
     pub fn page_count(&self) -> usize {
         self.total.div_ceil(self.size)
     }
@@ -55,6 +56,7 @@ impl Pager {
         self.pages.get(&(pos / self.size))?.1.get(pos % self.size)
     }
 
+    #[cfg(test)]
     pub fn loaded_pages(&self) -> usize {
         self.pages.len()
     }
@@ -63,6 +65,7 @@ impl Pager {
         self.inflight.len()
     }
 
+    #[cfg(test)]
     pub fn failed(&self) -> bool {
         !self.failed.is_empty()
     }
@@ -155,6 +158,7 @@ impl Pager {
     }
 
     /// Whether every loaded page is out of date.
+    #[cfg(test)]
     pub fn stale(&self) -> bool {
         self.pages.values().all(|(epoch, _)| *epoch != self.epoch)
     }

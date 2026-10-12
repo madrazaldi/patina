@@ -158,6 +158,12 @@ impl App {
     pub(super) fn submit_input(&mut self, input: Input) {
         let value = input.value.trim().to_string();
         match input.purpose {
+            InputPurpose::SaveView => self.save_view(&value),
+            InputPurpose::NewCollectionWith { section_id, kind, rating_keys } => {
+                if !value.is_empty() {
+                    self.create_collection_with(value, section_id, kind, rating_keys);
+                }
+            }
             InputPurpose::Rate { rating_key } => self.submit_rating(rating_key, &value),
             InputPurpose::ServerUrl => {
                 if value.is_empty() {
@@ -288,6 +294,7 @@ impl App {
     pub(super) fn run_confirmed(&mut self, action: ConfirmAction) {
         match action {
             ConfirmAction::Logout => session::sign_out(&self.core),
+            action @ (ConfirmAction::RemoveMarkedFromPlaylist { .. } | ConfirmAction::RemoveMarkedFromCollection { .. }) => self.run_bulk_remove(action),
             ConfirmAction::DeletePlaylist { playlist_id } => {
                 self.server_op(Refresh::Playlists, "Playlist deleted", move |s| async move { s.delete_playlist(&playlist_id).await })
             }

@@ -287,6 +287,9 @@ impl App {
                 self.columns[idx + 1].set_items(fresh, &mut self.fuzzy);
             }
         }
+        if done {
+            self.finish_mark_all(idx);
+        }
         if idx + 1 == self.columns.len() {
             self.after_selection_change();
         }

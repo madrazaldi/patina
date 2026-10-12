@@ -31,6 +31,7 @@ impl TaskSlot {
     }
 
     /// Whether a task is still running.
+    #[cfg(test)]
     pub fn active(&self) -> bool {
         self.0.as_ref().is_some_and(|t| !t.is_finished())
     }

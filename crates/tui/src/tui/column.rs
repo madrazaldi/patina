@@ -2,6 +2,7 @@
 
 use std::cmp::Ordering;
 
+use super::marks::Marks;
 use super::pager::Pager;
 use super::source::{LibraryView, Source};
 use super::task::TaskSlot;
@@ -116,6 +117,10 @@ pub struct Column {
     pub pager: Option<Pager>,
     /// The whole listing is wanted (filtering, hiding watched), so no pager.
     pub want_full: bool,
+    /// Items marked for a bulk action.
+    pub marks: Marks,
+    /// Mark every item once the whole listing has arrived.
+    pub mark_all_on_load: bool,
 }
 
 impl Column {
@@ -144,6 +149,8 @@ impl Column {
             task: TaskSlot::default(),
             pager: None,
             want_full: false,
+            marks: Marks::default(),
+            mark_all_on_load: false,
         }
     }
 
@@ -410,6 +417,19 @@ impl Column {
         self.source == Source::Sessions
     }
 
+    /// Mark every markable item of the listing as shown (not the ones the
+    /// filter hides); returns how many were not marked before.
+    pub fn mark_visible(&mut self) -> usize {
+        let before = self.marks.len();
+        for &i in &self.view {
+            let item = &self.items[i];
+            if super::marks::markable(item) {
+                self.marks.add(item);
+            }
+        }
+        self.marks.len() - before
+    }
+
     pub fn count_label(&self) -> String {
         if let Some(p) = &self.pager {
             return p.total.to_string();
@@ -459,6 +479,37 @@ mod tests {
             ]);
         c.rebuild(&mut Fuzzy::default());
         c
+    }
+
+    #[test]
+    fn marking_everything_shown_skips_what_the_view_hides() {
+        let mut f = Fuzzy::default();
+        let mut c = col();
+        c.hide_watched = true;
+        c.rebuild(&mut f);
+        assert_eq!(c.mark_visible(), 2);
+        assert!(c.marks.items().iter().all(|i| i.title() != "Heat"));
+        // Marking again adds nothing, and showing everything adds the rest.
+        assert_eq!(c.mark_visible(), 0);
+        c.hide_watched = false;
+        c.rebuild(&mut f);
+        assert_eq!(c.mark_visible(), 1);
+        assert_eq!(c.marks.len(), 3);
+    }
+
+    #[test]
+    fn marks_survive_reloads_and_filtering() {
+        let mut f = Fuzzy::default();
+        let mut c = col();
+        c.marks.toggle(&it("2", "Alien", 1979, false));
+        c.filter = "zod".into();
+        c.rebuild(&mut f);
+        assert_eq!(c.view.len(), 1);
+        assert_eq!(c.marks.len(), 1, "a mark is kept while its item is filtered out");
+        // The listing comes back without it (e.g. it was removed): the mark still names it.
+        c.set_items(vec![it("3", "Zodiac", 2007, false)], &mut f);
+        assert!(c.marks.contains(&it("2", "Alien", 1979, false)));
+        assert!(!c.marks.contains(&it("3", "Zodiac", 2007, false)));
     }
 
     #[test]
