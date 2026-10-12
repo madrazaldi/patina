@@ -288,6 +288,7 @@ impl App {
     pub(super) fn run_confirmed(&mut self, action: ConfirmAction) {
         match action {
             ConfirmAction::Logout => session::sign_out(&self.core),
+            ConfirmAction::ResumeQueue => self.resume_queue(),
             ConfirmAction::DeletePlaylist { playlist_id } => {
                 self.server_op(Refresh::Playlists, "Playlist deleted", move |s| async move { s.delete_playlist(&playlist_id).await })
             }

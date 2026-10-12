@@ -7,7 +7,9 @@
 use std::sync::OnceLock;
 
 pub mod config;
+pub mod controls;
 pub mod downloads;
+pub mod failure;
 pub mod images;
 pub mod live;
 pub mod livetv;
@@ -15,6 +17,8 @@ pub mod lyrics;
 pub mod ops;
 pub mod player;
 pub mod presence;
+pub mod recovery;
+pub mod report;
 pub mod session;
 pub mod state;
 pub mod storage;

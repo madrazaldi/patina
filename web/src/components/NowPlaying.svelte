@@ -1,8 +1,9 @@
 <script lang="ts">
   // Remote for the running mpv: what's playing, transport controls, position, and the queue/lyrics panel.
-  import { ListMusic, MicVocal, Pause, Play, RotateCcw, SkipBack, SkipForward, Square } from "@lucide/svelte";
+  import { ListMusic, MicVocal, Pause, Play, RotateCcw, SkipBack, SkipForward, SlidersHorizontal, Square } from "@lucide/svelte";
   import Img from "./Img.svelte";
   import Lyrics from "./Lyrics.svelte";
+  import PlayerPanel from "./PlayerPanel.svelte";
   import Queue from "./Queue.svelte";
   import { api, type Control, type QueueCommand } from "../lib/api";
   import { clock } from "../lib/format";
@@ -14,9 +15,32 @@
   let np = $derived(app.nowPlaying);
   let queue = $derived(app.queue);
   let isTrack = $derived(np != null && plex.kind(np.item) === "track");
+  let playback = $derived(app.playback);
   let panel = $derived(
-    !np ? null : app.panel === "queue" && queue ? "queue" : app.panel === "lyrics" && isTrack ? "lyrics" : null,
+    !np
+      ? null
+      : app.panel === "queue" && queue
+        ? "queue"
+        : app.panel === "lyrics" && isTrack
+          ? "lyrics"
+          : app.panel === "player" && playback
+            ? "player"
+            : null,
   );
+
+  // Volume, speed, repeat, sleep timer and buffering, when they differ from the defaults.
+  let chips = $derived.by(() => {
+    if (!np || !playback) return [];
+    void np.positionMs; // the sleep countdown refreshes with the position
+    const out: string[] = [];
+    if (playback.diagnostics.buffering) out.push(playback.diagnostics.bufferPercent != null ? `Buffering ${playback.diagnostics.bufferPercent}%` : "Buffering");
+    if (playback.muted) out.push("Muted");
+    else if (Math.abs(playback.volume - 100) > 0.5) out.push(`Vol ${Math.round(playback.volume)}%`);
+    if (Math.abs(playback.speed - 1) > 0.001) out.push(`${playback.speed}x`);
+    if (playback.repeat !== "off") out.push(playback.repeat === "one" ? "Repeat one" : "Repeat all");
+    if (playback.sleep?.endsAtMs != null) out.push(`Sleep ${Math.max(1, Math.ceil((playback.sleep.endsAtMs - Date.now()) / 60000))}m`);
+    return out;
+  });
 
   let next = $derived.by(() => {
     if (!np || !queue) return undefined;
@@ -38,7 +62,7 @@
 
   const send = (c: Control) => () => api.control(c).catch((e) => app.error(e));
   const edit = (c: QueueCommand) => () => api.queue(c).catch((e) => app.error(e));
-  const toggle = (p: "queue" | "lyrics") => () => (app.panel = app.panel === p ? null : p);
+  const toggle = (p: "queue" | "lyrics" | "player") => () => (app.panel = app.panel === p ? null : p);
 
   let footer: HTMLElement | undefined = $state();
 
@@ -126,11 +150,15 @@
           <button class="link" onclick={edit({ kind: "stopAfter", on: false })}>Undo</button>
         </span>
       {/if}
+      {#each chips as chip (chip)}<span class="tag">{chip}</span>{/each}
       <span class={["tag", { accent: np.live }]}>{status}</span>
       {#if np.queueLen > 1}<span>{np.queuePos + 1} of {np.queueLen}</span>{/if}
       <span>{clock(position)}{#if !np.live}&nbsp;/ {clock(np.durationMs)}{/if}</span>
-      {#if queue || isTrack}
+      {#if queue || isTrack || playback}
         <span class="tools">
+          {#if playback}
+            <button class={["icon-btn", { on: panel === "player" }]} title="Player controls and diagnostics" onclick={toggle("player")}><SlidersHorizontal /></button>
+          {/if}
           {#if isTrack}
             <button class={["icon-btn", { on: panel === "lyrics" }]} title="Lyrics" onclick={toggle("lyrics")}><MicVocal /></button>
           {/if}
@@ -143,7 +171,7 @@
 
     {#if panel}
       <div class={["surface panel fade-in", { tall: panel === "lyrics" }]}>
-        {#if panel === "queue" && queue}<Queue {queue} />{:else if panel === "lyrics"}<Lyrics {np} />{/if}
+        {#if panel === "queue" && queue}<Queue {queue} />{:else if panel === "lyrics"}<Lyrics {np} />{:else if panel === "player" && playback}<PlayerPanel ps={playback} />{/if}
       </div>
     {:else if np.ending && next && !np.stopAfter}
       {@const [nextTitle, nextSub] = plex.playingLines(next)}

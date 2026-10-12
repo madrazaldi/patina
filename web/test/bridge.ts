@@ -29,12 +29,13 @@ const maintenance = {
   ],
 };
 const calls: { cmd: string; args: Record<string, any> }[] = [];
-let fail = false, delay = 0;
+let fail = false, delay = 0, savedQueue: unknown = null;
 const emit = (event: string, payload: unknown) => { const id = listeners.get(event); if (id !== undefined) callbacks.get(id)?.({ event, id, payload }); };
 const downloads = [{ id: "mock:alice:1", account: "alice", serverId: "mock", serverName: "Mock Server", item: item(1), size: 10000, received: 10000, state: "done", addedAt: 1 }];
 const test = {
   calls, settings,
   fail(value: boolean) { fail = value; },
+  setSavedQueue(value: unknown) { savedQueue = value; },
   delay(value: number) { delay = value; },
   emit,
   switchServer() { session = { ...session, serverId: "other", serverName: "Other Server" }; emit("session", { session, sections }); },
@@ -51,6 +52,7 @@ Object.assign(window, { __PATINA_TEST__: test, __TAURI_INTERNALS__: {
     if (cmd === "set_player_settings") { Object.assign(settings.player, args.player); return; }
     if (cmd === "info") return { version: "test", configPath: "isolated fixture", accents: [], qualities: [] };
     if (cmd === "downloads") return downloads;
+    if (cmd === "saved_queue") return savedQueue;
     if (cmd === "livetv_available") return false;
     if (cmd === "section_sorts") return [{ key: "titleSort", title: "Title" }, { key: "addedAt", title: "Date added" }];
     if (cmd === "section_filters") return [{ filter: "genre", title: "Genre", kind: "string" }];

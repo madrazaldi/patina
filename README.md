@@ -39,6 +39,11 @@ The desktop app and the terminal client have the same features; the terminal cli
 - Near the end of an episode (or in its closing credits) the app shows **Up next**, with **Play now** and **Stop after this**.
 - Synced **lyrics** for tracks that have them.
 - Playback resumes where you left off. Progress is reported to Plex every 10 seconds and whenever you pause or resume. Items are marked watched when they finish or pass the watched threshold.
+- **Reporting never holds playback up.** Progress, pause, stop and track-choice updates go to Plex from a background worker, in order. A slow or unreachable server delays them, never mpv or the queue; progress updates are collapsed while one is in flight, and the final "stopped" update is always delivered (retried, and flushed on exit).
+- **When playback fails** you get the reason (from mpv or the connection), not a silent stop, with the actions that make sense: **Try again** (from where it stopped), **another version** of the item, or a **lower quality** transcode. It covers failures before anything loads and ones mid-playback. A failure caused by the connection is retried automatically once the connection is back.
+- **Player controls:** volume and mute, speed (0.25x to 4x), chapters, repeat (off, all, one) and a sleep timer (15 to 90 minutes, or at the end of the current item). They live in the player panel of the desktop app and on keys in the terminal client. Volume, mute and repeat carry over from one item to the next.
+- **Diagnostics:** the player panel shows whether playback is buffering and how much is buffered, the hardware decoder in use, dropped frames, and whether the server is reached locally, remotely or through the Plex relay.
+- **Recovery:** Patina keeps a local position per item (account- and server-scoped, in the platform data directory). If the connection fails before Plex hears about the last minutes, the next play continues from it, as long as Plex has not seen the item since. The play queue and its position are saved too; on the next start both front ends **offer to resume it** (nothing plays until you accept, and you can forget it). Set `PATINA_DATA_DIR` to keep this data somewhere else.
 - The audio and subtitle tracks selected in Plex are applied in mpv (matched by container stream index). External subtitle files are added too. If you switch tracks in mpv, the change is saved back to Plex.
 - Intro and credits skipping uses Plex markers: press **TAB** when prompted, or turn on auto-skip.
 - Quality is Original (direct play) by default. You can choose server transcoding at a range of bitrates instead.
@@ -129,6 +134,12 @@ When the server can't be reached, `d` browses and plays your downloads offline.
 | `Q` | Play queue: jump, remove, `J`/`K` reorder, `z` shuffle |
 | `E` | Stop after this (when Up next shows, `>` plays it now) |
 | `Y` | Lyrics of the playing track (`Enter` seeks to a line) |
+| `V` | Player panel: chapters (`Enter` jumps), buffering, decoder, dropped frames, connection. After a failed play, the retry / other version / lower quality options |
+| `9` / `0` | Volume down / up 5% |
+| `M` | Mute / unmute |
+| `{` / `}` | Playback speed down / up 0.25x |
+| `Z` | Sleep timer: off, 15, 30, 45, 60, 90 minutes, end of this item |
+| `r` | Repeat off / all / one (in the queue or player panel; elsewhere `r` refreshes) |
 | `m` → Radio | Start radio from an artist, album or track |
 | **Library** | |
 | `w` / `u` | Mark watched / unwatched |
@@ -188,6 +199,7 @@ patina-tui history [-n N]
 patina-tui playlists [id]           playlists, or a playlist's items
 patina-tui play <key> [--from-start] [--shuffle] [--quality original|1080p|…]
                                     plays items and containers in mpv
+patina-tui resume                   play the queue that was playing when Patina last stopped
 patina-tui watchlist [add|remove <key>]
 patina-tui users [switch <name> [--pin PIN]]
 patina-tui mark watched|unwatched <key>
@@ -209,8 +221,9 @@ bun run check
 bun run build
 bun x playwright install chromium     # first time only
 bun run test                          # browser journeys using a development-only mock IPC fixture
-# Optional: real mpv resume/completion check (also requires ffmpeg)
-cargo test -p patina-core --test reliability mpv_playback_smoke -- --ignored
+# Optional: real mpv checks (also require ffmpeg and python3): resume/completion, slow or failing
+# progress reports, failure recovery, controls and the saved queue
+cargo test -p patina-core --test reliability -- --ignored --test-threads=1 mpv_
 ```
 
 The Rust integration test starts `tools/mock_pms.py` on an ephemeral localhost port and uses a temporary config and download directory. It interrupts a transfer, pauses/resumes it, restarts the client process, and checks account-scoped offline progress replay. No real Plex server or user sign-in is used. The browser fixture at `/test/` is served by Vite during development and is not included in the production build.

@@ -235,6 +235,10 @@ pub fn cache_dir() -> PathBuf {
 }
 
 pub fn data_dir() -> PathBuf {
+    // Lets tests and sandboxes keep checkpoints and saved queues out of the real data directory.
+    if let Some(dir) = std::env::var_os("PATINA_DATA_DIR").map(PathBuf::from).filter(|p| p.is_absolute()) {
+        return dir;
+    }
     directories::ProjectDirs::from("", "", "patina")
         .map(|d| d.data_dir().to_path_buf())
         .unwrap_or_else(|| config_dir().join("data"))

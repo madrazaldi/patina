@@ -48,6 +48,42 @@ pub enum Modal {
     Lyrics {
         manual: Option<(usize, std::time::Instant)>,
     },
+    /// Volume, speed, repeat, sleep timer, chapters and diagnostics; `cursor` is the chapter picked.
+    Player {
+        cursor: usize,
+    },
+    /// Why playback failed and what to try; `cursor` indexes [`failure_actions`].
+    Failure {
+        cursor: usize,
+    },
+}
+
+/// What can be done about a playback failure, in the order offered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FailureAction {
+    Retry,
+    Version(usize),
+    LowerQuality,
+    Dismiss,
+}
+
+/// The actions that make sense for `f`, with their labels.
+pub fn failure_actions(f: &patina_core::failure::PlaybackFailure) -> Vec<(FailureAction, String)> {
+    let mut rows = Vec::new();
+    if f.can_retry {
+        let at = if f.position_ms > 0 { format!(" from {}", crate::format::clock_ms(f.position_ms)) } else { String::new() };
+        rows.push((FailureAction::Retry, format!("Try again{at}")));
+    }
+    for (i, media) in f.item.media.iter().enumerate().filter(|(i, _)| *i != f.media_index) {
+        let label = crate::format::resolution(media.height, media.video_resolution.as_deref()).unwrap_or_else(|| format!("version {}", i + 1));
+        let codec = media.video_codec.as_deref().map(|c| format!(" · {}", c.to_uppercase())).unwrap_or_default();
+        rows.push((FailureAction::Version(i), format!("Try another version ({label}{codec})")));
+    }
+    if let Some(q) = &f.lower_quality {
+        rows.push((FailureAction::LowerQuality, format!("Try a lower quality ({})", q.label)));
+    }
+    rows.push((FailureAction::Dismiss, "Dismiss".to_string()));
+    rows
 }
 
 // ---- action menu ---------------------------------------------------------
@@ -274,6 +310,8 @@ pub enum ConfirmAction {
         playlist_id: String,
     },
     Logout,
+    /// Play the saved queue again (offered at start-up). `x` forgets it instead.
+    ResumeQueue,
     RemoveDownload {
         id: String,
     },
@@ -837,4 +875,32 @@ mod tests {
         assert!(TracksModal::new(&Item::from(patina_plex::Metadata { kind: Some("movie".into()), ..Default::default() })).is_none());
     }
 
+    #[test]
+    fn failure_actions_offer_what_can_be_tried() {
+        use patina_core::failure::{FailureKind, Phase, PlaybackFailure, QualityChoice};
+        let media = |height| patina_plex::Media { height: Some(height), video_codec: Some("hevc".into()), ..Default::default() };
+        let mut f = PlaybackFailure {
+            id: 1,
+            item: patina_plex::Metadata { media: vec![media(2160), media(1080)], ..Default::default() },
+            reason: "The stream could not be loaded.".into(),
+            detail: None,
+            kind: FailureKind::Network,
+            phase: Phase::Start,
+            position_ms: 61_000,
+            media_index: 0,
+            quality: "original".into(),
+            lower_quality: Some(QualityChoice { id: "20m-1080".into(), label: "1080p 20 Mbps".into() }),
+            can_retry: true,
+            remaining: 0,
+        };
+        let rows = failure_actions(&f);
+        let actions: Vec<_> = rows.iter().map(|r| r.0).collect();
+        assert_eq!(actions, [FailureAction::Retry, FailureAction::Version(1), FailureAction::LowerQuality, FailureAction::Dismiss]);
+        assert_eq!(rows[0].1, "Try again from 1:01");
+        assert!(rows[1].1.contains("1080p") && rows[1].1.contains("HEVC"), "{}", rows[1].1);
+        f.can_retry = false;
+        f.lower_quality = None;
+        f.item.media.truncate(1);
+        assert_eq!(failure_actions(&f).iter().map(|r| r.0).collect::<Vec<_>>(), [FailureAction::Dismiss]);
+    }
 }

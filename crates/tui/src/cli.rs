@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use anyhow::{Result, anyhow, bail};
 use clap::{Parser, Subcommand, ValueEnum};
-use patina_core::ops::lists;
+use patina_core::ops::{self, lists};
 use patina_core::player::{self, PlayRequest};
 use patina_core::state::{ServerView, Stage};
 use patina_core::{AppState, CoreEvent, EventSink, config, session};
@@ -93,6 +93,8 @@ pub enum Command {
         #[arg(long)]
         quality: Option<String>,
     },
+    /// Play the queue that was playing when Patina last stopped, from where it stopped.
+    Resume,
     /// Show your plex.tv watchlist, or add/remove an item by rating key.
     Watchlist {
         #[command(subcommand)]
@@ -504,6 +506,12 @@ pub async fn run(command: Command) -> Result<()> {
             player::play(core.clone(), PlayRequest { item, resume: !from_start, shuffle, quality, ..Default::default() });
             play_until_stopped(&mut cx).await?;
         }
+        Command::Resume => {
+            let saved = ops::playback::saved_queue(&core).ok_or_else(|| anyhow!("there is no saved queue to resume"))?;
+            println!("Resuming {} at {}", Item::from(saved.current).full_title(), format::clock_ms(saved.position_ms));
+            ops::playback::resume_saved(&core)?;
+            play_until_stopped(&mut cx).await?;
+        }
         Command::Mark { state, rating_key } => {
             match state {
                 MarkState::Watched => server.scrobble(&rating_key).await?,
@@ -545,6 +553,12 @@ async fn play_until_stopped(cx: &mut Cx) -> Result<()> {
     let mut last_pos = 0;
     loop {
         match cx.rx.recv().await {
+            Some(CoreEvent::PlaybackFailure(Some(f))) => {
+                if let Some(detail) = &f.detail {
+                    eprintln!("  mpv: {detail}");
+                }
+                bail!("playback failed: {}", f.reason);
+            }
             Some(CoreEvent::NowPlaying(Some(np))) => {
                 last_pos = np.position_ms;
                 let title = Item::from(np.item.clone()).full_title();

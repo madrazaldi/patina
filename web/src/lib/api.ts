@@ -26,10 +26,14 @@ import type {
   Overview,
   PartChange,
   PinView,
+  PlaybackFailure,
+  PlaybackState,
   PlayerSettings,
   PlaylistView,
   Pref,
   PrefGroup,
+  Repeat,
+  SavedQueueView,
   Settings,
   Snapshot,
   Tasks,
@@ -57,6 +61,25 @@ export type Control =
   | { kind: "stop" }
   | { kind: "seekRelative"; seconds: number }
   | { kind: "seekTo"; seconds: number };
+
+/** Changes to the running player beyond transport. */
+export type Tune =
+  | { kind: "volume"; value: number }
+  | { kind: "volumeBy"; delta: number }
+  | { kind: "mute"; on?: boolean }
+  | { kind: "speed"; value: number }
+  | { kind: "speedBy"; delta: number }
+  | { kind: "repeat"; mode: Repeat }
+  | { kind: "cycleRepeat" }
+  | { kind: "chapter"; index: number }
+  | { kind: "chapterBy"; delta: number }
+  | { kind: "sleepOff" }
+  | { kind: "sleepMinutes"; minutes: number }
+  | { kind: "sleepEndOfItem" }
+  | { kind: "cycleSleep" };
+
+/** What to do about a playback failure. */
+export type Recover = { kind: "retry" } | { kind: "version"; index: number } | { kind: "lowerQuality" };
 
 /** Edits to the running queue; entries are addressed by `QueueItem.uid`. */
 export type QueueCommand =
@@ -189,6 +212,16 @@ export const api = {
       },
     }),
   control: (command: Control) => call("control", { command }),
+  /** Volume, speed, chapters, repeat and the sleep timer. */
+  tune: (command: Tune) => call("tune", { command }),
+  playbackState: () => call<PlaybackState | null>("playback_state"),
+  playbackFailure: () => call<PlaybackFailure | null>("playback_failure"),
+  recoverPlayback: (action: Recover) => call("recover_playback", { action }),
+  dismissFailure: () => call("dismiss_failure"),
+  /** The queue saved by the last playback, to offer a Resume. */
+  savedQueue: () => call<SavedQueueView | null>("saved_queue"),
+  resumeSaved: () => call("resume_saved"),
+  forgetSaved: () => call("forget_saved"),
   /** Adding while nothing plays starts playback. */
   queueItems: (items: Metadata[]) => call("queue_items", { items }),
   queue: (command: QueueCommand) => call("queue", { command }),

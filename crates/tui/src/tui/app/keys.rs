@@ -126,9 +126,10 @@ impl App {
                 }
             }
             KeyCode::Char('o') => self.open_play_options(),
-            KeyCode::Char('P' | '>' | '<' | '=' | '-' | 'X') => {
+            KeyCode::Char('P' | '>' | '<' | '=' | '-' | 'X' | '9' | '0' | 'M' | '{' | '}' | 'Z') => {
                 self.transport_key(key);
             }
+            KeyCode::Char('V') => self.open_player(),
             KeyCode::Char('n') => self.enqueue(true),
             KeyCode::Char('N') => self.enqueue(false),
             KeyCode::Char('Q') => self.open_queue(),
@@ -268,6 +269,8 @@ impl App {
             Modal::Filter(p) => self.filter_modal_key(p, key),
             Modal::Tracks(m) => self.tracks_key(m, key),
             Modal::Queue { sel } => self.queue_key(sel, key),
+            Modal::Player { cursor } => self.player_key(cursor, key),
+            Modal::Failure { cursor } => self.failure_key(cursor, key),
             Modal::Lyrics { manual } => self.lyrics_key(manual, key),
             Modal::Menu(mut m) => {
                 if down {
@@ -322,6 +325,10 @@ impl App {
                     None
                 }
                 KeyCode::Char('n' | 'N') | KeyCode::Esc | KeyCode::Char('q') => None,
+                KeyCode::Char('x') if matches!(c.action, ConfirmAction::ResumeQueue) => {
+                    self.forget_queue();
+                    None
+                }
                 _ => Some(Modal::Confirm(c)),
             },
             Modal::Playlists(mut p) => {

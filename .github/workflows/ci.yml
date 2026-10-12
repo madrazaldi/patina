@@ -63,9 +63,9 @@ jobs:
         if: runner.os == 'Windows'
         run: cargo test --workspace --locked --lib --bins
 
-      - name: mpv playback smoke test
+      - name: mpv playback tests
         if: runner.os == 'Linux'
-        run: cargo test -p patina-core --test reliability --locked -- --ignored mpv_playback_smoke
+        run: cargo test -p patina-core --test reliability --locked -- --ignored --test-threads=1 mpv_
 
   web:
     name: Web

@@ -279,6 +279,9 @@ fn draw_footer(f: &mut Frame, app: &App, theme: &Theme, area: Rect) {
         if app.columns.last().is_some_and(|c| c.library().is_some()) {
             hints.push(("F", "filters"));
         }
+        if app.failure.is_some() && app.now_playing.is_none() {
+            hints.insert(0, ("V", "playback failed"));
+        }
         hints.extend([
             ("f", "search"),
             ("/", "filter"),
