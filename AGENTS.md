@@ -12,9 +12,9 @@ cargo test --workspace
 cargo test -p patina-tui <name_substring>   # single test
 cargo clippy --workspace --all-targets      # keep it warning-free
 
-pnpm install
-pnpm check          # type-check web/ (svelte-check)
-pnpm tauri dev      # run the desktop app
+bun install
+bun run check       # type-check web/ (svelte-check)
+bun run tauri dev   # run the desktop app
 ```
 
 Unit tests live in `#[cfg(test)] mod tests` inside each source file. No test talks to a real server.
@@ -27,7 +27,7 @@ python3 tools/mock_pms.py --media /tmp/patina-media --port 32499 > /tmp/mock.log
 export XDG_CONFIG_HOME=$(mktemp -d)
 target/debug/patina-tui login --url http://127.0.0.1:32499 --token x
 target/debug/patina-tui                     # or drive it in tmux and capture-pane
-XDG_CONFIG_HOME=$XDG_CONFIG_HOME pnpm tauri dev
+XDG_CONFIG_HOME=$XDG_CONFIG_HOME bun run tauri dev
 ```
 
 `PATINA_ROUTE` (debug builds) opens a page on start: `/item/<ratingKey>`, `/library/<id>`, `/playlist/<id>`, `/search?q=…`, `/downloads`, `/settings`, and so on.
@@ -36,7 +36,7 @@ The mock logs every timeline, scrobble and stream-selection call. Downloads go t
 
 ## CI and releases
 
-`.github/workflows/ci.yml` runs on every push to `main` and every PR: clippy with `-D warnings` and `cargo test` on Linux, macOS and Windows (Windows runs unit tests only), the mpv smoke test on Linux, and `pnpm check`, `pnpm build` and Playwright for `web/`. `CI OK` is the single required check.
+`.github/workflows/ci.yml` runs on every push to `main` and every PR: clippy with `-D warnings` and `cargo test` on Linux, macOS and Windows (Windows runs unit tests only), the mpv smoke test on Linux, and `bun run check`, `bun run build` and Playwright for `web/`. `CI OK` is the single required check.
 
 To release, bump `version` in `[workspace.package]`, commit, and push a matching tag (`v0.2.0`). `release.yml` builds the Tauri bundles for Linux (x86_64 and arm64) and Windows, and `patina-tui` archives for all five targets into a draft GitHub release. Publish it by hand.
 

@@ -1,7 +1,7 @@
 import { defineConfig } from "vite";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 
-// The Tauri CLI runs `pnpm dev` / `pnpm build` from the repo root.
+// The Tauri CLI runs `bun run dev` / `bun run build` from the repo root.
 export default defineConfig({
   root: "web",
   plugins: [svelte({ configFile: "../svelte.config.js" })],

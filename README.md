@@ -48,7 +48,7 @@ The desktop app and the terminal client have the same features; the terminal cli
 ## Requirements
 
 - Rust 1.85+ (edition 2024)
-- Desktop app: Node.js 20+ and pnpm, for the web frontend
+- Desktop app: Bun 1.4+, for the web frontend
 - mpv 0.38+ on `PATH` (or installed with Homebrew or as `/Applications/mpv.app`), or set its path in **Settings → Player**
 
 ## Build & run
@@ -56,9 +56,9 @@ The desktop app and the terminal client have the same features; the terminal cli
 Desktop app:
 
 ```sh
-pnpm install
-pnpm tauri dev      # development, with hot reload for the frontend
-pnpm tauri build    # release app bundle in target/release/bundle
+bun install
+bun run tauri dev   # development, with hot reload for the frontend
+bun run tauri build # release app bundle in target/release/bundle
 ```
 
 Terminal client:
@@ -71,7 +71,7 @@ cargo install --path crates/tui          # installs `patina-tui` into ~/.cargo/b
 
 Settings are stored in `~/.config/patina/config.toml` (or `$XDG_CONFIG_HOME/patina`; Windows: the platform config dir). Both front ends use this file, so signing in once signs in both, and settings changed in one show up in the other. Cross-process locks and atomic replacement protect settings, download state and offline progress; one process owns the download worker at a time. The file holds your auth token, so it is written with mode 0600. Downloads are listed in `downloads.json` next to it and show up in both front ends. Artwork is cached in the platform cache directory.
 
-Logging: `PATINA_LOG=debug pnpm tauri dev`. The terminal client logs to `patina-tui.log` in the platform data directory, never to the terminal, and reads the same `PATINA_LOG`.
+Logging: `PATINA_LOG=debug bun run tauri dev`. The terminal client logs to `patina-tui.log` in the platform data directory, never to the terminal, and reads the same `PATINA_LOG`.
 
 ## Terminal client (patina-tui)
 
@@ -205,10 +205,10 @@ The listing commands (`libraries`, `ls`, `search`, `continue`, `recent`, `sessio
 cargo build --workspace
 cargo test --workspace                 # includes an isolated Python mock-server download/reconnect test
 cargo clippy --workspace --all-targets -- -D warnings
-pnpm check
-pnpm build
-pnpm exec playwright install chromium # first time only
-pnpm test                             # browser journeys using a development-only mock IPC fixture
+bun run check
+bun run build
+bun x playwright install chromium     # first time only
+bun run test                          # browser journeys using a development-only mock IPC fixture
 # Optional: real mpv resume/completion check (also requires ffmpeg)
 cargo test -p patina-core --test reliability mpv_playback_smoke -- --ignored
 ```
@@ -223,7 +223,7 @@ The Rust integration test starts `tools/mock_pms.py` on an ephemeral localhost p
 | `crates/mpv` (`patina-mpv`) | Starts mpv and controls it over JSON IPC (commands, property observation, events, key bindings). |
 | `crates/core` (`patina-core`) | The backend both front ends share, with no UI code: settings, sign-in and sessions, mpv playback and play queues, downloads, live server updates, Live TV, lyrics, and the heavier server queries. Front ends receive its events through an `EventSink`. |
 | `crates/app` (`patina`) | The Tauri desktop app: a thin layer that exposes core to the frontend as typed commands and forwards its events to the webview. It also handles OS media controls. Tokens never reach the webview; artwork is served through the `plximg` URI scheme. |
-| `web/` | The Svelte 5 + TypeScript frontend. `pnpm check` type-checks it. |
+| `web/` | The Svelte 5 + TypeScript frontend. `bun run check` type-checks it. |
 | `crates/tui` (`patina-tui`) | The terminal client (ratatui) and its CLI. |
 
 ## Developing without a Plex server
@@ -234,7 +234,7 @@ The Rust integration test starts `tools/mock_pms.py` on an ephemeral localhost p
 python3 tools/mock_pms.py --media /path/to/media --port 32499
 
 # Desktop app: the same
-XDG_CONFIG_HOME=/tmp/patina-dev pnpm tauri dev
+XDG_CONFIG_HOME=/tmp/patina-dev bun run tauri dev
 
 # Terminal client
 export XDG_CONFIG_HOME=/tmp/patina-dev

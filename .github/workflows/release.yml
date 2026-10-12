@@ -76,21 +76,16 @@ jobs:
         with:
           key: ${{ matrix.target }}
 
-      - uses: pnpm/action-setup@v6
+      - uses: oven-sh/setup-bun@v2
 
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
+      - run: bun install --frozen-lockfile
 
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ github.token }}
         with:
           releaseId: ${{ needs.draft.outputs.release_id }}
-          tauriScript: pnpm tauri
+          tauriScript: bun run tauri
           args: --target ${{ matrix.target }}
 
   tui:

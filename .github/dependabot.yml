@@ -8,12 +8,12 @@ updates:
       cargo:
         update-types: [minor, patch]
 
-  - package-ecosystem: npm
+  - package-ecosystem: bun
     directory: /
     schedule:
       interval: weekly
     groups:
-      npm:
+      bun:
         update-types: [minor, patch]
 
   - package-ecosystem: github-actions
