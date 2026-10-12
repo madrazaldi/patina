@@ -291,7 +291,12 @@ async fn search_one(app: &AppState, target: &Target, query: &str) -> anyhow::Res
 
 /// Search every server of the account. `on_update` sees the results after each server
 /// that finishes (and once at the start), so a front end can show them as they come.
-pub async fn search_all(app: &AppState, query: &str, mut on_update: impl FnMut(&Results)) -> Results {
+pub async fn search_all(app: &AppState, query: &str, on_update: impl FnMut(&Results)) -> Results {
+    search_all_within(app, query, PER_SERVER, on_update).await
+}
+
+/// [`search_all`] with its own limit on how long one server may take.
+pub async fn search_all_within(app: &AppState, query: &str, per_server: Duration, mut on_update: impl FnMut(&Results)) -> Results {
     let all = targets(app);
     let mut results = Results::new(query, &all);
     on_update(&results);
@@ -302,7 +307,7 @@ pub async fn search_all(app: &AppState, query: &str, mut on_update: impl FnMut(&
     }
     let mut stream = futures::stream::iter(all.into_iter().filter(|t| t.online))
         .map(|target| async move {
-            let outcome = tokio::time::timeout(PER_SERVER, search_one(app, &target, query)).await;
+            let outcome = tokio::time::timeout(per_server, search_one(app, &target, query)).await;
             (target, outcome)
         })
         .buffer_unordered(CONCURRENCY);
