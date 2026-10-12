@@ -4,6 +4,7 @@
     BookmarkCheck,
     Captions,
     Check,
+    CloudDownload,
     Download,
     Ellipsis,
     ListPlus,
@@ -12,6 +13,7 @@
     Radio,
     RotateCcw,
     Shuffle,
+    SlidersHorizontal,
     Trash,
   } from "@lucide/svelte";
   import Children from "../components/Children.svelte";
@@ -50,6 +52,20 @@
 
   let mediaIndex = $state(0);
   let expanded = $state(false);
+
+  // Start on the version the automatic playback preferences pick (resolution, codec, HDR).
+  let versionOf = $state("");
+  $effect(() => {
+    const item = data.data;
+    if (!item || (item.Media?.length ?? 0) < 2 || !["movie", "episode"].includes(plex.kind(item))) return;
+    const key = item.ratingKey ?? "";
+    if (versionOf === key) return;
+    versionOf = key;
+    api.preferredVersion($state.snapshot(item) as Metadata).then(
+      (i) => versionOf === key && i < item.Media.length && (mediaIndex = i),
+      () => {},
+    );
+  });
 
   // Watchlist state lives on plex.tv.
   let discover = $derived(data.data && !server && app.hasTv && ["movie", "show"].includes(plex.kind(data.data)) ? plex.discoverId(data.data) : null);
@@ -276,6 +292,9 @@
               <button class="icon-btn outlined" title="Audio & subtitles for many episodes" onclick={() => (app.tracksTarget = item)}>
                 <Captions />
               </button>
+              <button class="icon-btn outlined" title="Playback preferences for this show" onclick={() => (app.prefsTarget = item)}>
+                <SlidersHorizontal />
+              </button>
             {/if}
             {#if plex.canPlay(item) && kind !== "photo" && kind !== "photoalbum"}
               <button class="icon-btn outlined" title="Play next" onclick={() => enqueue(item, true)}><ListStart /></button>
@@ -298,6 +317,11 @@
                 {:else}
                   <Download />
                 {/if}
+              </button>
+            {/if}
+            {#if ["show", "season", "playlist"].includes(kind)}
+              <button class="icon-btn outlined" title="Keep next unwatched downloaded" onclick={() => (app.keepTarget = item)}>
+                <CloudDownload />
               </button>
             {/if}
             <button class="icon-btn outlined" title="More" onclick={(e) => openMenu(item, e)}><Ellipsis /></button>

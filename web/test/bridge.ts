@@ -29,7 +29,7 @@ const maintenance = {
   ],
 };
 const calls: { cmd: string; args: Record<string, any> }[] = [];
-let fail = false, delay = 0;
+let fail = false, delay = 0, savedQueue: unknown = null;
 // Commands whose responses are held back until released, to test late responses.
 const held = new Map<string, (() => void)[]>();
 // Watchlist: 100 titles, the even ones are on the server. `lookups` tracks find_by_guid concurrency.
@@ -37,9 +37,12 @@ const watchlist = Array.from({ length: 100 }, (_, n) => ({ ...item(1000 + n), gu
 const lookups = { active: 0, max: 0, total: 0, delay: 15, fail: false, present: new Set<number>(watchlist.map((_, n) => n).filter((n) => n % 2 === 0)) };
 const emit = (event: string, payload: unknown) => { const id = listeners.get(event); if (id !== undefined) callbacks.get(id)?.({ event, id, payload }); };
 const downloads = [{ id: "mock:alice:1", account: "alice", serverId: "mock", serverName: "Mock Server", item: item(1), size: 10000, received: 10000, state: "done", addedAt: 1 }];
+let profileRules: Record<string, unknown> = {};
+const smart = { policies: [{ id: "p1", account: "alice", serverId: "mock", serverName: "Mock Server", ratingKey: "500", target: "show", title: "Station Eleven Below", keep: 3, deleteWatched: true, enabled: true, active: true, downloads: 2, bytes: 2000 }], budget: null as number | null, used: 10000 };
 const test = {
   calls, settings,
   fail(value: boolean) { fail = value; },
+  setSavedQueue(value: unknown) { savedQueue = value; },
   delay(value: number) { delay = value; },
   hold(cmd: string) { held.set(cmd, []); },
   release(cmd: string) { for (const go of held.get(cmd) ?? []) go(); held.delete(cmd); },
@@ -65,7 +68,14 @@ Object.assign(window, { __PATINA_TEST__: test, __TAURI_INTERNALS__: {
     if (cmd === "set_player_settings") { Object.assign(settings.player, args.player); return; }
     if (cmd === "info") return { version: "test", configPath: "isolated fixture", accents: [], qualities: [] };
     if (cmd === "downloads") return downloads;
+    if (cmd === "saved_queue") return savedQueue;
     if (cmd === "livetv_available") return false;
+    if (cmd === "playback_prefs") return { profile: profileRules, show: args.show ? {} : null, effective: profileRules };
+    if (cmd === "playback_prefs_shows") return [{ ratingKey: "500", title: "Station Eleven Below", rules: { audioLanguages: ["ja"], subtitles: "always" } }];
+    if (cmd === "set_playback_prefs") { if (args.show == null) profileRules = args.rules; return; }
+    if (cmd === "smart_downloads") return structuredClone(smart);
+    if (cmd === "set_download_budget") { smart.budget = args.bytes; emit("downloads", downloads); return; }
+    if (cmd === "update_smart_download") { Object.assign(smart.policies[0], args.patch); emit("downloads", downloads); return; }
     if (cmd === "section_sorts") return [{ key: "titleSort", title: "Title" }, { key: "addedAt", title: "Date added" }];
     if (cmd === "section_filters") return [{ filter: "genre", title: "Genre", kind: "string" }];
     if (cmd === "section_filter_values") return [{ key: "10", title: "Drama" }];

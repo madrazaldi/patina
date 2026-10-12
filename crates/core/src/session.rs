@@ -191,6 +191,8 @@ pub async fn switch_user(app: &AppState, uuid: &str, pin: Option<&str>) -> Resul
     let user = tv.switch_home_user(uuid, pin).await.context("switching user")?;
     let token = user.auth_token.clone().ok_or_else(|| anyhow!("plex.tv returned no token"))?;
     app.update_settings(|s| s.auth.account_id = user.uuid.clone().or_else(|| Some(crate::offline::digest(&token))));
+    // The previous user's listener must not outlive their session, even if signing in as the new one fails.
+    crate::live::stop(app);
     app.set_session(None, Vec::new());
     run(app, sign_in(app, token)).await;
     Ok(())

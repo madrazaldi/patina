@@ -345,6 +345,89 @@ export interface QueueView {
   stopAfter: boolean;
 }
 
+export type Repeat = "off" | "one" | "all";
+
+export interface ChapterView {
+  title: string;
+  timeMs: number;
+}
+
+export interface ConnectionInfo {
+  /** `local`, `remote`, `relay`, or `offline` for a downloaded file. */
+  kind: "local" | "remote" | "relay" | "offline";
+  address?: string;
+}
+
+export interface Diagnostics {
+  /** Playback is stalled waiting for data. */
+  buffering: boolean;
+  bufferPercent?: number;
+  /** Seconds of media ahead of the playhead that are already buffered. */
+  bufferedSecs?: number;
+  /** The hardware decoder in use; `no` is software decoding, absent is unknown (or audio only). */
+  hwdec?: string;
+  droppedFrames: number;
+  decoderDroppedFrames: number;
+  connection?: ConnectionInfo;
+  /** Where playback restarted from a local checkpoint after the connection failed. */
+  recoveredFromMs?: number;
+}
+
+export interface SleepState {
+  mode: "minutes" | "endOfItem";
+  /** Epoch milliseconds the timer ends (`minutes` only). */
+  endsAtMs?: number;
+}
+
+/** Controls and diagnostics of the running player (the `playback-state` event). */
+export interface PlaybackState {
+  /** Percent; mpv allows up to 130. */
+  volume: number;
+  muted: boolean;
+  speed: number;
+  repeat: Repeat;
+  sleep?: SleepState;
+  chapters: ChapterView[];
+  /** Index into `chapters` of the playing chapter. */
+  chapter?: number;
+  diagnostics: Diagnostics;
+}
+
+export interface QualityChoice {
+  id: string;
+  label: string;
+}
+
+/** Why playback failed and what can be tried (the `playback-failure` event). */
+export interface PlaybackFailure {
+  id: number;
+  item: Metadata;
+  /** A sentence for people. */
+  reason: string;
+  /** What mpv said. */
+  detail?: string;
+  kind: "network" | "format" | "output" | "other";
+  /** `start`: nothing played yet. `playing`: it broke after it had started. */
+  phase: "start" | "playing";
+  positionMs: number;
+  /** The version (media) that failed. */
+  mediaIndex: number;
+  quality: string;
+  lowerQuality?: QualityChoice;
+  canRetry: boolean;
+  /** Items after the failed one that stay queued. */
+  remaining: number;
+}
+
+/** The queue that was playing when Patina last stopped, offered as a Resume. */
+export interface SavedQueueView {
+  current: Metadata;
+  positionMs: number;
+  index: number;
+  count: number;
+  savedAt: number;
+}
+
 /** A background task on the server (scan, analysis, ...), live from notifications. */
 export interface ServerActivity {
   uuid: string;
@@ -439,6 +522,8 @@ export interface PinView {
 export interface PlaylistView {
   playlist: Metadata;
   items: Metadata[];
+  /** Entries the server reports; larger than `items.length` only if loading was cut short. */
+  total: number;
 }
 
 export interface HistoryPage {
@@ -595,6 +680,73 @@ export interface Download {
   state: DownloadState;
   error?: string;
   addedAt: number;
+  /** Id of the smart-download policy that fetched this, if any. */
+  policy?: string | null;
+}
+
+// Automatic playback preferences (crates/core/src/prefs.rs)
+export type SubtitleMode = "keep" | "off" | "always" | "foreign";
+export type ForcedMode = "auto" | "prefer" | "avoid" | "only";
+export type ResolutionPref = "any" | "4k" | "1080" | "720" | "sd";
+export type HdrMode = "any" | "prefer" | "avoid";
+
+/** Every field is optional; a missing one is "not set" (a show then inherits the profile's). */
+export interface PlaybackRules {
+  audioLanguages?: string[] | null;
+  subtitleLanguages?: string[] | null;
+  subtitles?: SubtitleMode | null;
+  forced?: ForcedMode | null;
+  avoidCommentary?: boolean | null;
+  resolution?: ResolutionPref | null;
+  codec?: string | null;
+  hdr?: HdrMode | null;
+}
+
+export interface PlaybackPrefs {
+  profile: PlaybackRules;
+  show: PlaybackRules | null;
+  effective: PlaybackRules;
+}
+
+export interface ShowRules {
+  ratingKey: string;
+  title: string;
+  rules: PlaybackRules;
+}
+
+// Smart downloads (crates/core/src/smart.rs)
+export interface SmartPolicy {
+  id: string;
+  account: string;
+  serverId: string;
+  serverName: string;
+  ratingKey: string;
+  target: "show" | "season" | "playlist";
+  title: string;
+  keep: number;
+  deleteWatched: boolean;
+  enabled: boolean;
+}
+
+export interface SmartPolicyView extends SmartPolicy {
+  /** Belongs to the connected account and server. */
+  active: boolean;
+  downloads: number;
+  bytes: number;
+}
+
+export interface SmartOverview {
+  policies: SmartPolicyView[];
+  /** Bytes; null when unlimited. */
+  budget: number | null;
+  used: number;
+}
+
+export interface SmartReport {
+  added: number;
+  removed: number;
+  overBudget: number;
+  errors: string[];
 }
 
 export interface LiveProgram {

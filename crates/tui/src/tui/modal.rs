@@ -3,12 +3,15 @@
 use patina_core::config::QUALITIES;
 use patina_core::ops::library::FilterView;
 use patina_core::ops::server::LibraryForm;
+use patina_core::ops::views::SavedView;
 use patina_core::tracks;
 use patina_plex::{Directory, HomeUser, MatchResult, Stream, stream_type};
 
 use crate::item::Item;
 
+use super::auto::AutoField;
 use super::column::SortKey;
+use super::marks::BulkOp;
 use super::rows::{PickField, SettingKey};
 use super::source::Source;
 
@@ -50,12 +53,50 @@ pub enum Modal {
     Lyrics {
         manual: Option<(usize, std::time::Instant)>,
     },
+    /// Volume, speed, repeat, sleep timer, chapters and diagnostics; `cursor` is the chapter picked.
+    Player {
+        cursor: usize,
+    },
+    /// Why playback failed and what to try; `cursor` indexes [`failure_actions`].
+    Failure {
+        cursor: usize,
+    },
+}
+
+/// What can be done about a playback failure, in the order offered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FailureAction {
+    Retry,
+    Version(usize),
+    LowerQuality,
+    Dismiss,
+}
+
+/// The actions that make sense for `f`, with their labels.
+pub fn failure_actions(f: &patina_core::failure::PlaybackFailure) -> Vec<(FailureAction, String)> {
+    let mut rows = Vec::new();
+    if f.can_retry {
+        let at = if f.position_ms > 0 { format!(" from {}", crate::format::clock_ms(f.position_ms)) } else { String::new() };
+        rows.push((FailureAction::Retry, format!("Try again{at}")));
+    }
+    for (i, media) in f.item.media.iter().enumerate().filter(|(i, _)| *i != f.media_index) {
+        let label = crate::format::resolution(media.height, media.video_resolution.as_deref()).unwrap_or_else(|| format!("version {}", i + 1));
+        let codec = media.video_codec.as_deref().map(|c| format!(" · {}", c.to_uppercase())).unwrap_or_default();
+        rows.push((FailureAction::Version(i), format!("Try another version ({label}{codec})")));
+    }
+    if let Some(q) = &f.lower_quality {
+        rows.push((FailureAction::LowerQuality, format!("Try a lower quality ({})", q.label)));
+    }
+    rows.push((FailureAction::Dismiss, "Dismiss".to_string()));
+    rows
 }
 
 // ---- action menu ---------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuAction {
+    /// An action on every marked item.
+    Bulk(BulkOp),
     Play,
     PlayFromStart,
     PlayNext,
@@ -108,6 +149,10 @@ pub enum MenuAction {
     GoToParent,
     GoToGrandparent,
     DeleteHistory,
+    /// Automatic audio, subtitle and version rules of the show.
+    ShowPrefs,
+    /// Smart download: keep the next unwatched items downloaded.
+    KeepDownloaded,
     /// An action of a tool row.
     Row(RowOp),
 }
@@ -142,6 +187,12 @@ pub enum RowOp {
     BrowseLibrary,
     DeleteLibrary,
     Change,
+    /// Pause or resume a smart download policy.
+    Toggle,
+    /// Switch whether a policy removes downloads once watched.
+    KeepWatched,
+    /// Stop a policy and delete the downloads it fetched.
+    RemoveFiles,
 }
 
 pub struct CopyPicker {
@@ -158,6 +209,14 @@ pub struct Menu {
 // ---- text input ----------------------------------------------------------
 
 pub enum InputPurpose {
+    /// Name for the library view in the last column, to save.
+    SaveView,
+    /// Name for a new collection holding the marked items.
+    NewCollectionWith {
+        section_id: String,
+        kind: u32,
+        rating_keys: Vec<String>,
+    },
     NewPlaylist {
         rating_keys: Vec<String>,
         kind: &'static str,
@@ -232,6 +291,23 @@ pub enum InputPurpose {
         id: String,
         name: String,
     },
+    /// An automatic playback rule of the profile, or of a show (rating key and title).
+    Auto {
+        field: AutoField,
+        show: Option<(String, String)>,
+    },
+    /// How many unwatched items a smart download keeps.
+    KeepNext {
+        rating_key: String,
+        title: String,
+        delete_watched: bool,
+    },
+    /// The storage budget in GB.
+    Budget,
+    /// How many unwatched items an existing policy keeps.
+    KeepPolicy {
+        id: String,
+    },
 }
 
 impl InputPurpose {
@@ -251,6 +327,16 @@ pub struct Input {
 // ---- confirmation --------------------------------------------------------
 
 pub enum ConfirmAction {
+    /// Take the marked entries out of a playlist.
+    RemoveMarkedFromPlaylist {
+        playlist_id: String,
+        entries: Vec<i64>,
+    },
+    /// Take the marked items out of a collection.
+    RemoveMarkedFromCollection {
+        collection_id: String,
+        rating_keys: Vec<String>,
+    },
     DeletePlaylist {
         playlist_id: String,
     },
@@ -283,6 +369,8 @@ pub enum ConfirmAction {
         playlist_id: String,
     },
     Logout,
+    /// Play the saved queue again (offered at start-up). `x` forgets it instead.
+    ResumeQueue,
     RemoveDownload {
         id: String,
     },
@@ -295,6 +383,15 @@ pub enum ConfirmAction {
     },
     DeleteHistory {
         key: String,
+    },
+    /// Clear the automatic playback rules of the profile, or of a show.
+    ClearAuto {
+        show: Option<(String, String)>,
+    },
+    /// Stop a smart download policy, optionally deleting what it fetched.
+    StopKeeping {
+        id: String,
+        delete_files: bool,
     },
 }
 
@@ -535,6 +632,12 @@ pub struct EditModal {
 // ---- generic background-loaded picker ------------------------------------
 
 pub enum PickKind {
+    /// Saved views of the library in the last column.
+    Views,
+    /// A playlist for the marked items (their keys, and the playlist type).
+    BulkPlaylist { keys: Vec<String>, kind: &'static str },
+    /// A collection for the marked items.
+    BulkCollection { keys: Vec<String>, section_id: String, kind: u32 },
     /// Server sorts of the library listing in the last column.
     Sort,
     /// A–Z jump in the library listing in the last column.
@@ -547,6 +650,10 @@ pub enum PickKind {
     Subtitles { rating_key: String },
     Users,
     Setting(SettingKey),
+    /// The fields of a show's automatic playback rules.
+    AutoShow { show: (String, String) },
+    /// The choices of one automatic playback rule.
+    Auto { field: AutoField, show: Option<(String, String)> },
     Pref { id: String, section: Option<String> },
     Servers,
     LibraryKind,
@@ -555,6 +662,14 @@ pub enum PickKind {
 }
 
 pub enum PickEntry {
+    /// A saved view.
+    View(Box<SavedView>),
+    /// "Save the current view".
+    SaveView,
+    /// A playlist or collection (id, title).
+    Target(String, String),
+    /// "New playlist / collection".
+    NewTarget,
     Sort(Box<Directory>),
     /// A letter and the row it starts at.
     Letter(String, usize),
@@ -613,6 +728,8 @@ pub struct TracksModal {
     pub cursor: usize,
     /// The field whose choices are listed, and the cursor in them.
     pub choosing: Option<(usize, usize)>,
+    /// Also save the choices as the show's automatic playback rules.
+    pub remember: bool,
 }
 
 impl TracksModal {
@@ -637,6 +754,7 @@ impl TracksModal {
             progress: None,
             cursor: 0,
             choosing: None,
+            remember: false,
         })
     }
 
@@ -718,7 +836,7 @@ impl TracksModal {
     }
 
     pub fn can_apply(&self) -> bool {
-        self.progress.is_none() && self.view.as_ref().is_some_and(|v| !v.plan.changes.is_empty())
+        self.progress.is_none() && self.view.as_ref().is_some_and(|v| !v.plan.changes.is_empty() || (self.remember && !v.nothing_chosen))
     }
 }
 
@@ -846,4 +964,32 @@ mod tests {
         assert!(TracksModal::new(&Item::from(patina_plex::Metadata { kind: Some("movie".into()), ..Default::default() })).is_none());
     }
 
+    #[test]
+    fn failure_actions_offer_what_can_be_tried() {
+        use patina_core::failure::{FailureKind, Phase, PlaybackFailure, QualityChoice};
+        let media = |height| patina_plex::Media { height: Some(height), video_codec: Some("hevc".into()), ..Default::default() };
+        let mut f = PlaybackFailure {
+            id: 1,
+            item: patina_plex::Metadata { media: vec![media(2160), media(1080)], ..Default::default() },
+            reason: "The stream could not be loaded.".into(),
+            detail: None,
+            kind: FailureKind::Network,
+            phase: Phase::Start,
+            position_ms: 61_000,
+            media_index: 0,
+            quality: "original".into(),
+            lower_quality: Some(QualityChoice { id: "20m-1080".into(), label: "1080p 20 Mbps".into() }),
+            can_retry: true,
+            remaining: 0,
+        };
+        let rows = failure_actions(&f);
+        let actions: Vec<_> = rows.iter().map(|r| r.0).collect();
+        assert_eq!(actions, [FailureAction::Retry, FailureAction::Version(1), FailureAction::LowerQuality, FailureAction::Dismiss]);
+        assert_eq!(rows[0].1, "Try again from 1:01");
+        assert!(rows[1].1.contains("1080p") && rows[1].1.contains("HEVC"), "{}", rows[1].1);
+        f.can_retry = false;
+        f.lower_quality = None;
+        f.item.media.truncate(1);
+        assert_eq!(failure_actions(&f).iter().map(|r| r.0).collect::<Vec<_>>(), [FailureAction::Dismiss]);
+    }
 }

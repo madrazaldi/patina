@@ -1,10 +1,15 @@
 //! Terminal UI: Miller columns, a details panel, search and dialogs.
 
 mod app;
+mod auto;
 mod column;
+mod marks;
 mod modal;
+mod pager;
 pub mod rows;
+mod saved;
 pub mod source;
+mod task;
 mod ui;
 
 use std::sync::Arc;

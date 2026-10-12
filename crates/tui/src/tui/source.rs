@@ -396,6 +396,19 @@ fn related(mut meta: Metadata, extra: Vec<Hub>) -> Vec<Item> {
     out
 }
 
+/// One page of a listing: `size` entries from `start`, and the total the
+/// server reports when it does.
+pub async fn fetch_page(server: &patina_plex::PlexServer, path: &str, start: usize, size: usize) -> anyhow::Result<(Vec<Item>, Option<usize>)> {
+    let params = Params::new()
+        .set("X-Plex-Container-Start", start)
+        .set("X-Plex-Container-Size", size)
+        .set("includeGuids", 1);
+    let mc = server.fetch(path, &params).await?;
+    let total = mc.total_size.or(mc.size).map(|n| n.max(0) as usize);
+    Ok((Item::listing(mc), total))
+}
+
+/// The whole listing, page after page; reports each page when `progressive`.
 async fn paged(
     server: &patina_plex::PlexServer,
     path: &str,
@@ -405,13 +418,7 @@ async fn paged(
     let mut all: Vec<Item> = Vec::new();
     let mut start = 0;
     loop {
-        let params = Params::new()
-            .set("X-Plex-Container-Start", start)
-            .set("X-Plex-Container-Size", PAGE_SIZE)
-            .set("includeGuids", 1);
-        let mc = server.fetch(path, &params).await?;
-        let total = mc.total_size.or(mc.size).map(|n| n.max(0) as usize);
-        let items = Item::listing(mc);
+        let (items, total) = fetch_page(server, path, start, PAGE_SIZE).await?;
         let n = items.len();
         start += n;
         let finished = n == 0 || total.map_or(n < PAGE_SIZE, |t| start >= t);

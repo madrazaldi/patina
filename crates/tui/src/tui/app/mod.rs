@@ -4,6 +4,8 @@
 //! `search` and `login`.
 
 mod actions;
+mod auto;
+mod bulk;
 mod edit;
 mod keys;
 mod library;
@@ -12,17 +14,21 @@ mod menu;
 mod nav;
 mod pick;
 mod playback;
+mod player_panel;
 mod queue;
 mod search;
 mod tools;
 mod tracks;
 mod undo;
 mod xsearch;
+mod views;
 
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use patina_core::config::TuiSettings;
+use patina_core::controls::{self, PlaybackState};
+use patina_core::failure::{self, PlaybackFailure};
 use patina_core::downloads::{self, Download};
 use patina_core::ops::lists;
 use patina_core::player::{self, QueueCommand};
@@ -66,6 +72,27 @@ pub enum Msg {
         id: u64,
         generation: u64,
         error: String,
+    },
+    /// One page of a listing shown a window at a time.
+    Page {
+        id: u64,
+        generation: u64,
+        page: usize,
+        items: Vec<Item>,
+        total: Option<usize>,
+    },
+    PageFailed {
+        id: u64,
+        generation: u64,
+        page: usize,
+        error: String,
+    },
+    /// A saved view with its sort and filters looked up, ready for the column `id`.
+    ViewApplied {
+        id: u64,
+        name: String,
+        view: Box<crate::tui::source::LibraryView>,
+        extras: Option<patina_core::ops::views::TuiExtras>,
     },
     SectionCount(String, usize),
     Detail(String, Box<Item>),
@@ -168,6 +195,8 @@ pub struct SearchState {
     pub pending: bool,
     pub dirty_at: Option<Instant>,
     pub error: Option<String>,
+    /// The request for the current query; replaced, and so aborted, as the query changes.
+    pub task: crate::tui::task::TaskSlot,
 }
 
 /// The sign-in screens (everything before [`Stage::Ready`]).
@@ -215,11 +244,17 @@ pub struct App {
     /// When `now_playing` last changed, to interpolate the position between ticks.
     np_at: Instant,
     pub queue: Option<QueueView>,
+    /// Volume, speed, repeat, sleep timer, chapters and diagnostics of the running player.
+    pub playback: Option<PlaybackState>,
+    /// Why playback last failed, until it is retried or dismissed.
+    pub failure: Option<PlaybackFailure>,
     /// Lyrics by track rating key; `None` while loading.
     lyrics: Option<queue::LyricsSlot>,
     /// Tracks to append once the play queue of `.0` (a rating key) is running.
     queue_after: Option<(String, Vec<Metadata>)>,
     pub downloads: Vec<Download>,
+    /// A saved view being looked up; replaced, and so aborted, by the next one.
+    view_task: crate::tui::task::TaskSlot,
 
     pub show_inspector: bool,
     pub inspector_scroll: u16,
@@ -287,9 +322,12 @@ impl App {
             now_playing: None,
             np_at: Instant::now(),
             queue: None,
+            playback: controls::playback_state(),
+            failure: failure::current(),
             lyrics: None,
             queue_after: None,
             downloads: downloads::list(),
+            view_task: crate::tui::task::TaskSlot::default(),
             inspector_scroll: 0,
             last_selected: None,
             list_height: 20,
@@ -354,6 +392,7 @@ impl App {
         self.load_watchlist_guids();
         self.check_live_tv();
         self.after_selection_change();
+        self.offer_resume();
     }
 
     fn load_watchlist_guids(&self) {
@@ -425,6 +464,7 @@ impl App {
     }
 
     fn after_selection_change(&mut self) {
+        self.page_in();
         let identity = self.selected().map(Column::identity);
         if identity != self.last_selected {
             self.last_selected = identity;
@@ -523,10 +563,14 @@ impl App {
                     return;
                 }
                 col.loading = false;
+                col.mark_all_on_load = false;
                 col.error = Some(error.clone());
                 let title = col.title.clone();
                 self.error(format!("Loading {title}: {error}"));
             }
+            Msg::ViewApplied { id, name, view, extras } => self.on_view_applied(id, name, *view, extras),
+            Msg::Page { id, generation, page, items, total } => self.on_page(id, generation, page, items, total),
+            Msg::PageFailed { id, generation, page, error } => self.on_page_failed(id, generation, page, error),
             Msg::SectionCount(id, n) => {
                 self.counts.insert(id, n);
             }
@@ -730,12 +774,14 @@ impl App {
                 self.np_at = Instant::now();
                 patina_core::presence::update(self.now_playing.as_ref(), &self.core.settings().player);
                 match (&self.now_playing, &self.modal) {
-                    (None, Some(Modal::Queue { .. } | Modal::Lyrics { .. })) => self.modal = None,
+                    (None, Some(Modal::Queue { .. } | Modal::Lyrics { .. } | Modal::Player { .. })) => self.modal = None,
                     (Some(_), Some(Modal::Lyrics { .. })) => self.load_lyrics(),
                     _ => {}
                 }
             }
             CoreEvent::Queue(q) => self.on_queue(q),
+            CoreEvent::PlaybackState(state) => self.playback = state.map(|b| *b),
+            CoreEvent::PlaybackFailure(f) => self.on_failure(f.map(|b| *b)),
             CoreEvent::Activities(list) => {
                 self.activities = list;
                 self.refresh_local(&Source::ServerLibraries);

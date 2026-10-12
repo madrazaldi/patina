@@ -52,6 +52,9 @@ pub(super) fn draw_now_playing(f: &mut Frame, app: &App, theme: &Theme, area: Re
     if np.stop_after {
         right.push(Span::styled("Stops after this · E undo  ", Style::default().fg(theme.star)));
     }
+    if let Some(chips) = state_chips(app) {
+        right.push(Span::styled(format!("{chips}  "), dim));
+    }
     right.push(Span::styled(format!("{status}  "), dim));
     if np.queue_len > 1 {
         right.push(Span::styled(format!("{} of {}  ", np.queue_pos + 1, np.queue_len), dim));
@@ -66,7 +69,7 @@ pub(super) fn draw_now_playing(f: &mut Frame, app: &App, theme: &Theme, area: Re
     let mut info = vec![Span::styled(left, accent.bold()), Span::raw(" ".repeat(pad))];
     info.extend(right);
     lines.push(Line::from(info));
-    let mut keys = String::from(" P pause  < > prev/next  - = seek  X stop  Q queue");
+    let mut keys = String::from(" P pause  < > prev/next  - = seek  X stop  Q queue  V player");
     if np.item.kind() == "track" {
         keys.push_str("  Y lyrics");
     }
@@ -170,4 +173,154 @@ pub(super) fn draw_lyrics(f: &mut Frame, app: &App, manual: Option<(usize, std::
         }
     };
     f.render_widget(Paragraph::new(lines).block(block), area);
+}
+
+/// Volume, speed, repeat, sleep timer and buffering when they differ from the defaults.
+fn state_chips(app: &App) -> Option<String> {
+    let p = app.playback.as_ref()?;
+    let mut chips = Vec::new();
+    if p.diagnostics.buffering {
+        chips.push(match p.diagnostics.buffer_percent {
+            Some(n) => format!("Buffering {n}%"),
+            None => "Buffering".to_string(),
+        });
+    }
+    if p.muted {
+        chips.push("Muted".to_string());
+    } else if (p.volume - 100.0).abs() > 0.5 {
+        chips.push(format!("Vol {}%", p.volume.round()));
+    }
+    if (p.speed - 1.0).abs() > 0.001 {
+        chips.push(format!("{}x", p.speed));
+    }
+    if p.repeat != patina_core::controls::Repeat::Off {
+        chips.push(p.repeat.label().to_string());
+    }
+    if let Some(left) = sleep_left(p) {
+        chips.push(format!("Sleep {left}"));
+    }
+    (!chips.is_empty()).then(|| chips.join(" · "))
+}
+
+/// Time left on a minutes timer; the end-of-item timer shows as "Stops after this" instead.
+fn sleep_left(p: &patina_core::controls::PlaybackState) -> Option<String> {
+    let ends = p.sleep.as_ref()?.ends_at_ms?;
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).ok()?.as_millis() as i64;
+    // Round up so a fresh 15 minute timer reads 15m, not 14m.
+    Some(format::duration_ms(((ends - now).max(0) + 59_999) / 60_000 * 60_000))
+}
+
+fn kv(label: &str, value: String, theme: &Theme) -> Line<'static> {
+    Line::from(vec![Span::styled(format!(" {label:<11}"), Style::default().fg(theme.dim)), Span::raw(value)])
+}
+
+/// Controls, diagnostics and chapters of the playing item.
+pub(super) fn draw_player(f: &mut Frame, app: &App, cursor: usize, theme: &Theme) {
+    let (Some(np), Some(p)) = (&app.now_playing, &app.playback) else { return };
+    let dim = Style::default().fg(theme.dim);
+    let head = Style::default().fg(theme.accent).bold();
+    let d = &p.diagnostics;
+    let mut lines = vec![
+        kv("Volume", if p.muted { format!("{}% (muted)", p.volume.round()) } else { format!("{}%", p.volume.round()) }, theme),
+        kv("Speed", format!("{}x", p.speed), theme),
+        kv("Repeat", p.repeat.label().to_string(), theme),
+        kv(
+            "Sleep",
+            match (&p.sleep, sleep_left(p)) {
+                (Some(_), Some(left)) => format!("{left} left"),
+                (Some(_), None) => "end of this item".to_string(),
+                (None, _) => "off".to_string(),
+            },
+            theme,
+        ),
+        Line::from(Span::styled(" Diagnostics", head)),
+    ];
+    let connection = match &d.connection {
+        Some(c) => match &c.address {
+            Some(a) => format!("{} · {a}", c.kind),
+            None => c.kind.clone(),
+        },
+        None => "unknown".to_string(),
+    };
+    lines.push(kv("Connection", connection, theme));
+    lines.push(kv(
+        "Buffer",
+        if d.buffering {
+            match d.buffer_percent {
+                Some(n) => format!("buffering, {n}% full"),
+                None => "buffering".to_string(),
+            }
+        } else {
+            d.buffered_secs.map_or("n/a".to_string(), |s| format!("{s:.1} s ahead"))
+        },
+        theme,
+    ));
+    if np.item.kind() != "track" {
+        lines.push(kv(
+            "Decoder",
+            match d.hwdec.as_deref() {
+                None => "unknown".to_string(),
+                Some("no") => "software".to_string(),
+                Some(h) => format!("hardware ({h})"),
+            },
+            theme,
+        ));
+        lines.push(kv("Dropped", format!("{} output · {} decoder", d.dropped_frames, d.decoder_dropped_frames), theme));
+    }
+    if let Some(ms) = d.recovered_from_ms {
+        lines.push(kv("Recovered", format!("resumed from {} after the connection failed", format::clock_ms(ms)), theme));
+    }
+    let used = lines.len() as u16 + 2;
+    let wanted = used + if p.chapters.is_empty() { 0 } else { 1 + p.chapters.len().min(8) as u16 };
+    let area = panel_area(f.area(), bar_height(app), wanted);
+    f.render_widget(Clear, area);
+    let width = area.width as usize - 2;
+    if !p.chapters.is_empty() {
+        lines.push(Line::from(Span::styled(format!(" Chapters ({})", p.chapters.len()), head)));
+        let visible = (area.height.saturating_sub(used + 1) as usize).max(1);
+        let skip = cursor.saturating_sub(visible.saturating_sub(1)).min(p.chapters.len().saturating_sub(visible));
+        for (i, c) in p.chapters.iter().enumerate().skip(skip).take(visible) {
+            let time = format::clock_ms(c.time_ms);
+            let mark = if p.chapter == Some(i) { "♪" } else { " " };
+            let name = if c.title.is_empty() { format!("Chapter {}", i + 1) } else { c.title.clone() };
+            let title = truncate(&format!("{mark} {name}"), width.saturating_sub(time.width() + 3));
+            let pad = width.saturating_sub(title.width() + time.width() + 2);
+            let line = Line::from(format!(" {title}{}{time} ", " ".repeat(pad)));
+            lines.push(if i == cursor {
+                highlight(line, width, selected_style(theme))
+            } else if p.chapter == Some(i) {
+                line.style(Style::default().fg(theme.accent).bold())
+            } else {
+                line
+            });
+        }
+    }
+    let block = modal_block(Line::from(vec![Span::styled(" Player ", head), Span::styled(format!("· {} ", truncate(np.item.title(), 36)), dim)]), theme)
+        .title_bottom(Line::from(Span::styled(" 9/0 vol · M mute · {/} speed · r repeat · Z sleep · esc ", dim)));
+    f.render_widget(Paragraph::new(lines).block(block), area);
+}
+
+/// Why playback failed and what to try.
+pub(super) fn draw_failure(f: &mut Frame, app: &App, cursor: usize, theme: &Theme) {
+    let Some(fail) = &app.failure else { return };
+    let rows = failure_actions(fail);
+    let dim = Style::default().fg(theme.dim);
+    let area = centered(f.area(), 70, rows.len() as u16 + 9);
+    f.render_widget(Clear, area);
+    let width = area.width as usize - 4;
+    let mut lines = vec![Line::from(Span::styled(fail.reason.clone(), Style::default().fg(theme.error)))];
+    if let Some(detail) = &fail.detail {
+        lines.push(Line::from(Span::styled(truncate(&format!("mpv: {detail}"), width), dim)));
+    }
+    if fail.remaining > 0 {
+        lines.push(Line::from(Span::styled(format!("{} more in the queue", fail.remaining), dim)));
+    }
+    lines.push(Line::raw(""));
+    for (i, (_, label)) in rows.iter().enumerate() {
+        let text = format!(" {}", truncate(label, width.saturating_sub(2)));
+        lines.push(if i == cursor { highlight(Line::from(text), width, selected_style(theme)) } else { Line::from(text) });
+    }
+    let title = format!(" Playback failed · {} ", truncate(&Item::from(fail.item.clone()).full_title(), 40));
+    let block = modal_block(title, theme).padding(ratatui::widgets::Padding::horizontal(1)).title_bottom(Line::from(Span::styled(" enter choose · esc dismiss ", dim)));
+    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }).block(block), area);
 }

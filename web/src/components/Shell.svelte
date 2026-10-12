@@ -12,9 +12,13 @@
   import ItemMenu from "./ItemMenu.svelte";
   import MatchDialog from "./MatchDialog.svelte";
   import NowPlaying from "./NowPlaying.svelte";
+  import PlaybackFailure from "./PlaybackFailure.svelte";
   import PlaylistDialog from "./PlaylistDialog.svelte";
+  import ResumeQueue from "./ResumeQueue.svelte";
   import SubtitleDialog from "./SubtitleDialog.svelte";
   import TrackDialog from "./TrackDialog.svelte";
+  import ShowPrefsDialog from "./ShowPrefsDialog.svelte";
+  import KeepDialog from "./KeepDialog.svelte";
   import { api } from "../lib/api";
   import { initials } from "../lib/format";
   import { img } from "../lib/images";
@@ -178,6 +182,8 @@
         <button class="btn sm" onclick={() => { app.refresh(); api.reloadSections().catch((e) => app.error(e)); }}>Retry</button>
       </div>
     {/if}
+    <PlaybackFailure />
+    <ResumeQueue />
     <div id="content" class="content">
       {@render children()}
     </div>
@@ -219,6 +225,8 @@
 {#if app.palette}<CommandPalette />{/if}
 <PlaylistDialog />
 <TrackDialog />
+<ShowPrefsDialog />
+<KeepDialog />
 <CollectionDialog />
 <EditDialog />
 <ArtworkDialog />

@@ -30,11 +30,21 @@ import type {
   Overview,
   PartChange,
   PinView,
+  PlaybackFailure,
+  PlaybackState,
   PlayerSettings,
   PlaylistView,
+  PlaybackPrefs,
+  PlaybackRules,
   Pref,
   PrefGroup,
+  Repeat,
+  SavedQueueView,
   Settings,
+  ShowRules,
+  SmartOverview,
+  SmartPolicy,
+  SmartReport,
   Snapshot,
   Tasks,
   TrackView,
@@ -61,6 +71,25 @@ export type Control =
   | { kind: "stop" }
   | { kind: "seekRelative"; seconds: number }
   | { kind: "seekTo"; seconds: number };
+
+/** Changes to the running player beyond transport. */
+export type Tune =
+  | { kind: "volume"; value: number }
+  | { kind: "volumeBy"; delta: number }
+  | { kind: "mute"; on?: boolean }
+  | { kind: "speed"; value: number }
+  | { kind: "speedBy"; delta: number }
+  | { kind: "repeat"; mode: Repeat }
+  | { kind: "cycleRepeat" }
+  | { kind: "chapter"; index: number }
+  | { kind: "chapterBy"; delta: number }
+  | { kind: "sleepOff" }
+  | { kind: "sleepMinutes"; minutes: number }
+  | { kind: "sleepEndOfItem" }
+  | { kind: "cycleSleep" };
+
+/** What to do about a playback failure. */
+export type Recover = { kind: "retry" } | { kind: "version"; index: number } | { kind: "lowerQuality" };
 
 /** Edits to the running queue; entries are addressed by `QueueItem.uid`. */
 export type QueueCommand =
@@ -212,6 +241,16 @@ export const api = {
       },
     }),
   control: (command: Control) => call("control", { command }),
+  /** Volume, speed, chapters, repeat and the sleep timer. */
+  tune: (command: Tune) => call("tune", { command }),
+  playbackState: () => call<PlaybackState | null>("playback_state"),
+  playbackFailure: () => call<PlaybackFailure | null>("playback_failure"),
+  recoverPlayback: (action: Recover) => call("recover_playback", { action }),
+  dismissFailure: () => call("dismiss_failure"),
+  /** The queue saved by the last playback, to offer a Resume. */
+  savedQueue: () => call<SavedQueueView | null>("saved_queue"),
+  resumeSaved: () => call("resume_saved"),
+  forgetSaved: () => call("forget_saved"),
   /** Adding while nothing plays starts playback. */
   queueItems: (items: Metadata[]) => call("queue_items", { items }),
   queue: (command: QueueCommand) => call("queue", { command }),
@@ -244,6 +283,28 @@ export const api = {
     progress.onmessage = ([done, total]) => onProgress(done, total);
     return call("tracks_apply", { changes, progress });
   },
+
+  // Automatic playback preferences (per profile, and per show)
+  playbackPrefs: (show: string | null) => call<PlaybackPrefs>("playback_prefs", { show }),
+  setPlaybackPrefs: (show: string | null, title: string | null, rules: PlaybackRules) =>
+    call("set_playback_prefs", { show, title, rules }),
+  playbackPrefsShows: () => call<ShowRules[]>("playback_prefs_shows"),
+  /** Index of the version (Media) the rules prefer. */
+  preferredVersion: (item: Metadata) => call<number>("preferred_version", { item }),
+  /** Save what the track dialog chose as the show's rules. */
+  tracksRemember: (query: { show: string; season: number | null; reference: string | null; audio: number | null; subtitle: string }) =>
+    call("tracks_remember", { query }),
+
+  // Smart downloads
+  smartDownloads: () => call<SmartOverview>("smart_downloads"),
+  setSmartDownload: (ratingKey: string, keep: number, deleteWatched: boolean) =>
+    call<SmartPolicy>("set_smart_download", { ratingKey, keep, deleteWatched }),
+  updateSmartDownload: (id: string, patch: { keep?: number; deleteWatched?: boolean; enabled?: boolean }) =>
+    call("update_smart_download", { id, patch }),
+  removeSmartDownload: (id: string, deleteDownloads: boolean) => call("remove_smart_download", { id, deleteDownloads }),
+  /** Bytes all downloads together may use; null removes the limit. */
+  setDownloadBudget: (bytes: number | null) => call("set_download_budget", { bytes }),
+  runSmartDownloads: () => call<SmartReport>("run_smart_downloads"),
 
   // Activity
   sessions: () => call<Metadata[]>("sessions"),

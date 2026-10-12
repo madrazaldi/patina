@@ -6,10 +6,10 @@ use std::sync::Arc;
 use anyhow::{Result, anyhow, bail};
 use clap::{Parser, Subcommand, ValueEnum};
 use patina_core::ops::pick::{self, PickKind, PickQuery};
-use patina_core::ops::{lists, xsearch};
+use patina_core::ops::{self, lists, xsearch};
 use patina_core::player::{self, PlayRequest};
 use patina_core::state::{ServerView, Stage};
-use patina_core::{AppState, CoreEvent, EventSink, config, session};
+use patina_core::{AppState, CoreEvent, EventSink, config, downloads, prefs, session, smart};
 use patina_plex::{MetadataOptions, Params};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
@@ -99,6 +99,8 @@ pub enum Command {
         #[arg(long)]
         quality: Option<String>,
     },
+    /// Play the queue that was playing when Patina last stopped, from where it stopped.
+    Resume,
     /// Show your plex.tv watchlist, or add/remove an item by rating key.
     Watchlist {
         #[command(subcommand)]
@@ -121,6 +123,23 @@ pub enum Command {
         /// Force a full metadata refresh.
         #[arg(long)]
         force: bool,
+    },
+    /// List downloads, or keep episodes downloaded automatically (smart downloads).
+    Downloads {
+        #[command(subcommand)]
+        action: Option<DownloadsAction>,
+        #[command(flatten)]
+        out: Output,
+    },
+    /// Automatic audio, subtitle and version preferences for this profile or a show.
+    Prefs {
+        #[command(subcommand)]
+        action: Option<PrefsAction>,
+        /// A show's rating key; without it the profile's own rules.
+        #[arg(long, global = true)]
+        show: Option<String>,
+        #[command(flatten)]
+        out: Output,
     },
     /// Print a direct stream URL for an item (contains your token).
     Url { rating_key: String },
@@ -188,6 +207,78 @@ pub enum UsersAction {
         #[arg(long)]
         pin: Option<String>,
     },
+}
+
+#[derive(Subcommand)]
+pub enum DownloadsAction {
+    /// Smart downloads: list the policies, or change them.
+    Policy {
+        #[command(subcommand)]
+        action: Option<PolicyAction>,
+        #[command(flatten)]
+        out: Output,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum PolicyAction {
+    /// Keep the next N unwatched items of a show, season or playlist downloaded.
+    Set {
+        rating_key: String,
+        /// How many unwatched items to keep.
+        #[arg(long, default_value_t = 3)]
+        keep: u32,
+        /// Keep downloads after they are watched instead of removing them.
+        #[arg(long)]
+        keep_watched: bool,
+    },
+    /// Stop a policy from adding or removing downloads (by id, id prefix or rating key).
+    Pause { policy: String },
+    /// Turn a paused policy back on.
+    Resume { policy: String },
+    /// Delete a policy; its downloads stay unless --delete-files.
+    Remove {
+        policy: String,
+        #[arg(long)]
+        delete_files: bool,
+    },
+    /// Limit all downloads together to this many GB (`off` for no limit).
+    Budget { limit: String },
+    /// Bring downloads in line with the policies now.
+    Run {
+        /// Stay until the queued downloads finish.
+        #[arg(long)]
+        wait: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum PrefsAction {
+    /// Change rules; fields you leave out stay as they are.
+    Set {
+        /// Audio languages in order of preference, e.g. eng,jpn (empty for none).
+        #[arg(long, value_delimiter = ',')]
+        audio: Option<Vec<String>>,
+        /// Subtitle languages in order of preference (the audio ones when empty).
+        #[arg(long, value_delimiter = ',')]
+        subtitle_languages: Option<Vec<String>>,
+        #[arg(long, value_parser = ["keep", "off", "always", "foreign"])]
+        subtitles: Option<String>,
+        #[arg(long, value_parser = ["auto", "prefer", "avoid", "only"])]
+        forced: Option<String>,
+        /// Skip commentary and audio-description tracks.
+        #[arg(long, value_parser = ["avoid", "allow"])]
+        commentary: Option<String>,
+        #[arg(long, value_parser = ["any", "4k", "1080", "720", "sd"])]
+        resolution: Option<String>,
+        /// Preferred video codec, e.g. hevc or h264 (empty for any).
+        #[arg(long)]
+        codec: Option<String>,
+        #[arg(long, value_parser = ["any", "prefer", "avoid"])]
+        hdr: Option<String>,
+    },
+    /// Forget the rules (a show then follows the profile again).
+    Clear,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -521,7 +612,7 @@ pub async fn run(command: Command) -> Result<()> {
         Command::Playlists { id, out } => {
             let items = match id {
                 None => server.playlists(None, None).await?,
-                Some(id) => server.playlist_items(&id, 0, 5000).await?.metadata,
+                Some(id) => lists::playlist_entries(&server, &id).await?.0,
             };
             print_items(&items.into_iter().map(Item::from).collect::<Vec<_>>(), out)?
         }
@@ -551,6 +642,12 @@ pub async fn run(command: Command) -> Result<()> {
             player::play(core.clone(), PlayRequest { item, resume: !from_start, shuffle, quality, ..Default::default() });
             play_until_stopped(&mut cx).await?;
         }
+        Command::Resume => {
+            let saved = ops::playback::saved_queue(&core).ok_or_else(|| anyhow!("there is no saved queue to resume"))?;
+            println!("Resuming {} at {}", Item::from(saved.current).full_title(), format::clock_ms(saved.position_ms));
+            ops::playback::resume_saved(&core)?;
+            play_until_stopped(&mut cx).await?;
+        }
         Command::Mark { state, rating_key } => {
             match state {
                 MarkState::Watched => server.scrobble(&rating_key).await?,
@@ -576,12 +673,218 @@ pub async fn run(command: Command) -> Result<()> {
                 println!("✓ scanning {}", s.title());
             }
         }
+        Command::Downloads { action: None, out } => {
+            let list = downloads::list();
+            if out.json {
+                println!("{}", serde_json::to_string_pretty(&list)?);
+            }
+            for d in list.iter().filter(|_| !out.json) {
+                let state = format!("{:?}", d.state).to_lowercase();
+                println!("{state:<12} {:>9}  {}  [{}]", format::bytes(d.size), Item::from(d.item.clone()).full_title(), d.server_name);
+            }
+        }
+        Command::Downloads { action: Some(DownloadsAction::Policy { action, out }), .. } => policy(&core, action, out).await?,
+        Command::Prefs { action, show, out } => prefs_command(&core, action, show, out).await?,
         Command::Url { rating_key } => {
             let item = server.metadata(&rating_key, MetadataOptions::default()).await?.ok_or_else(|| anyhow!("no item {rating_key}"))?;
             let part = Item::from(item).primary_part().and_then(|p| p.key.clone()).ok_or_else(|| anyhow!("no media"))?;
             println!("{}", server.part_url(&part, false)?);
         }
         Command::Login { .. } | Command::Logout | Command::ConfigPath => unreachable!(),
+    }
+    Ok(())
+}
+
+/// A policy of this server and profile by id, id prefix or the rating key of its show, season or playlist.
+fn find_policy(core: &AppState, which: &str) -> Result<smart::Policy> {
+    let mut matches: Vec<smart::Policy> = smart::overview(core)
+        .policies
+        .into_iter()
+        .filter(|p| p.active && (p.policy.id.starts_with(which) || p.policy.rating_key == which))
+        .map(|p| p.policy)
+        .collect();
+    match matches.len() {
+        1 => Ok(matches.remove(0)),
+        0 => bail!("no smart download policy {which:?} for this server and profile"),
+        _ => bail!("{which:?} matches several policies; use more of the id"),
+    }
+}
+
+fn enable(core: &AppState, which: &str, enabled: bool) -> Result<()> {
+    let p = find_policy(core, which)?;
+    smart::update_policy(core, &p.id, smart::Patch { enabled: Some(enabled), ..Default::default() })?;
+    println!("✓ {} {}", if enabled { "Resumed" } else { "Paused" }, p.title);
+    Ok(())
+}
+
+/// Bytes in a GB as sizes are shown (1024-based).
+const GIB: f64 = 1024.0 * 1024.0 * 1024.0;
+
+fn gigabytes(bytes: u64) -> String {
+    format::bytes(bytes as i64)
+}
+
+async fn policy(core: &AppState, action: Option<PolicyAction>, out: Output) -> Result<()> {
+    match action {
+        None => {
+            let o = smart::overview(core);
+            if out.json {
+                println!("{}", serde_json::to_string_pretty(&o)?);
+                return Ok(());
+            }
+            println!("Storage budget: {} ({} used by all downloads)", o.budget.map_or("no limit".to_string(), gigabytes), gigabytes(o.used));
+            for p in o.policies.iter().filter(|p| p.active) {
+                let state = if p.policy.enabled { "" } else { " (paused)" };
+                let rule = if p.policy.delete_watched { "remove when watched" } else { "keep when watched" };
+                println!(
+                    "{}  {:<8} {}: keep next {}, {rule}; {} downloaded ({}){state}",
+                    &p.policy.id[..8.min(p.policy.id.len())],
+                    p.policy.target.label(),
+                    p.policy.title,
+                    p.policy.keep,
+                    p.downloads,
+                    format::bytes(p.bytes)
+                );
+            }
+            let other = o.policies.iter().filter(|p| !p.active).count();
+            if other > 0 {
+                println!("{other} more for other servers or profiles");
+            }
+        }
+        Some(PolicyAction::Set { rating_key, keep, keep_watched }) => {
+            let p = smart::set_policy(core, &rating_key, keep, !keep_watched).await?;
+            println!("✓ Keeping the next {} unwatched of {} downloaded", p.keep, p.title);
+            report(&smart::reconcile(core).await?);
+        }
+        Some(PolicyAction::Pause { policy }) => enable(core, &policy, false)?,
+        Some(PolicyAction::Resume { policy }) => enable(core, &policy, true)?,
+        Some(PolicyAction::Remove { policy, delete_files }) => {
+            let p = find_policy(core, &policy)?;
+            smart::remove_policy(core, &p.id, delete_files)?;
+            println!("✓ Removed the policy for {}{}", p.title, if delete_files { " and its downloads" } else { "" });
+        }
+        Some(PolicyAction::Budget { limit }) => {
+            let bytes = match limit.trim().to_lowercase().as_str() {
+                "off" | "none" | "0" => None,
+                gb => Some((gb.trim_end_matches("gb").trim().parse::<f64>().map_err(|_| anyhow!("not a size in GB: {limit}"))? * GIB) as u64),
+            };
+            smart::set_budget(core, bytes)?;
+            println!("✓ Storage budget: {}", bytes.map_or("no limit".to_string(), gigabytes));
+        }
+        Some(PolicyAction::Run { wait }) => {
+            report(&smart::reconcile(core).await?);
+            if wait {
+                wait_for_downloads().await;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn report(r: &smart::Report) {
+    let left_out = if r.over_budget > 0 { format!(", {} left out (storage budget)", r.over_budget) } else { String::new() };
+    println!("  {} queued, {} removed{left_out}", r.added, r.removed);
+    for e in &r.errors {
+        eprintln!("error: {e}");
+    }
+}
+
+/// Stay while downloads are queued or running.
+async fn wait_for_downloads() {
+    let mut last = String::new();
+    loop {
+        let busy = downloads::list().iter().filter(|d| matches!(d.state, downloads::State::Queued | downloads::State::Downloading)).count();
+        if busy == 0 {
+            return;
+        }
+        let line = format!("  {busy} download(s) in progress");
+        if line != last {
+            println!("{line}");
+            last = line;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    }
+}
+
+fn describe(rules: &prefs::Rules) -> Vec<String> {
+    let json = serde_json::to_value(rules).unwrap_or_default();
+    let mut out = Vec::new();
+    for (key, label) in [
+        ("audioLanguages", "audio languages"),
+        ("subtitleLanguages", "subtitle languages"),
+        ("subtitles", "subtitles"),
+        ("forced", "forced subtitles"),
+        ("avoidCommentary", "avoid commentary"),
+        ("resolution", "resolution"),
+        ("codec", "codec"),
+        ("hdr", "hdr"),
+    ] {
+        match &json[key] {
+            serde_json::Value::Null => {}
+            serde_json::Value::Array(a) => out.push(format!("{label}: {}", a.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join(", "))),
+            serde_json::Value::String(v) => out.push(format!("{label}: {v}")),
+            v => out.push(format!("{label}: {v}")),
+        }
+    }
+    out
+}
+
+fn parsed<T: serde::de::DeserializeOwned>(value: Option<String>) -> Result<Option<T>> {
+    value.map(|v| Ok(serde_json::from_value(serde_json::Value::String(v))?)).transpose()
+}
+
+async fn prefs_command(core: &AppState, action: Option<PrefsAction>, show: Option<String>, out: Output) -> Result<()> {
+    let show = show.as_deref();
+    match action {
+        None => {
+            let view = prefs::view(core, show)?;
+            if out.json {
+                println!("{}", serde_json::to_string_pretty(&view)?);
+                return Ok(());
+            }
+            let own = if show.is_some() { view.show.as_ref().unwrap_or(&view.profile) } else { &view.profile };
+            println!("{}", if show.is_some() { "This show's rules" } else { "Profile rules" });
+            let mut lines = describe(own);
+            if lines.is_empty() {
+                lines.push("nothing set".into());
+            }
+            for l in lines {
+                println!("  {l}");
+            }
+            if show.is_some() {
+                println!("In effect (with the profile's)");
+                for l in describe(&view.effective) {
+                    println!("  {l}");
+                }
+            }
+        }
+        Some(PrefsAction::Clear) => {
+            prefs::clear(core, show)?;
+            println!("✓ Cleared");
+        }
+        Some(PrefsAction::Set { audio, subtitle_languages, subtitles, forced, commentary, resolution, codec, hdr }) => {
+            let view = prefs::view(core, show)?;
+            let mut rules = if show.is_some() { view.show.unwrap_or_default() } else { view.profile };
+            let languages = |l: Vec<String>| l.into_iter().filter(|s| !s.trim().is_empty()).collect::<Vec<_>>();
+            if let Some(l) = audio {
+                rules.audio_languages = Some(languages(l));
+            }
+            if let Some(l) = subtitle_languages {
+                rules.subtitle_languages = Some(languages(l));
+            }
+            rules.subtitles = parsed(subtitles)?.or(rules.subtitles);
+            rules.forced = parsed(forced)?.or(rules.forced);
+            rules.avoid_commentary = commentary.map(|c| c == "avoid").or(rules.avoid_commentary);
+            rules.resolution = parsed(resolution)?.or(rules.resolution);
+            rules.hdr = parsed(hdr)?.or(rules.hdr);
+            rules.codec = codec.or(rules.codec);
+            let title = match show {
+                Some(rk) => core.server()?.metadata(rk, MetadataOptions::default()).await?.map(|m| m.title().to_string()),
+                None => None,
+            };
+            prefs::save(core, show, title.as_deref(), rules)?;
+            println!("✓ Saved");
+        }
     }
     Ok(())
 }
@@ -664,6 +967,12 @@ async fn play_until_stopped(cx: &mut Cx) -> Result<()> {
     let mut last_pos = 0;
     loop {
         match cx.rx.recv().await {
+            Some(CoreEvent::PlaybackFailure(Some(f))) => {
+                if let Some(detail) = &f.detail {
+                    eprintln!("  mpv: {detail}");
+                }
+                bail!("playback failed: {}", f.reason);
+            }
             Some(CoreEvent::NowPlaying(Some(np))) => {
                 last_pos = np.position_ms;
                 let title = Item::from(np.item.clone()).full_title();

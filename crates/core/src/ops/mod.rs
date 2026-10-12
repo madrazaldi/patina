@@ -9,3 +9,4 @@ pub mod playback;
 pub mod server;
 pub mod setup;
 pub mod xsearch;
+pub mod views;

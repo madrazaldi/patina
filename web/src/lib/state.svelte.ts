@@ -11,9 +11,12 @@ import type {
   Info,
   Metadata,
   NowPlaying,
+  PlaybackFailure,
+  PlaybackState,
   PlayerSettings,
   QueueView,
   SavedView,
+  SavedQueueView,
   ServerActivity,
   SessionView,
   Settings,
@@ -73,6 +76,12 @@ class App {
   sections = $state<Directory[]>([]);
   nowPlaying = $state<NowPlaying | null>(null);
   queue = $state<QueueView | null>(null);
+  /** Volume, speed, repeat, sleep timer, chapters and diagnostics of the running player. */
+  playback = $state<PlaybackState | null>(null);
+  /** Why playback last failed, until it is retried or dismissed. */
+  failure = $state<PlaybackFailure | null>(null);
+  /** The queue that was playing when Patina last stopped, offered as a Resume (never auto-played). */
+  savedQueue = $state<SavedQueueView | null>(null);
   /** Server background tasks, live. */
   activities = $state<ServerActivity[]>([]);
   downloads = $state<Download[]>([]);
@@ -95,6 +104,10 @@ class App {
   pendingView = $state<SavedView | null>(null);
   /** Show, season or episode waiting for the bulk audio/subtitle dialog. */
   tracksTarget = $state<Metadata | null>(null);
+  /** Show, season or episode waiting for its automatic playback preferences. */
+  prefsTarget = $state<Metadata | null>(null);
+  /** Show, season or playlist waiting for the "keep next N downloaded" dialog. */
+  keepTarget = $state<Metadata | null>(null);
   /** Item waiting for the "add to collection" dialog. */
   collectionTarget = $state<Metadata | null>(null);
   /** Item waiting for the metadata editor. */
@@ -107,8 +120,8 @@ class App {
   subtitleTarget = $state<Metadata | null>(null);
   /** Open confirmation dialog (see `confirm`). */
   confirming = $state<Confirm | null>(null);
-  /** Queue drawer / lyrics panel above the now-playing bar. */
-  panel = $state<"queue" | "lyrics" | null>(null);
+  /** Queue drawer / lyrics / player panel above the now-playing bar. */
+  panel = $state<"queue" | "lyrics" | "player" | null>(null);
   search = $state("");
   /** Search every server of the account instead of the connected one (the Search page's toggle). */
   searchAll = $state(false);
@@ -136,10 +149,18 @@ class App {
           this.clearEditors();
           // Their entries belong to the previous account or server.
           this.toasts = this.toasts.filter((t) => t.undo === undefined);
+          this.savedQueue = null;
+          void this.loadSavedQueue();
         }
         this.sections = e.payload.sections;
       }),
-      listen<NowPlaying | null>("now-playing", (e) => (this.nowPlaying = e.payload)),
+      listen<NowPlaying | null>("now-playing", (e) => {
+        this.nowPlaying = e.payload;
+        // Once something plays the offer is moot (resuming, or the user chose otherwise).
+        if (e.payload) this.savedQueue = null;
+      }),
+      listen<PlaybackState | null>("playback-state", (e) => (this.playback = e.payload)),
+      listen<PlaybackFailure | null>("playback-failure", (e) => (this.failure = e.payload)),
       listen<QueueView | null>("queue", (e) => {
         this.queue = e.payload;
         // The queue only goes away when playback ends, unlike now-playing between tracks.
@@ -165,9 +186,27 @@ class App {
     this.nowPlaying = snap.nowPlaying ?? null;
     this.queue = snap.queue ?? null;
     this.activities = snap.activities;
+    void this.loadSavedQueue();
+    api.playbackState().then((s) => (this.playback = s ?? this.playback)).catch(() => {});
+    api.playbackFailure().then((f) => (this.failure = f ?? this.failure)).catch(() => {});
     this.downloads = downloads;
     this.settings = settings;
     this.info = info;
+  }
+
+  /** Look for a saved queue to offer, unless something is already playing. */
+  async loadSavedQueue() {
+    if (this.nowPlaying || !this.session) {
+      this.savedQueue = null;
+      return;
+    }
+    const scope = this.scope;
+    try {
+      const saved = await api.savedQueue();
+      if (scope === this.scope && !this.nowPlaying) this.savedQueue = saved ?? null;
+    } catch {
+      // No offer is better than an error at start-up.
+    }
   }
 
   /** Refetch everything that depends on watch state. */
@@ -213,6 +252,8 @@ class App {
     this.artworkTarget = null;
     this.matchTarget = null;
     this.subtitleTarget = null;
+    this.prefsTarget = null;
+    this.keepTarget = null;
     this.palette = false;
     this.pendingView = null;
     this.confirming?.resolve(false);

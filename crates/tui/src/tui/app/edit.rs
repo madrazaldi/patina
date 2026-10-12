@@ -236,6 +236,8 @@ impl App {
     pub(super) fn pick_selected(&mut self, p: Picker) {
         let Some((entry, _)) = p.rows.into_iter().nth(p.cursor) else { return };
         match (p.kind, entry) {
+            (PickKind::Views, entry) => self.pick_view(entry),
+            (kind @ (PickKind::BulkPlaylist { .. } | PickKind::BulkCollection { .. }), entry) => self.pick_bulk_target(kind, entry),
             (PickKind::Sort, PickEntry::Sort(d)) => self.choose_sort(*d),
             (PickKind::Letters, PickEntry::Letter(l, at)) => self.jump_to_letter(&l, at),
             (PickKind::Artwork { rating_key, art }, PickEntry::ArtworkFromUrl) => {
@@ -285,6 +287,8 @@ impl App {
                 self.server_op(Refresh::Item(rating_key.clone()), "Subtitle downloaded", move |s| async move { s.download_subtitle(&rating_key, &key).await });
             }
             (PickKind::Setting(key), PickEntry::Text(v)) => self.save_setting(key, Some(v)),
+            (PickKind::AutoShow { show }, PickEntry::Text(id)) => self.pick_auto_show(show, id),
+            (PickKind::Auto { field, show }, PickEntry::Text(v)) => self.save_auto(field, show, v),
             (PickKind::Pref { id, section }, PickEntry::Text(v)) => self.save_pref(id, section, v),
             (PickKind::Servers, PickEntry::Text(id)) => self.switch_server(id),
             (PickKind::LibraryKind, PickEntry::Text(kind)) => {

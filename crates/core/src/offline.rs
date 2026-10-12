@@ -50,6 +50,11 @@ pub fn position(download: &Download) -> i64 {
         .unwrap_or(download.item.view_offset.unwrap_or(0))
 }
 
+/// Downloads finished offline whose watch isn't on the server yet.
+pub fn watched_offline() -> std::collections::HashSet<String> {
+    storage::read_json::<Vec<Progress>>(&path()).unwrap_or_default().into_iter().filter(|p| p.watched && p.pending).map(|p| p.id).collect()
+}
+
 pub fn record(download: &Download, position: i64, duration: i64, completed: bool, threshold: f64) -> Result<()> {
     if duration <= 0 {
         return Ok(());

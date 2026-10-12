@@ -15,9 +15,19 @@ use serde_json::Value;
 use crate::state::{AppState, Changes, CoreEvent, ServerActivity};
 
 /// Start listening to the current server, replacing any previous listener.
+///
+/// The previous listener is aborted, not just told to stop: it may be parked
+/// waiting for the old server's next event, which can take arbitrarily long
+/// (and holds its connection open meanwhile).
 pub fn watch(app: AppState) {
     let generation = app.live_generation.fetch_add(1, Ordering::SeqCst) + 1;
-    app.clone().spawn(async move {
+    let owner = app.clone();
+    // Held until the new task is registered, so concurrent calls cannot leave two running.
+    let mut slot = owner.live_task.lock().unwrap();
+    if let Some(old) = slot.take() {
+        old.abort();
+    }
+    let handle = owner.spawn(async move {
         let current = || app.live_generation.load(Ordering::SeqCst) == generation;
         let pending = Arc::new(Mutex::new(Pending::default()));
         let mut backoff = Duration::from_secs(2);
@@ -55,11 +65,15 @@ pub fn watch(app: AppState) {
             backoff = (backoff * 2).min(Duration::from_secs(60));
         }
     });
+    *slot = Some(handle.abort_handle());
 }
 
 /// Stop listening (signing out).
 pub fn stop(app: &AppState) {
     app.live_generation.fetch_add(1, Ordering::SeqCst);
+    if let Some(old) = app.live_task.lock().unwrap().take() {
+        old.abort();
+    }
     app.set_activities(Vec::new());
 }
 
@@ -68,6 +82,11 @@ pub fn stop(app: &AppState) {
 struct Pending {
     scheduled: bool,
     changes: Changes,
+}
+
+/// Whether a notification listener is running.
+pub fn listening(app: &AppState) -> bool {
+    app.live_task.lock().unwrap().as_ref().is_some_and(|t| !t.is_finished())
 }
 
 fn handle(app: &AppState, event: &str, data: &Value, pending: &Arc<Mutex<Pending>>, last_sessions: &mut Instant) {

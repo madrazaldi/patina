@@ -97,7 +97,7 @@ impl App {
                     .map(|p| {
                         let (server, key) = (server.clone(), key.clone());
                         async move {
-                            let entries = server.playlist_items(p.rating_key(), 0, 5000).await.map_err(err)?.metadata;
+                            let entries = lists::playlist_entries(&server, p.rating_key()).await.map_err(err)?.0;
                             let entry_id = entries.iter().find(|e| e.rating_key.as_deref() == Some(key.as_str())).and_then(|e| e.playlist_item_id);
                             Ok::<_, String>(PlaylistRow { playlist: Item::from(p), entry_id, busy: false })
                         }
@@ -144,7 +144,7 @@ impl App {
                     }
                     None => {
                         server.add_to_playlist(&playlist_key, &server.item_uri(&[&item_key])).await.map_err(err)?;
-                        let entries = server.playlist_items(&playlist_key, 0, 5000).await.map_err(err)?.metadata;
+                        let entries = lists::playlist_entries(&server, &playlist_key).await.map_err(err)?.0;
                         Ok(entries.iter().rev().find(|e| e.rating_key.as_deref() == Some(item_key.as_str())).and_then(|e| e.playlist_item_id).or(Some(0)))
                     }
                 }
@@ -157,6 +157,12 @@ impl App {
     pub(super) fn submit_input(&mut self, input: Input) {
         let value = input.value.trim().to_string();
         match input.purpose {
+            InputPurpose::SaveView => self.save_view(&value),
+            InputPurpose::NewCollectionWith { section_id, kind, rating_keys } => {
+                if !value.is_empty() {
+                    self.create_collection_with(value, section_id, kind, rating_keys);
+                }
+            }
             InputPurpose::Rate { rating_key } => self.submit_rating(rating_key, &value),
             InputPurpose::ServerUrl => {
                 if value.is_empty() {
@@ -247,6 +253,10 @@ impl App {
             InputPurpose::TwoFactor { login, password } => self.password_sign_in(login, password, value),
             InputPurpose::Setting(key) => self.save_setting(key, Some(value)),
             InputPurpose::Pick(field) => self.pick_submit(field, &value),
+            InputPurpose::Auto { field, show } => self.save_auto(field, show, value),
+            InputPurpose::KeepNext { rating_key, title, delete_watched } => self.save_keep(rating_key, title, delete_watched, &value),
+            InputPurpose::KeepPolicy { id } => self.save_keep_policy(&id, &value),
+            InputPurpose::Budget => self.save_budget(&value),
             InputPurpose::Pref { id, section } => self.save_pref(id, section, value),
             InputPurpose::LibraryName(mut form) => {
                 form.name = value;
@@ -288,6 +298,8 @@ impl App {
     pub(super) fn run_confirmed(&mut self, action: ConfirmAction) {
         match action {
             ConfirmAction::Logout => session::sign_out(&self.core),
+            action @ (ConfirmAction::RemoveMarkedFromPlaylist { .. } | ConfirmAction::RemoveMarkedFromCollection { .. }) => self.run_bulk_remove(action),
+            ConfirmAction::ResumeQueue => self.resume_queue(),
             ConfirmAction::DeletePlaylist { playlist_id } => {
                 self.server_op(Refresh::Playlists, "Playlist deleted", move |s| async move { s.delete_playlist(&playlist_id).await })
             }
@@ -322,6 +334,8 @@ impl App {
                 self.server_op(Refresh::Paths(vec![path, PLAYLISTS.into()]), "Playlist cleared", move |s| async move { s.clear_playlist(&playlist_id).await })
             }
             ConfirmAction::RemoveDownload { id } => downloads::remove(&self.core, &id),
+            ConfirmAction::ClearAuto { show } => self.clear_auto(show),
+            ConfirmAction::StopKeeping { id, delete_files } => self.stop_keeping(&id, delete_files),
             ConfirmAction::DeleteRule { id } => {
                 let server = self.server();
                 self.spawn_op(Refresh::Source(Source::Rules), async move {

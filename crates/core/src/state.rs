@@ -252,6 +252,10 @@ pub enum CoreEvent {
     Downloads(Vec<Download>),
     /// Playback sessions on the server changed.
     SessionsChanged,
+    /// Volume, speed, chapters, repeat, sleep timer and diagnostics of the playing item; `None` when nothing plays.
+    PlaybackState(Option<Box<crate::controls::PlaybackState>>),
+    /// Playback failed and can be retried, changed or dismissed; `None` clears it.
+    PlaybackFailure(Option<Box<crate::failure::PlaybackFailure>>),
 }
 
 impl CoreEvent {
@@ -270,6 +274,8 @@ impl CoreEvent {
             Self::Toast(_) => "toast",
             Self::Downloads(_) => "downloads",
             Self::SessionsChanged => "sessions-changed",
+            Self::PlaybackState(_) => "playback-state",
+            Self::PlaybackFailure(_) => "playback-failure",
         }
     }
 
@@ -288,6 +294,8 @@ impl CoreEvent {
             Self::Toast(t) => serde_json::to_value(t),
             Self::Downloads(d) => serde_json::to_value(d),
             Self::SessionsChanged => Ok(Value::Null),
+            Self::PlaybackState(s) => serde_json::to_value(s),
+            Self::PlaybackFailure(f) => serde_json::to_value(f),
         };
         v.unwrap_or_else(|e| {
             tracing::warn!("could not encode {}: {e}", self.name());
@@ -316,6 +324,8 @@ pub struct Inner {
     /// Bumped whenever the session changes, which stops the previous
     /// server's notification listener.
     pub live_generation: AtomicU64,
+    /// The running notification listener, aborted when it is replaced or stopped.
+    pub(crate) live_task: Mutex<Option<tokio::task::AbortHandle>>,
     /// Bumped to abandon an in-flight PIN sign-in.
     pub login_attempt: AtomicU64,
     /// Servers offered on the "choose a server" screen.
@@ -354,6 +364,7 @@ impl AppState {
             revision: AtomicU64::new(0),
             connected: AtomicBool::new(true),
             live_generation: AtomicU64::new(0),
+            live_task: Mutex::new(None),
             login_attempt: AtomicU64::new(0),
             pending: Mutex::new(None),
             tracks: Mutex::new(None),
@@ -369,7 +380,7 @@ impl AppState {
                 let Some(inner) = weak.upgrade() else { break };
                 let app = Self(inner);
                 let list = crate::downloads::list();
-                let next = serde_json::to_string(&list).unwrap_or_default();
+                let next = serde_json::to_string(&list).unwrap_or_default() + &crate::smart::fingerprint();
                 if next != downloads { downloads = next; app.emit(CoreEvent::Downloads(list.clone())); }
                 if list.iter().any(|d| matches!(d.state, crate::downloads::State::Queued | crate::downloads::State::Downloading)) {
                     crate::downloads::resume(&app);
@@ -378,6 +389,10 @@ impl AppState {
                 let next = serde_json::to_string(&(&s.player, &s.ui, &s.tui)).unwrap_or_default();
                 if next != settings { settings = next; app.emit(CoreEvent::SettingsChanged); }
                 ticks += 1;
+                // Smart downloads follow watch state; check now and then even when nothing announces a change.
+                if ticks % 150 == 5 {
+                    crate::smart::reconcile_soon(&app);
+                }
                 if ticks % 15 == 1 {
                     let syncing = app.clone();
                     app.spawn(async move {
@@ -464,7 +479,10 @@ impl AppState {
         let was = self.connected.swap(online, Ordering::Relaxed);
         if was != online {
             self.emit(CoreEvent::Connection(online));
-            if online { self.bump(); }
+            if online {
+                self.bump();
+                crate::failure::on_reconnect(self);
+            }
         }
     }
 
@@ -523,6 +541,8 @@ impl AppState {
     pub fn bump(&self) {
         let r = self.revision.fetch_add(1, Ordering::Relaxed) + 1;
         self.emit(CoreEvent::Revision(r));
+        // Watch state may have changed: smart downloads catch up.
+        crate::smart::reconcile_soon(self);
     }
 
     /// Like [`bump`](Self::bump), telling front ends which sections and items changed.

@@ -1,4 +1,4 @@
-//! Undo (`Z`): reverses the last watch-state change, playlist-entry removal or removal
+//! Undo (`I`): reverses the last watch-state change, playlist-entry removal or removal
 //! from Continue Watching. The history lives in core ([`patina_core::undo`]), scoped to
 //! the signed-in account and server.
 
@@ -7,7 +7,7 @@ use patina_core::undo;
 use super::*;
 
 impl App {
-    /// `Z`: undo the most recent reversible action.
+    /// `I`: undo the most recent reversible action.
     pub(super) fn undo_last(&mut self) {
         let core = self.core.clone();
         // Core announces what it undid with a toast; only a failure comes back here.
@@ -53,7 +53,7 @@ impl App {
 
 /// The notice for a toast that offers Undo.
 pub fn undo_notice(text: &str) -> String {
-    format!("{text} — Z to undo")
+    format!("{text} — I to undo")
 }
 
 #[cfg(test)]
@@ -62,6 +62,6 @@ mod tests {
 
     #[test]
     fn the_notice_names_the_undo_key() {
-        assert_eq!(undo_notice("Marked Heat watched"), "Marked Heat watched — Z to undo");
+        assert_eq!(undo_notice("Marked Heat watched"), "Marked Heat watched — I to undo");
     }
 }
