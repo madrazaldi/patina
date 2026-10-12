@@ -7,9 +7,10 @@ import type { Metadata } from "./types";
 export type Route =
   | { name: "home" }
   | { name: "library"; id: string }
-  | { name: "item"; ratingKey: string }
+  | { name: "item"; ratingKey: string; server?: string }
   | { name: "browse"; path: string; title: string }
   | { name: "search" }
+  | { name: "pick" }
   | { name: "playlists" }
   | { name: "playlist"; id: string }
   | { name: "watchlist" }
@@ -30,7 +31,9 @@ export const routeKey = (r: Route) => JSON.stringify(r);
 export function routeFor(item: Metadata): Route {
   return item.type === "playlist"
     ? { name: "playlist", id: item.ratingKey ?? "" }
-    : { name: "item", ratingKey: item.ratingKey ?? "" };
+    : item.patinaServer
+      ? { name: "item", ratingKey: item.ratingKey ?? "", server: item.patinaServer }
+      : { name: "item", ratingKey: item.ratingKey ?? "" };
 }
 
 export const browseRoute = (path: string, title: string): Route => ({ name: "browse", path, title });
@@ -48,6 +51,7 @@ export function parseRoute(path: string): Route | null {
     case "playlist":
       return b ? { name: "playlist", id: b } : null;
     case "search":
+    case "pick":
     case "playlists":
     case "watchlist":
     case "downloads":

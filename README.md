@@ -30,6 +30,9 @@ The desktop app and the terminal client have the same features; the terminal cli
 - **Automatic playback preferences:** remember your audio and subtitle languages, whether subtitles are on, off or only for foreign dialogue, forced vs. full subtitles, skipping commentary and audio-description tracks, and which version to play (resolution, codec, HDR). Set them for your profile in **Settings → Automatic playback**, and override them per show from the show's menu (**Playback preferences…**) or by ticking **Remember for this show** in the audio & subtitles dialog. They are applied every time something starts playing, so episodes added later follow them too. They reuse the whole-show track matching above (language first, forced vs. full, commentary by title). A choice you make by hand in the version picker or in mpv always wins. They are stored in `playback-prefs.json` next to the config file, per account and server.
 - **Smart downloads:** keep the next N unwatched episodes of a show, season or playlist downloaded (**Keep next unwatched downloaded…** on its page or menu), remove them after you watch them, and set an overall storage budget. Patina checks the policies at start, after playback, when the server reports changes and every few minutes, so new episodes are fetched on their own. Policies and the budget are managed on the Downloads page, are scoped to the account and server they were created on (they do nothing on another), and live in `smart-downloads.json`. Downloads you made yourself are never removed by a policy.
 - **Search** as you type, grouped by type, including people and tags.
+- **Search all servers:** with more than one server on your account, turn on **Search all servers** on the Search page (Cmd/Ctrl+K → "Search all servers", or `Ctrl-A` in the terminal client's search). Every server is asked at once (a few at a time, each with a 12 second limit) and results appear as servers answer, with a note for any that is offline, failed or too slow. Copies of the same title are grouped (by Plex guid, else by title and year), each showing its server and best quality. Choosing a title lists the copies with their files (resolution, codec, container, bitrate, size) so you can pick one to play, or open its details. An item from another server stays with that server: its details, seasons, artwork, playback and progress reports all use that server's own connection and token, and its watch state and resume point are kept apart from the connected server's. Editing, playlists, downloads and the like are only offered for the connected server. A queue plays from one server, so mixing is refused with a message.
+- **Pick something to watch:** from Home, the sidebar, the command palette or the terminal client's root list. Choose what you feel like (movie, show or both; only unwatched; longest runtime; genres; content ratings; a library; year range; lowest audience rating) and get three or four random candidates, with **Reroll** (`R`) for others that skips what you have seen until everything that fits has been offered. The server does the filtering and random ordering, so large libraries stay fast.
+- **Undo:** marking watched or unwatched (a single item, a whole show or season, or a selection), removing an entry from a playlist (it goes back to its original position), clearing progress and removing an item from Continue Watching show a toast with **Undo**; **Cmd/Ctrl+Z** undoes the latest one anywhere except in a text field or a dialog (`I` or `Ctrl-Z` in the terminal client). The last 25 actions are remembered for the current account and server only, and dropped when you switch either. Undo restores watch counts, resume positions and playlist order, not just the visible state.
 - **Playlists** (create, add, remove, reorder by dragging, rename, clear, delete; playlists of any length are read in pages, up to 100,000 entries, and a cut-off is shown) and your plex.tv **Watchlist**. Watchlist items link to the copy on your server when there is one. Availability is checked a few titles at a time, rechecked when the library changes, and a failed check is reported with a Retry instead of showing the title as missing.
 - **Downloads:** download a movie, episode, season, show, album or artist for offline playback. Downloads play in mpv even when the server can't be reached. Pause and resume in either client; interrupted transfers retry and resume after restart when the server supplies a file validator and supports byte ranges (otherwise they safely restart). Patina checks free space before transferring. Offline resume points are saved locally; watch progress syncs on reconnect to the original account/server, with newer server watch activity taking precedence. Older downloads without an account identity retain local resume points but do not sync automatically.
 - **Live TV & DVR** (with a tuner): a channel guide with what's on now and next, watching channels, recording programs, and managing upcoming recordings and recording rules.
@@ -147,6 +150,7 @@ When the server can't be reached, `d` browses and plays your downloads offline.
 | `m` → Radio | Start radio from an artist, album or track |
 | **Library** | |
 | `w` / `u` | Mark watched / unwatched |
+| `I` `^z` | Undo the last watch-state change, playlist removal or Continue Watching removal (the footer shows `I undo` when there is something to undo) |
 | `*` | Rate 0–10 |
 | `Space` | Add to / remove from playlists |
 | `x` | Delete playlist or collection · remove entry · stop stream · delete history entry |
@@ -174,7 +178,8 @@ When the server can't be reached, `d` browses and plays your downloads offline.
 | `l` | A channel's later programs · a library's settings |
 | `/` | Search server settings (or any list) |
 | **Finding things** | |
-| `f` | Search the server, grouped by type (`Tab`: next type) |
+| `f` | Search the server, grouped by type (`Tab`: next type). `^a` in the search searches every server of the account: results are badged with their servers and quality, `Enter` opens the copy chooser (`Enter` plays, `p` from start, `l` browses that server's copy) |
+| `r` | On **Pick something to watch** (a root entry): roll again for other candidates; `Enter` on a criterion changes it |
 | `/` | Filter this column |
 | `s` | Sort (the server's sorts in a library) |
 | `F` | Library filters (unwatched, genre, HDR…) |
@@ -204,7 +209,11 @@ patina-tui servers [--switch]       list or switch servers on your account
 patina-tui info                     server details and activity
 patina-tui libraries                library sections
 patina-tui ls <key|/path>           an item's children, or any Plex path
-patina-tui search <query>
+patina-tui search <query> [--all-servers]
+                                    --all-servers: one line per title with each server's copy and quality
+patina-tui pick [--kind movie|show|any] [--watched] [--max-minutes N] [--genre G]… [--content-rating R]…
+          [--library id|name]… [--year-from Y] [--year-to Y] [--min-rating N] [-n COUNT] [--exclude KEYS]
+                                    random candidates to watch; --exclude skips earlier picks
 patina-tui continue                 continue watching
 patina-tui recent [-n N]            recently added
 patina-tui sessions                 who is streaming now
@@ -237,7 +246,7 @@ patina-tui url <key>                direct stream URL (contains your token)
 patina-tui config-path
 ```
 
-The listing commands (`libraries`, `ls`, `search`, `continue`, `recent`, `sessions`, `history`, `playlists`, `watchlist`) accept `--json` to print Plex's JSON instead of a table. So do `downloads`, `downloads policy` (and its `run`) and `prefs`, which print Patina's own JSON.
+The listing commands (`libraries`, `ls`, `search`, `pick`, `continue`, `recent`, `sessions`, `history`, `playlists`, `watchlist`) accept `--json` to print Plex's JSON instead of a table. So do `downloads`, `downloads policy` (and its `run`) and `prefs`, which print Patina's own JSON.
 
 ## Regression checks
 
@@ -254,7 +263,7 @@ bun run test                          # browser journeys using a development-onl
 cargo test -p patina-core --test reliability -- --ignored --test-threads=1 mpv_
 ```
 
-The Rust integration test starts `tools/mock_pms.py` on an ephemeral localhost port and uses a temporary config and download directory. It interrupts a transfer, pauses/resumes it, restarts the client process, and checks account-scoped offline progress replay. No real Plex server or user sign-in is used. The browser fixture at `/test/` is served by Vite during development and is not included in the production build.
+`crates/core/tests/servers.rs` starts three mock servers and checks that a search across them groups titles with each server's quality and keeps going when one is slow, that watch state, playlist and resume-point changes land on (and are undone on) the right server, and that undo history is dropped on a server change. The Rust integration test starts `tools/mock_pms.py` on an ephemeral localhost port and uses a temporary config and download directory. It interrupts a transfer, pauses/resumes it, restarts the client process, and checks account-scoped offline progress replay. No real Plex server or user sign-in is used. The browser fixture at `/test/` is served by Vite during development and is not included in the production build.
 
 ## Workspace
 
@@ -288,4 +297,17 @@ cargo run -p patina-tui
 
 Setting `XDG_CONFIG_HOME` keeps the mock sign-in out of your real config.
 
-Debug builds also accept `PATINA_ROUTE=/item/100` (opens a page) and `PATINA_PLAY=<ratingKey>` (starts playback).
+To try several servers on one account, start the mock more than once. `--name`, `--machine` and `--seed` make servers that share some titles but have different libraries and file qualities (the same rating key is a different title on each), `--search-delay` makes one slow, and `--servers` has any of them answer plex.tv's account and resource lists:
+
+```sh
+S=32515:Alpha:machine-alpha,32516:Beta:machine-beta
+python3 tools/mock_pms.py --media /path/to/media --port 32515 --name Alpha --machine machine-alpha --seed 0 --servers $S &
+python3 tools/mock_pms.py --media /path/to/media --port 32516 --name Beta --machine machine-beta --seed 1 --servers $S &
+export XDG_CONFIG_HOME=$(mktemp -d)
+# Debug builds only: ask the mock instead of plex.tv for the account and its servers
+export PATINA_PLEX_TV_URL=http://127.0.0.1:32515
+cargo run -p patina-tui -- login --token x   # signs in "via plex.tv", then pick Alpha
+cargo run -p patina-tui -- search --all-servers ember
+```
+
+Debug builds also accept `PATINA_ROUTE=/item/100` (also `/pick`, `/search`, `/library/1` and so on; opens a page) and `PATINA_PLAY=<ratingKey>` (starts playback).

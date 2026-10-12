@@ -9,12 +9,9 @@ export function play(item: Metadata, opts: PlayOptions = {}) {
   api.play($state.snapshot(item) as Metadata, opts).catch((e) => app.error(e));
 }
 
+/** Core announces the change with a toast that offers Undo, and refreshes the views. */
 export function setWatched(item: Metadata, watched: boolean) {
-  return act(
-    api.setWatched(item.ratingKey ?? "", watched),
-    watched ? "Marked as watched" : "Marked as unwatched",
-    true,
-  );
+  return act(api.setWatched(item.ratingKey ?? "", watched, item.patinaServer));
 }
 
 /** Open the item menu at the pointer. */

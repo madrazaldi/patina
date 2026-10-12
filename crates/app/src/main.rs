@@ -41,8 +41,8 @@ fn main() {
     std::thread::spawn(patina_core::images::prune_cache);
 
     tauri::Builder::default()
-        .register_asynchronous_uri_scheme_protocol(images::SCHEME, |_ctx, request, responder| {
-            images::handle(request, responder)
+        .register_asynchronous_uri_scheme_protocol(images::SCHEME, |ctx, request, responder| {
+            images::handle(ctx.app_handle().clone(), request, responder)
         })
         .setup(|app| {
             let runtime = tauri::async_runtime::handle().inner().clone();
@@ -85,6 +85,12 @@ fn main() {
             commands::children,
             commands::find_by_guid,
             commands::set_watched,
+            commands::set_watched_many,
+            commands::undo_last,
+            commands::undo_action,
+            commands::pick_options,
+            commands::pick_something,
+            commands::search_all_servers,
             commands::rate,
             commands::select_streams,
             commands::refresh_metadata,

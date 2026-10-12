@@ -4,7 +4,6 @@
 
 use super::*;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use futures::StreamExt;
 
 use crate::tui::marks::{self, BulkOp, markable};
 
@@ -190,31 +189,16 @@ impl App {
     }
 
     fn bulk_watched(&mut self, items: Vec<Item>, watched: bool) {
-        let keys: Vec<(String, String)> = items.iter().filter(|i| i.is_watchable()).filter_map(|i| Some((i.rating_key.clone()?, i.title().to_string()))).collect();
+        // Items found on another server are not part of a selection on this one.
+        let keys: Vec<String> = items.iter().filter(|i| i.is_watchable() && i.server_id().is_none()).filter_map(|i| i.rating_key.clone()).collect();
         if keys.is_empty() {
             return self.info("Nothing marked can be marked watched");
         }
-        for (key, _) in &keys {
+        for key in &keys {
             self.patch(key, &mut |i| i.set_watched(watched));
         }
-        let (server, total) = (self.server(), keys.len());
-        let done = format!("{total} title{} marked {}", if total == 1 { "" } else { "s" }, if watched { "watched" } else { "unwatched" });
-        self.spawn_op(Refresh::WatchState, async move {
-            let server = server?;
-            let failures: Vec<String> = futures::stream::iter(keys)
-                .map(|(key, title)| {
-                    let server = server.clone();
-                    async move {
-                        let result = if watched { server.scrobble(&key).await } else { server.unscrobble(&key).await };
-                        result.err().map(|e| format!("{title}: {}", err(e)))
-                    }
-                })
-                .buffer_unordered(4)
-                .filter_map(|failure| async move { failure })
-                .collect()
-                .await;
-            marks::outcome(&done, total, &failures)
-        });
+        // Core announces it once, with Undo for the whole selection.
+        self.mark_watched(keys, None, watched);
         self.clear_marks();
     }
 

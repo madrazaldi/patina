@@ -25,8 +25,9 @@ pub(super) fn draw_search(f: &mut Frame, app: &mut App, theme: &Theme) {
     );
     f.render_widget(Clear, area);
     let Some(s) = &app.search else { return };
-    let mut block = modal_block(Line::from(Span::styled(" Search ", Style::default().fg(theme.accent).bold())), theme).title_bottom(Line::from(Span::styled(
-        " ↑↓ move · tab next type · enter go · esc close ",
+    let title = if app.xs.on { " Search all servers " } else { " Search " };
+    let mut block = modal_block(Line::from(Span::styled(title, Style::default().fg(theme.accent).bold())), theme).title_bottom(Line::from(Span::styled(
+        if app.xs.on { " ↑↓ move · enter choose copy · ^a this server · esc close " } else { " ↑↓ move · tab next type · enter go · ^a all servers · esc close " },
         Style::default().fg(theme.dim),
     )));
     if !s.results.is_empty() {
@@ -40,12 +41,18 @@ pub(super) fn draw_search(f: &mut Frame, app: &mut App, theme: &Theme) {
     }
     let inner = block.inner(area);
     f.render_widget(block, area);
-    let [input, rule, list] = Layout::vertical([
+    let status_rows = u16::from(app.xs.on && !app.xs.servers.is_empty());
+    let [input, rule, list, status] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Min(1),
+        Constraint::Length(status_rows),
     ])
     .areas(inner);
+    if status_rows > 0 {
+        let line = crate::tui::app::status_line(&app.xs.servers);
+        f.render_widget(Paragraph::new(Span::styled(format!(" {}", truncate(&line, status.width.saturating_sub(2) as usize)), Style::default().fg(theme.dim))), status);
+    }
     f.render_widget(
         Paragraph::new(Span::styled(
             "─".repeat(rule.width as usize),
@@ -76,7 +83,7 @@ pub(super) fn draw_search(f: &mut Frame, app: &mut App, theme: &Theme) {
         let msg = if let Some(e) = &s.error {
             Span::styled(format!(" {e}"), Style::default().fg(theme.error))
         } else if s.input.trim().chars().count() < 2 {
-            Span::styled(" Type to search the server (movies, shows, episodes, music, people, genres…)", Style::default().fg(theme.dim))
+            Span::styled(if app.xs.on { " Type to search every server of the account" } else { " Type to search the server (movies, shows, episodes, music, people, genres…)" }, Style::default().fg(theme.dim))
         } else if s.pending {
             Span::styled(" Searching…", Style::default().fg(theme.dim))
         } else {
@@ -107,7 +114,8 @@ pub(super) fn draw_search(f: &mut Frame, app: &mut App, theme: &Theme) {
         if i == s.cursor {
             cursor_row = rows.len();
         }
-        rows.push(result_line(item, i == s.cursor, width, theme));
+        let badge = if app.xs.on { app.xs.groups.get(i).map(crate::tui::app::badges) } else { None };
+        rows.push(result_line(item, i == s.cursor, width, theme, badge));
     }
     let s = app.search.as_mut().expect("search open");
     // Keep the cursor's heading in view when moving up to a group's first result.
@@ -121,11 +129,14 @@ pub(super) fn draw_search(f: &mut Frame, app: &mut App, theme: &Theme) {
     f.render_widget(Paragraph::new(lines), list);
 }
 
-fn result_line(item: &Item, selected: bool, width: usize, theme: &Theme) -> Line<'static> {
+fn result_line(item: &Item, selected: bool, width: usize, theme: &Theme, badge: Option<String>) -> Line<'static> {
     let icon = kind_icon(item.kind());
-    let right = match item.kind() {
-        Kind::Person | Kind::Tag => item.summary.clone().unwrap_or_default(),
-        _ => item.library_section_title.clone().unwrap_or_default(),
+    let right = match badge {
+        Some(b) => b,
+        None => match item.kind() {
+            Kind::Person | Kind::Tag => item.summary.clone().unwrap_or_default(),
+            _ => item.library_section_title.clone().unwrap_or_default(),
+        },
     };
     let mut title = item.full_title();
     if let Some(y) = item.year.filter(|_| matches!(item.kind(), Kind::Movie | Kind::Show)) {

@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Result, anyhow};
 use patina_mpv::Mpv;
-use patina_plex::Chapter;
+use patina_plex::{Chapter, PlexServer};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -508,14 +508,19 @@ impl Tracker {
 /// How the session's server is reached: from Plex's connection list when it names the
 /// address in use, else from the address itself.
 pub fn connection_info(session: &Session) -> ConnectionInfo {
-    let base = session.server.base_url();
+    connection_info_of(session, &session.server, &session.server_id)
+}
+
+/// [`connection_info`] for `server`, one of the account's servers with id `server_id`.
+pub fn connection_info_of(session: &Session, server: &PlexServer, server_id: &str) -> ConnectionInfo {
+    let base = server.base_url();
     let host = base.host_str().unwrap_or("").to_string();
     let address = Some(match base.port() {
         Some(port) => format!("{host}:{port}"),
         None => host.clone(),
     });
     let target = base.as_str().trim_end_matches('/');
-    let connections = session.servers.iter().filter(|r| r.id() == session.server_id).flat_map(|r| r.connections.iter());
+    let connections = session.servers.iter().filter(|r| r.id() == server_id).flat_map(|r| r.connections.iter());
     let known = connections.clone().find(|c| c.uri.as_deref().is_some_and(|u| u.trim_end_matches('/') == target));
     let known = known.or_else(|| connections.into_iter().find(|c| c.address.as_deref() == Some(host.as_str()) && c.port == base.port().map(i64::from)));
     let kind = match known {

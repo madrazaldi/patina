@@ -23,11 +23,17 @@
   let query = $state("");
   let active = $state(0);
   let playlists = $state<Metadata[]>([]);
+  /** What Cmd/Ctrl+Z would undo. */
+  let undoable = $state<string | null>(null);
   let list: HTMLUListElement | undefined = $state();
   const guard = captureScope();
 
   api.playlists().then(
     (l) => guard.valid() && (playlists = l),
+    () => {},
+  );
+  api.undoLast().then(
+    (u) => guard.valid() && (undoable = u?.label ?? null),
     () => {},
   );
 
@@ -48,6 +54,7 @@
       out.push({ id, label, group, keywords, run: () => nav.push(route) });
 
     go("home", "Home", { name: "home" });
+    go("pick", "Pick something to watch", { name: "pick" }, "random choose decide movie night surprise me what to watch", "Actions");
     go("playlists", "Playlists", { name: "playlists" });
     if (app.hasTv) go("watchlist", "Watchlist", { name: "watchlist" }, "plex discover bookmarks");
     if (app.liveTv) go("livetv", "Live TV", { name: "livetv" }, "dvr channels guide");
@@ -106,6 +113,21 @@
           return api.switchServer(s.id).catch((e) => app.error(e));
         },
       });
+    }
+    if ((session?.servers.length ?? 0) > 1) {
+      out.push({
+        id: "search-all",
+        label: "Search all servers",
+        group: "Servers",
+        keywords: "find every server account copies",
+        run: () => {
+          app.searchAll = true;
+          return focusSearch();
+        },
+      });
+    }
+    if (undoable) {
+      out.push({ id: "undo", label: `Undo: ${undoable}`, group: "Actions", keywords: "revert reverse watched playlist continue watching", run: () => app.undo() });
     }
     out.push({ id: "user", label: "Switch user…", group: "Account", keywords: "profile account", run: () => nav.push({ name: "settings" }) });
 

@@ -299,6 +299,12 @@ fn draw_footer(f: &mut Frame, app: &App, theme: &Theme, area: Rect) {
         if app.failure.is_some() && app.now_playing.is_none() {
             hints.insert(0, ("V", "playback failed"));
         }
+        if app.columns.last().is_some_and(|c| c.source == Source::Pick) {
+            hints.push(("r", "reroll"));
+        }
+        if patina_core::undo::last(&app.core).is_some() {
+            hints.push(("I", "undo"));
+        }
         hints.extend([
             ("f", "search"),
             ("/", "filter"),
@@ -397,6 +403,8 @@ pub(super) fn row_hints(item: &Item) -> Vec<(&'static str, &'static str)> {
         Act::AutoClear => vec![("enter", "clear all")],
         Act::Policy(_) => vec![("enter", "keep how many"), ("x", "stop keeping")],
         Act::SmartRun => vec![("enter", "check now")],
+        Act::Pick(crate::tui::rows::PickField::Roll) => vec![("enter", "roll"), ("r", "reroll")],
+        Act::Pick(_) => vec![("enter", "change"), ("r", "reroll")],
         _ => Vec::new(),
     }
 }

@@ -18,6 +18,7 @@ pub mod ops;
 pub mod player;
 pub mod prefs;
 pub mod presence;
+pub mod servers;
 pub mod recovery;
 pub mod report;
 pub mod session;
@@ -26,6 +27,7 @@ pub mod state;
 pub mod storage;
 pub mod offline;
 pub mod tracks;
+pub mod undo;
 
 pub use state::{AppState, CoreEvent, EventSink};
 

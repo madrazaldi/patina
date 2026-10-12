@@ -105,6 +105,8 @@ export interface TranscodeSession {
 }
 
 export interface Metadata {
+  /** Machine id of the account server this item was found on, when it is not the connected one. Only Patina sets it. */
+  patinaServer?: string;
   ratingKey?: string;
   key?: string;
   guid?: string;
@@ -796,4 +798,87 @@ export interface ServerStats {
   devices: { name: string; bytes: number }[];
   plays: number;
   playSeconds: number;
+}
+
+// Pick something to watch ---------------------------------------------------------
+
+export interface PickQuery {
+  kind: "movie" | "show" | "any";
+  unwatched: boolean;
+  maxMinutes: number | null;
+  minMinutes: number | null;
+  genres: string[];
+  contentRatings: string[];
+  /** Library section ids; empty means every movie and show library. */
+  sections: string[];
+  yearMin: number | null;
+  yearMax: number | null;
+  /** Lowest audience rating, 0 to 10. */
+  minRating: number | null;
+  count: number;
+  /** Rating keys offered before, so a reroll shows something new. */
+  exclude: string[];
+}
+
+export interface PickResult {
+  items: Metadata[];
+  matches: number;
+  remaining: number;
+  /** Everything that fits was offered already, so the choice started over. */
+  wrapped: boolean;
+  libraries: string[];
+}
+
+export interface PickOptions {
+  sections: { id: string; title: string; kind: string }[];
+  genres: string[];
+  contentRatings: string[];
+}
+
+// Search across servers -----------------------------------------------------------
+
+export interface Version {
+  label: string;
+  resolution: string | null;
+  videoCodec: string | null;
+  container: string | null;
+  bitrate: number | null;
+  size: number | null;
+  hdr: string | null;
+}
+
+export interface ServerCopy {
+  serverId: string;
+  serverName: string;
+  /** On the server this session is connected to. */
+  current: boolean;
+  library: string | null;
+  item: Metadata;
+  versions: Version[];
+}
+
+export interface SearchGroup {
+  key: string;
+  title: string;
+  year: number | null;
+  kind: string;
+  subtitle: string | null;
+  copies: ServerCopy[];
+}
+
+export interface ServerStatus {
+  id: string;
+  name: string;
+  current: boolean;
+  state: "pending" | "done" | "failed" | "timedOut" | "offline";
+  count: number;
+  error: string | null;
+}
+
+export interface AllResults {
+  query: string;
+  groups: SearchGroup[];
+  servers: ServerStatus[];
+  /** Every server has answered, failed or timed out. */
+  done: boolean;
 }

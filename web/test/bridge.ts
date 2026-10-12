@@ -39,8 +39,27 @@ const emit = (event: string, payload: unknown) => { const id = listeners.get(eve
 const downloads = [{ id: "mock:alice:1", account: "alice", serverId: "mock", serverName: "Mock Server", item: item(1), size: 10000, received: 10000, state: "done", addedAt: 1 }];
 let profileRules: Record<string, unknown> = {};
 const smart = { policies: [{ id: "p1", account: "alice", serverId: "mock", serverName: "Mock Server", ratingKey: "500", target: "show", title: "Station Eleven Below", keep: 3, deleteWatched: true, enabled: true, active: true, downloads: 2, bytes: 2000 }], budget: null as number | null, used: 10000 };
+// Undo entries, newest last; `set_watched` records one and announces it with a toast like core does.
+const undoStack: { id: number; label: string }[] = [];
+let nextUndo = 7;
+// Search across servers: the connected server answers first, "other" when released (or at once unless held).
+const xsearch = { hold: false, release: () => {} };
+const copy = (serverId: string, serverName: string, current: boolean, index: number, resolution: string) => ({
+  serverId, serverName, current, library: "Movies",
+  item: { ...item(index), ...(current ? {} : { patinaServer: serverId }), title: `Shared ${index}` },
+  versions: [{ label: `${resolution} · HEVC · MKV · 12.4 Mbps · 2.1 GB`, resolution, videoCodec: "HEVC", container: "MKV", bitrate: 12400, size: 2100000000, hdr: null }],
+});
+const status = (id: string, name: string, current: boolean, state: string, count: number) => ({ id, name, current, state, count, error: null });
+const allResults = (done: boolean) => ({
+  query: "shared", done,
+  servers: [status("mock", "Mock Server", true, "done", 2), status("other", "Other Server", false, done ? "done" : "pending", done ? 2 : 0)],
+  groups: [
+    { key: "plex://movie/1", title: "Shared 1", year: 2024, kind: "movie", subtitle: null, copies: done ? [copy("mock", "Mock Server", true, 31, "1080p"), copy("other", "Other Server", false, 41, "4K")] : [copy("mock", "Mock Server", true, 31, "1080p")] },
+    ...(done ? [{ key: "plex://movie/2", title: "Only Elsewhere", year: 2020, kind: "movie", subtitle: null, copies: [copy("other", "Other Server", false, 42, "720p")] }] : []),
+  ],
+});
 const test = {
-  calls, settings,
+  calls, settings, xsearch,
   fail(value: boolean) { fail = value; },
   setSavedQueue(value: unknown) { savedQueue = value; },
   delay(value: number) { delay = value; },
@@ -96,6 +115,32 @@ Object.assign(window, { __PATINA_TEST__: test, __TAURI_INTERNALS__: {
         const n = Number(String(args.guid).split("/").pop());
         return lookups.present.has(n) ? String(1000 + n) : null;
       } finally { lookups.active--; }
+    }
+    if (cmd === "set_watched" || cmd === "set_watched_many") {
+      const entry = { id: nextUndo++, label: `Marked ${args.ratingKey ?? "items"} watched` };
+      undoStack.push(entry);
+      emit("toast", { text: entry.label, error: false, undo: entry.id });
+      return;
+    }
+    if (cmd === "undo_last") return undoStack.at(-1) ?? null;
+    if (cmd === "undo_action") {
+      const at = args.id == null ? undoStack.length - 1 : undoStack.findIndex((e) => e.id === args.id);
+      if (at < 0) throw new Error("Nothing to undo.");
+      const [entry] = undoStack.splice(at, 1);
+      emit("toast", { text: `Undid: ${entry.label}`, error: false });
+      return entry.label;
+    }
+    if (cmd === "pick_options") return { sections: [{ id: "1", title: "Movies", kind: "movie" }], genres: ["Comedy", "Drama"], contentRatings: ["PG-13", "R"] };
+    if (cmd === "pick_something") {
+      const offset = 10 + (args.query.exclude?.length ?? 0);
+      return { items: [0, 1, 2].map((n) => item(offset + n)), matches: 40, remaining: 30, wrapped: false, libraries: ["Movies"] };
+    }
+    if (cmd === "search_all_servers") {
+      const send = (message: unknown, index: number) => callbacks.get(args.progress.id)?.({ message, index });
+      send(allResults(false), 0);
+      if (xsearch.hold) await new Promise<void>((go) => (xsearch.release = go));
+      send(allResults(true), 1);
+      return allResults(true);
     }
     if (cmd === "item_hubs") return [];
     if (cmd === "home_hubs") return [

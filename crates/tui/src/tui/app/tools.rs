@@ -19,7 +19,12 @@ impl App {
         }
         let mut items = vec![Item::nav("Home", Source::Home)];
         items.extend(self.sections.iter().cloned());
-        items.extend([Item::nav("Playlists", Source::Path(PLAYLISTS.into())), Item::nav("Watchlist", Source::Watchlist), Item::nav("Search", Source::Search)]);
+        items.extend([
+            Item::nav("Playlists", Source::Path(PLAYLISTS.into())),
+            Item::nav("Watchlist", Source::Watchlist),
+            Item::nav("Pick something to watch", Source::Pick),
+            Item::nav("Search", Source::Search),
+        ]);
         // Like the GUI's sidebar, Downloads only shows once there is one (or a smart download policy).
         if !self.downloads.is_empty() || patina_core::smart::overview(&self.core).policies.iter().any(|p| p.active) {
             items.push(Item::nav("Downloads", Source::Downloads));
@@ -74,6 +79,7 @@ impl App {
                 rows::settings(&self.core.settings(), self.mpv_probe.as_ref(), self.session.as_ref(), self.offline, self.auto_prefs().as_ref())
             }
             Source::ServerLibraries => rows::libraries(&self.sections, &self.activities),
+            Source::Pick => pick::screen(&self.pick),
             _ => Vec::new(),
         }
     }
@@ -134,6 +140,7 @@ impl App {
             Act::Butler { .. } => Start,
             Act::Server(_) | Act::Account(_) | Act::OpenUrl(_) | Act::AutoClear | Act::SmartRun => Run,
             Act::Pref { .. } | Act::Setting(_) | Act::Auto(_) | Act::AutoShow { .. } | Act::Budget | Act::Policy(_) => Change,
+            Act::Pick(field) => return self.pick_row(*field),
             Act::Library(_) => return self.row_menu(item),
             _ => return,
         };

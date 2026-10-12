@@ -70,6 +70,21 @@ pub enum Act {
     Budget,
     /// Bring downloads in line with the smart download policies now.
     SmartRun,
+    /// A criterion (or the pick button) of the "Pick something to watch" screen.
+    Pick(PickField),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PickField {
+    Roll,
+    Kind,
+    Unwatched,
+    Length,
+    Genres,
+    Ratings,
+    Years,
+    MinRating,
+    Library,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

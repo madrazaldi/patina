@@ -11,7 +11,7 @@
   import { img } from "../lib/images";
   import * as plex from "../lib/plex";
   import { resource } from "../lib/resource.svelte";
-  import { nav } from "../lib/router.svelte";
+  import { nav, routeFor } from "../lib/router.svelte";
   import { act, app } from "../lib/state.svelte";
   import type { Metadata } from "../lib/types";
 
@@ -20,14 +20,14 @@
   let kind = $derived(plex.kind(item));
   const children = resource(() => {
     app.revision;
-    return api.children(item.ratingKey ?? "", kind === "collection");
+    return api.children(item.ratingKey ?? "", kind === "collection", item.patinaServer);
   });
 
-  const open = (m: Metadata) => nav.push({ name: "item", ratingKey: m.ratingKey ?? "" });
+  const open = (m: Metadata) => nav.push(routeFor(m));
 
   // Collection items; reassigned optimistically on remove / reorder until the refetch lands.
   let items = $derived(children.data ?? []);
-  let editable = $derived(kind === "collection" && app.owned);
+  let editable = $derived(kind === "collection" && app.owned && !item.patinaServer);
   let reorderable = $derived(editable && String(sort) === "2" && items.length > 1);
 
   function removeItem(m: Metadata) {
@@ -107,7 +107,7 @@
         >
           <div class="n num">{ep.index ?? ""}</div>
           <div class="thumb">
-            <Img src={img(ep.thumb, 480, 270)} class={spoiler ? "spoiler" : ""} />
+            <Img src={img(ep.thumb, 480, 270, ep.patinaServer)} class={spoiler ? "spoiler" : ""} />
             {#if p != null}<div class="progress"><i style:width="{p * 100}%"></i></div>{/if}
             <button
               class="play"

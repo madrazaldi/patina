@@ -465,6 +465,8 @@ impl Current {
 struct Player {
     app: AppState,
     server: PlexServer,
+    /// Machine id of `server` when it is not the session's own; queue items are tagged with it.
+    server_tag: Option<String>,
     scope: Option<Scope>,
     settings: PlayerSettings,
     quality: &'static Quality,
@@ -541,8 +543,14 @@ fn release(mpv: &Arc<Mpv>) -> bool {
 async fn run(app: AppState, req: PlayRequest) -> Result<()> {
     let _run = RunGuard::new();
     let session = app.session().ok_or_else(|| anyhow!("Not connected to a server."))?;
-    let server = session.server.clone();
-    let scope = Scope::of(&session);
+    // An item found on another server of the account plays, and reports, through that server.
+    let server = crate::servers::server_of(&app, &req.item).await?;
+    let server_tag = req.item.server_id().filter(|id| !crate::servers::is_current(&app, Some(id))).map(str::to_string);
+    // Checkpoints and saved queues are kept per server, so the other server's rating keys never mix with ours.
+    let mut scope = Scope::of(&session);
+    if let Some(id) = &server_tag {
+        scope.server = id.clone();
+    }
     let settings = app.settings().player;
     let forced = START_OFFSET.lock().unwrap().take();
     let queue = build_queue(&server, &req, &settings).await?;
@@ -581,6 +589,7 @@ async fn run(app: AppState, req: PlayRequest) -> Result<()> {
     let mut p = Player {
         app: app.clone(),
         server: server.clone(),
+        server_tag,
         scope: Some(scope.clone()),
         settings: settings.clone(),
         quality: req.quality.as_deref().and_then(config::quality).unwrap_or_else(|| settings.quality()),
@@ -595,7 +604,7 @@ async fn run(app: AppState, req: PlayRequest) -> Result<()> {
         sleep_item: false,
         keep_open,
         played_any: false,
-        tracker: Tracker::new(controls::connection_info(&session)),
+        tracker: Tracker::new(controls::connection_info_of(&session, &server, &scope.server)),
         internal: internal_tx,
         finished_queue: false,
         failures_in_a_row: 0,
@@ -710,7 +719,8 @@ impl Player {
     }
 
     /// Load an item into mpv at `index` (the end when `None`) and track it.
-    async fn insert(&mut self, item: Metadata, media_index: usize, index: Option<usize>, opts: &[(&str, String)]) -> Result<u64> {
+    async fn insert(&mut self, mut item: Metadata, media_index: usize, index: Option<usize>, opts: &[(&str, String)]) -> Result<u64> {
+        item.set_server_id(self.server_tag.as_deref());
         let loaded = media_url(&self.server, &item, media_index, self.quality, self.live)?;
         let mut opts = opts.to_vec();
         if !opts.iter().any(|(k, _)| *k == "force-media-title") {
@@ -1275,6 +1285,9 @@ impl Player {
     async fn on_queue_command(&mut self, cmd: QueueCommand) -> Result<()> {
         match cmd {
             QueueCommand::Add { item, next } => {
+                if item.server_id() != self.server_tag.as_deref() {
+                    return Err(anyhow!("A queue plays from one server; “{}” is on another.", item.title()));
+                }
                 if item.is_playable() {
                     let items = vec![(*item).clone()];
                     self.add_items(*item, items, next).await?;

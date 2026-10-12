@@ -93,6 +93,8 @@
   {@const queueable = plex.canPlay(item) && !["photo", "photoalbum"].includes(kind)}
   {@const saved = downloaded(item)}
   {@const inLibrary = LIBRARY.includes(kind)}
+  {@const foreign = item.patinaServer}
+  {@const where = foreign ? (app.session?.servers.find((s) => s.id === foreign)?.name ?? "another server") : ""}
   <div
     class="scrim"
     role="presentation"
@@ -106,6 +108,7 @@
     <div class="head">
       <b>{plex.fullTitle(item)}</b>
       {#if plex.subtitle(item)}<span>{plex.subtitle(item)}</span>{/if}
+      {#if where}<span>On {where}</span>{/if}
     </div>
 
     {#if plex.canPlay(item)}
@@ -128,13 +131,13 @@
 
     {#if (kind === "episode" || kind === "track") && item.grandparentRatingKey}
       {@const show = item.grandparentRatingKey}
-      <button onclick={run(() => nav.push({ name: "item", ratingKey: show }))}>
+      <button onclick={run(() => nav.push({ name: "item", ratingKey: show, server: foreign }))}>
         {#if kind === "track"}<User />Go to artist{:else}<Tv />Go to show{/if}
       </button>
     {/if}
     {#if ["episode", "track", "season"].includes(kind) && item.parentRatingKey}
       {@const parent = item.parentRatingKey}
-      <button onclick={run(() => nav.push({ name: "item", ratingKey: parent }))}>
+      <button onclick={run(() => nav.push({ name: "item", ratingKey: parent, server: foreign }))}>
         <Layers />{kind === "track" ? "Go to album" : kind === "season" ? "Go to show" : "Go to season"}
       </button>
     {/if}
@@ -144,11 +147,13 @@
         {#if watched}<Circle />Mark as unwatched{:else}<CircleCheck />Mark as watched{/if}
       </button>
     {/if}
+    <!-- What follows edits the connected server, so it is not offered for an item found on another one. -->
+    {#if !foreign}
     {#if resume}
-      <button onclick={run(() => act(api.clearProgress(rk), "Progress cleared", true))}><Eraser />Clear progress</button>
+      <button onclick={run(() => act(api.clearProgress(rk)))}><Eraser />Clear progress</button>
     {/if}
     {#if kind === "episode" || (kind === "movie" && resume)}
-      <button onclick={run(() => act(api.removeFromContinueWatching(rk), "Removed from Continue Watching", true))}>
+      <button onclick={run(() => act(api.removeFromContinueWatching(rk)))}>
         <EyeOff />Remove from Continue Watching
       </button>
     {/if}
@@ -210,6 +215,7 @@
           ),
         )}><ExternalLink />Open in Plex Web</button
       >
+    {/if}
     {/if}
   </div>
 {/if}
