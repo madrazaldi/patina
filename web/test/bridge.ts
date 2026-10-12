@@ -29,7 +29,7 @@ const maintenance = {
   ],
 };
 const calls: { cmd: string; args: Record<string, any> }[] = [];
-let fail = false, delay = 0;
+let fail = false, delay = 0, savedQueue: unknown = null;
 // Commands whose responses are held back until released, to test late responses.
 const held = new Map<string, (() => void)[]>();
 // Watchlist: 100 titles, the even ones are on the server. `lookups` tracks find_by_guid concurrency.
@@ -42,6 +42,7 @@ const smart = { policies: [{ id: "p1", account: "alice", serverId: "mock", serve
 const test = {
   calls, settings,
   fail(value: boolean) { fail = value; },
+  setSavedQueue(value: unknown) { savedQueue = value; },
   delay(value: number) { delay = value; },
   hold(cmd: string) { held.set(cmd, []); },
   release(cmd: string) { for (const go of held.get(cmd) ?? []) go(); held.delete(cmd); },
@@ -67,6 +68,7 @@ Object.assign(window, { __PATINA_TEST__: test, __TAURI_INTERNALS__: {
     if (cmd === "set_player_settings") { Object.assign(settings.player, args.player); return; }
     if (cmd === "info") return { version: "test", configPath: "isolated fixture", accents: [], qualities: [] };
     if (cmd === "downloads") return downloads;
+    if (cmd === "saved_queue") return savedQueue;
     if (cmd === "livetv_available") return false;
     if (cmd === "playback_prefs") return { profile: profileRules, show: args.show ? {} : null, effective: profileRules };
     if (cmd === "playback_prefs_shows") return [{ ratingKey: "500", title: "Station Eleven Below", rules: { audioLanguages: ["ja"], subtitles: "always" } }];

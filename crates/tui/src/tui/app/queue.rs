@@ -2,6 +2,7 @@
 
 use super::*;
 use crossterm::event::{KeyCode, KeyEvent};
+use patina_core::controls::Tune;
 use patina_core::lyrics::{self, Lyrics};
 use patina_core::player::{Control, PlayRequest};
 
@@ -85,6 +86,11 @@ impl App {
             }
             KeyCode::Char('z') => send(QueueCommand::Shuffle { on: !q.shuffled }),
             KeyCode::Char('E') => self.toggle_stop_after(),
+            KeyCode::Char('r') => self.tune(Tune::CycleRepeat),
+            KeyCode::Char('V') => {
+                self.open_player();
+                return self.modal.take();
+            }
             KeyCode::Esc | KeyCode::Char('q' | 'Q') => return None,
             _ => {}
         }
@@ -93,6 +99,9 @@ impl App {
 
     /// Player controls that work from the browser and the player panels.
     pub(super) fn transport_key(&mut self, key: KeyEvent) -> bool {
+        if self.tune_key(key) {
+            return true;
+        }
         let cmd = match key.code {
             KeyCode::Char('P') => Control::TogglePause,
             KeyCode::Char('>') => Control::Next,

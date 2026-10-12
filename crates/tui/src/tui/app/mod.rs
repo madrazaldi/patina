@@ -13,6 +13,7 @@ mod login;
 mod menu;
 mod nav;
 mod playback;
+mod player_panel;
 mod queue;
 mod search;
 mod tools;
@@ -23,6 +24,8 @@ use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use patina_core::config::TuiSettings;
+use patina_core::controls::{self, PlaybackState};
+use patina_core::failure::{self, PlaybackFailure};
 use patina_core::downloads::{self, Download};
 use patina_core::ops::lists;
 use patina_core::player::{self, QueueCommand};
@@ -224,6 +227,10 @@ pub struct App {
     /// When `now_playing` last changed, to interpolate the position between ticks.
     np_at: Instant,
     pub queue: Option<QueueView>,
+    /// Volume, speed, repeat, sleep timer, chapters and diagnostics of the running player.
+    pub playback: Option<PlaybackState>,
+    /// Why playback last failed, until it is retried or dismissed.
+    pub failure: Option<PlaybackFailure>,
     /// Lyrics by track rating key; `None` while loading.
     lyrics: Option<queue::LyricsSlot>,
     /// Tracks to append once the play queue of `.0` (a rating key) is running.
@@ -294,6 +301,8 @@ impl App {
             now_playing: None,
             np_at: Instant::now(),
             queue: None,
+            playback: controls::playback_state(),
+            failure: failure::current(),
             lyrics: None,
             queue_after: None,
             downloads: downloads::list(),
@@ -362,6 +371,7 @@ impl App {
         self.load_watchlist_guids();
         self.check_live_tv();
         self.after_selection_change();
+        self.offer_resume();
     }
 
     fn load_watchlist_guids(&self) {
@@ -734,12 +744,14 @@ impl App {
                 self.np_at = Instant::now();
                 patina_core::presence::update(self.now_playing.as_ref(), &self.core.settings().player);
                 match (&self.now_playing, &self.modal) {
-                    (None, Some(Modal::Queue { .. } | Modal::Lyrics { .. })) => self.modal = None,
+                    (None, Some(Modal::Queue { .. } | Modal::Lyrics { .. } | Modal::Player { .. })) => self.modal = None,
                     (Some(_), Some(Modal::Lyrics { .. })) => self.load_lyrics(),
                     _ => {}
                 }
             }
             CoreEvent::Queue(q) => self.on_queue(q),
+            CoreEvent::PlaybackState(state) => self.playback = state.map(|b| *b),
+            CoreEvent::PlaybackFailure(f) => self.on_failure(f.map(|b| *b)),
             CoreEvent::Activities(list) => {
                 self.activities = list;
                 self.refresh_local(&Source::ServerLibraries);

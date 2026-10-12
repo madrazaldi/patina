@@ -1,4 +1,4 @@
-//! Saved library views (`V`): a library's sort and filters under a name,
+//! Saved library views (`W`): a library's sort and filters under a name,
 //! stored in the same place as the desktop app's, so a view saved in either
 //! is there in both.
 
@@ -11,7 +11,7 @@ use crate::tui::saved;
 use crate::tui::source::LibraryView;
 
 impl App {
-    /// `V`: the saved views of the library in the last column.
+    /// `W`: the saved views of the library in the last column.
     pub(super) fn open_views(&mut self) {
         let Some(view) = self.columns.last().and_then(|c| c.library()).cloned() else {
             return self.info("Saved views work in a library listing");

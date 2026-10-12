@@ -299,6 +299,7 @@ impl App {
         match action {
             ConfirmAction::Logout => session::sign_out(&self.core),
             action @ (ConfirmAction::RemoveMarkedFromPlaylist { .. } | ConfirmAction::RemoveMarkedFromCollection { .. }) => self.run_bulk_remove(action),
+            ConfirmAction::ResumeQueue => self.resume_queue(),
             ConfirmAction::DeletePlaylist { playlist_id } => {
                 self.server_op(Refresh::Playlists, "Playlist deleted", move |s| async move { s.delete_playlist(&playlist_id).await })
             }

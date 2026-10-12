@@ -248,6 +248,10 @@ pub enum CoreEvent {
     Downloads(Vec<Download>),
     /// Playback sessions on the server changed.
     SessionsChanged,
+    /// Volume, speed, chapters, repeat, sleep timer and diagnostics of the playing item; `None` when nothing plays.
+    PlaybackState(Option<Box<crate::controls::PlaybackState>>),
+    /// Playback failed and can be retried, changed or dismissed; `None` clears it.
+    PlaybackFailure(Option<Box<crate::failure::PlaybackFailure>>),
 }
 
 impl CoreEvent {
@@ -266,6 +270,8 @@ impl CoreEvent {
             Self::Toast(_) => "toast",
             Self::Downloads(_) => "downloads",
             Self::SessionsChanged => "sessions-changed",
+            Self::PlaybackState(_) => "playback-state",
+            Self::PlaybackFailure(_) => "playback-failure",
         }
     }
 
@@ -284,6 +290,8 @@ impl CoreEvent {
             Self::Toast(t) => serde_json::to_value(t),
             Self::Downloads(d) => serde_json::to_value(d),
             Self::SessionsChanged => Ok(Value::Null),
+            Self::PlaybackState(s) => serde_json::to_value(s),
+            Self::PlaybackFailure(f) => serde_json::to_value(f),
         };
         v.unwrap_or_else(|e| {
             tracing::warn!("could not encode {}: {e}", self.name());
@@ -464,7 +472,10 @@ impl AppState {
         let was = self.connected.swap(online, Ordering::Relaxed);
         if was != online {
             self.emit(CoreEvent::Connection(online));
-            if online { self.bump(); }
+            if online {
+                self.bump();
+                crate::failure::on_reconnect(self);
+            }
         }
     }
 

@@ -291,10 +291,13 @@ fn draw_footer(f: &mut Frame, app: &App, theme: &Theme, area: Rect) {
         }
         if app.columns.last().is_some_and(|c| c.library().is_some()) {
             hints.push(("F", "filters"));
-            hints.push(("V", "views"));
+            hints.push(("W", "views"));
         }
         if app.selected().is_some_and(crate::tui::marks::markable) {
             hints.push(("tab", "mark"));
+        }
+        if app.failure.is_some() && app.now_playing.is_none() {
+            hints.insert(0, ("V", "playback failed"));
         }
         hints.extend([
             ("f", "search"),

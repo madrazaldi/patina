@@ -233,3 +233,82 @@ test("smart download policies and the storage budget live on the Downloads page"
   const calls = await page.evaluate(() => (window as any).__PATINA_TEST__.calls.filter((c: any) => c.cmd === "update_smart_download" || c.cmd === "set_download_budget").map((c: any) => [c.cmd, c.args.patch ?? c.args.bytes]));
   expect(calls).toEqual([["update_smart_download", { keep: 5 }], ["set_download_budget", 20 * 1024 ** 3], ["update_smart_download", { enabled: false }]]);
 });
+
+const movie = (key: string, title: string) => ({
+  ratingKey: key, key: `/library/metadata/${key}`, type: "movie", title, year: 2024, duration: 600000,
+  Media: [
+    { id: 1, height: 2160, videoResolution: "4k", videoCodec: "hevc", Part: [] },
+    { id: 2, height: 1080, videoResolution: "1080", videoCodec: "h264", Part: [] },
+  ],
+  Genre: [], Role: [], Director: [], Writer: [], Country: [], Collection: [], Label: [], Mood: [], Style: [], Image: [], smart: false,
+});
+const callsTo = (page: Page, cmd: string) => page.evaluate((c) => (window as any).__PATINA_TEST__.calls.filter((x: any) => x.cmd === c).map((x: any) => x.args), cmd);
+
+test("a saved queue is offered but never plays until Resume is pressed", async ({ page }) => {
+  await page.evaluate(() => {
+    const t = (window as any).__PATINA_TEST__;
+    t.setSavedQueue({ current: { ratingKey: "7", key: "/library/metadata/7", type: "movie", title: "Saved Movie" }, positionMs: 61000, index: 1, count: 3, savedAt: 1 });
+    t.switchServer();
+  });
+  await expect(page.getByText("Saved Movie")).toBeVisible();
+  await expect(page.getByText("at 1:01")).toBeVisible();
+  await expect(page.getByText("2 of 3 in the queue")).toBeVisible();
+  expect(await callsTo(page, "resume_saved")).toHaveLength(0);
+  await page.getByRole("button", { name: "Resume", exact: true }).click();
+  await expect.poll(() => callsTo(page, "resume_saved")).toHaveLength(1);
+  await expect(page.getByText("Saved Movie")).toHaveCount(0);
+});
+
+test("a playback failure says why and offers retry, another version and a lower quality", async ({ page }) => {
+  const failure = { id: 1, item: movie("9", "Broken Movie"), reason: "The stream could not be loaded.", detail: "loading failed", kind: "network", phase: "start", positionMs: 61000, mediaIndex: 0, quality: "original", lowerQuality: { id: "20m-1080", label: "1080p 20 Mbps" }, canRetry: true, remaining: 0 };
+  await page.evaluate((f) => (window as any).__PATINA_TEST__.emit("playback-failure", f), failure);
+  await expect(page.getByText("The stream could not be loaded.")).toBeVisible();
+  await page.getByRole("button", { name: "Try again from 1:01" }).click();
+  await page.getByRole("button", { name: "Try 1080p H264" }).click();
+  await page.getByRole("button", { name: "Try 1080p 20 Mbps" }).click();
+  expect(await callsTo(page, "recover_playback")).toEqual([{ action: { kind: "retry" } }, { action: { kind: "version", index: 1 } }, { action: { kind: "lowerQuality" } }]);
+  await page.getByTitle("Dismiss").click();
+  expect(await callsTo(page, "dismiss_failure")).toHaveLength(1);
+  await page.evaluate(() => (window as any).__PATINA_TEST__.emit("playback-failure", null));
+  await expect(page.getByText("The stream could not be loaded.")).toHaveCount(0);
+});
+
+test("the player panel shows controls and diagnostics and sends tune commands", async ({ page }) => {
+  await page.evaluate((item) => {
+    const t = (window as any).__PATINA_TEST__;
+    t.emit("now-playing", { item, positionMs: 5000, durationMs: 600000, paused: false, transcoding: false, queueLen: 1, queuePos: 0, uid: 1, ending: false, stopAfter: false, live: false, local: false });
+    t.emit("playback-state", {
+      volume: 40, muted: false, speed: 1.5, repeat: "all", sleep: { mode: "minutes", endsAtMs: Date.now() + 29 * 60000 },
+      chapters: [{ title: "Intro", timeMs: 0 }, { title: "Main", timeMs: 120000 }], chapter: 0,
+      diagnostics: { buffering: true, bufferPercent: 35, bufferedSecs: 12.5, hwdec: "videotoolbox", droppedFrames: 3, decoderDroppedFrames: 1, connection: { kind: "relay", address: "relay.plex.direct" } },
+    });
+  }, movie("5", "Playing Movie"));
+  const bar = page.locator("footer.now-playing");
+  await expect(bar.getByText("Buffering 35%")).toBeVisible();
+  await expect(bar.getByText("Vol 40%")).toBeVisible();
+  await expect(bar.getByText("1.5x")).toBeVisible();
+  await expect(bar.getByText("Repeat all")).toBeVisible();
+  await expect(bar.getByText("Sleep 29m")).toBeVisible();
+
+  await page.getByTitle("Player controls and diagnostics").click();
+  await expect(page.getByText("Plex relay")).toBeVisible();
+  await expect(page.getByText("12.5 s ahead", { exact: false })).toHaveCount(0); // buffering wins over the buffered duration
+  await expect(page.getByText("Buffering, 35% full")).toBeVisible();
+  await expect(page.getByText("Hardware (videotoolbox)")).toBeVisible();
+  await expect(page.getByText("3 output · 1 decoder")).toBeVisible();
+
+  await page.getByRole("button", { name: "2x", exact: true }).click();
+  await page.getByRole("button", { name: "One", exact: true }).click();
+  await page.getByRole("button", { name: "60m", exact: true }).click();
+  await page.getByRole("button", { name: "End of item", exact: true }).click();
+  await page.getByRole("button", { name: "Main", exact: false }).click();
+  await page.getByTitle("Mute").click();
+  expect(await callsTo(page, "tune")).toEqual([
+    { command: { kind: "speed", value: 2 } },
+    { command: { kind: "repeat", mode: "one" } },
+    { command: { kind: "sleepMinutes", minutes: 60 } },
+    { command: { kind: "sleepEndOfItem" } },
+    { command: { kind: "chapter", index: 1 } },
+    { command: { kind: "mute" } },
+  ]);
+});

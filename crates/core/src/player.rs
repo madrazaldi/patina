@@ -11,14 +11,14 @@
 //! play queue where it has the items.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow};
 use patina_mpv::{Event, Mpv, SpawnOptions};
 use patina_plex::{
-    Marker, Metadata, MetadataOptions, Part, PlayQueueRequest, PlexServer, TimelineState, TimelineUpdate,
+    Marker, MediaContainer, Metadata, MetadataOptions, Part, PlayQueueRequest, PlexServer, TimelineState, TimelineUpdate,
     TranscodeOptions, stream_type,
 };
 use serde::Deserialize;
@@ -26,11 +26,45 @@ use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
 use crate::config::{self, PlayerSettings, Quality};
+use crate::controls::{self, ConnectionInfo, Tracker, Tune};
+use crate::failure::{self, Phase};
+use crate::recovery::{self, Scope, SavedQueue};
+use crate::report::{Op, QueueOp, reporter};
 use crate::state::{AppState, NowPlaying, QueueItem, QueueView};
 
 static ACTIVE: Mutex<Option<Arc<Mpv>>> = Mutex::new(None);
-static COMMANDS: Mutex<Option<mpsc::UnboundedSender<QueueCommand>>> = Mutex::new(None);
+static COMMANDS: Mutex<Option<mpsc::UnboundedSender<Cmd>>> = Mutex::new(None);
 static NEXT_UID: AtomicU64 = AtomicU64::new(1);
+/// Playbacks being driven right now, so quitting can wait for their last reports.
+static RUNS: AtomicUsize = AtomicUsize::new(0);
+/// A position to start the next playback's first item from (retry, resuming a saved queue).
+static START_OFFSET: Mutex<Option<(String, i64)>> = Mutex::new(None);
+
+/// Commands for the playback loop, which owns the queue and the player's state.
+enum Cmd {
+    Queue(QueueCommand),
+    Tune(Tune),
+}
+
+struct RunGuard;
+
+impl RunGuard {
+    fn new() -> Self {
+        RUNS.fetch_add(1, Ordering::SeqCst);
+        RunGuard
+    }
+}
+
+impl Drop for RunGuard {
+    fn drop(&mut self) {
+        RUNS.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// Whether a player is running.
+pub fn is_active() -> bool {
+    ACTIVE.lock().unwrap().is_some()
+}
 
 fn uid() -> u64 {
     NEXT_UID.fetch_add(1, Ordering::Relaxed)
@@ -95,14 +129,40 @@ pub enum QueueCommand {
 }
 
 pub fn play(app: AppState, req: PlayRequest) {
+    failure::clear(&app);
     app.clone().spawn(async move {
+        let retry = req.clone();
         if let Err(e) = run(app.clone(), req).await {
             tracing::error!("playback failed: {e:#}");
-            app.error(format!("Playback failed: {e:#}"));
             app.set_now_playing(None);
             app.set_queue(None);
+            controls::finished(&app);
+            // Nothing was playing yet (no server, no queue, mpv would not start): offer to try again.
+            let (kind, text) = failure::explain_error(&e);
+            failure::record(
+                &app,
+                failure::Report {
+                    item: retry.item.clone(),
+                    error: Some(text),
+                    kind: Some(kind),
+                    phase: Phase::Start,
+                    position_ms: 0,
+                    media_index: retry.media_index,
+                    quality: retry.quality.clone().unwrap_or_else(|| app.settings().player.quality().id.to_string()),
+                    remaining: retry.selection.len().saturating_sub(1),
+                    request: retry,
+                },
+            );
         }
     });
+}
+
+/// Play, starting the first item at `offset_ms` instead of the position the server remembers.
+pub fn play_from(app: AppState, req: PlayRequest, offset_ms: i64) {
+    if offset_ms > 0 {
+        *START_OFFSET.lock().unwrap() = Some((req.item.rating_key().to_string(), offset_ms));
+    }
+    play(app, req);
 }
 
 pub fn control(cmd: Control) {
@@ -127,7 +187,7 @@ pub fn queue_items(app: AppState, items: Vec<Metadata>) -> Result<()> {
     anyhow::ensure!(items.iter().all(|m| queue_kind(m) == queue_kind(&first)), "Select only video or only music for a queue.");
     let sender = COMMANDS.lock().unwrap().clone().filter(|tx| !tx.is_closed());
     if let Some(tx) = sender {
-        for item in items { tx.send(QueueCommand::Add { item: Box::new(item), next: false }).map_err(|_| anyhow!("Playback ended; try again."))?; }
+        for item in items { tx.send(Cmd::Queue(QueueCommand::Add { item: Box::new(item), next: false })).map_err(|_| anyhow!("Playback ended; try again."))?; }
     } else {
         play(app, PlayRequest { item: first, selection: items, ..Default::default() });
     }
@@ -139,10 +199,26 @@ pub fn queue(app: AppState, cmd: QueueCommand) {
     let tx = COMMANDS.lock().unwrap().clone();
     match (tx, cmd) {
         (Some(tx), cmd) if !tx.is_closed() => {
-            let _ = tx.send(cmd);
+            let _ = tx.send(Cmd::Queue(cmd));
         }
         (_, QueueCommand::Add { item, .. }) => play(app, PlayRequest { item: *item, ..Default::default() }),
         _ => {}
+    }
+}
+
+/// Change volume, speed, chapter, repeat or the sleep timer of the running player.
+pub fn tune(app: &AppState, cmd: Tune) {
+    let sender = COMMANDS.lock().unwrap().clone().filter(|tx| !tx.is_closed());
+    if let Some(tx) = sender {
+        let _ = tx.send(Cmd::Tune(cmd));
+    } else if let Some(mpv) = ACTIVE.lock().unwrap().clone() {
+        // Playing downloads: no loop to ask, mpv can be changed directly.
+        let app = app.clone();
+        crate::runtime().spawn(async move {
+            if let Err(e) = controls::apply(&app, &mpv, cmd).await {
+                app.error(format!("{e:#}"));
+            }
+        });
     }
 }
 
@@ -150,10 +226,18 @@ pub fn queue(app: AppState, cmd: QueueCommand) {
 /// so `kill_on_drop` alone would leave the player window behind. Call from
 /// outside the runtime.
 pub fn shutdown() {
-    let Some(mpv) = ACTIVE.lock().unwrap().take() else { return };
+    let mpv = ACTIVE.lock().unwrap().take();
     crate::runtime().block_on(async move {
-        let _ = mpv.quit().await;
-        mpv.wait(Duration::from_secs(2)).await;
+        if let Some(mpv) = mpv {
+            let _ = mpv.quit().await;
+            mpv.wait(Duration::from_secs(2)).await;
+        }
+        // Let the playback loop send its final report, then wait for Plex to take it.
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while RUNS.load(Ordering::SeqCst) > 0 && Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        crate::report::flush(Duration::from_secs(5)).await;
     });
 }
 
@@ -228,10 +312,16 @@ async fn build_queue(server: &PlexServer, req: &PlayRequest, settings: &PlayerSe
 
     match server.create_play_queue(&pq).await {
         Ok(mc) if !mc.metadata.is_empty() => {
-            let start = mc
-                .metadata
-                .iter()
-                .position(|m| m.play_queue_item_id.is_some() && m.play_queue_item_id == mc.play_queue_selected_item_id)
+            // An explicit selection starts at the requested item; otherwise Plex says where.
+            let requested = (!req.selection.is_empty() && item.rating_key.is_some())
+                .then(|| mc.metadata.iter().position(|m| m.rating_key == item.rating_key))
+                .flatten();
+            let start = requested
+                .or_else(|| {
+                    mc.metadata
+                        .iter()
+                        .position(|m| m.play_queue_item_id.is_some() && m.play_queue_item_id == mc.play_queue_selected_item_id)
+                })
                 .unwrap_or(0);
             Ok(Queue { items: mc.metadata, start, kind, id: mc.play_queue_id })
         }
@@ -356,6 +446,14 @@ struct Current {
     last_ui: Instant,
     /// mpv's playlist entry id for this item, to match its `end-file`.
     mpv_id: Option<i64>,
+    /// mpv finished loading the file.
+    loaded: bool,
+    /// The full item (markers, streams, chapters) is still being fetched.
+    detail_pending: bool,
+    /// The file loaded before the full item arrived: apply Plex's streams once it does.
+    streams_pending: bool,
+    /// When the position was last saved locally.
+    checkpoint_at: Instant,
 }
 
 impl Current {
@@ -367,6 +465,7 @@ impl Current {
 struct Player {
     app: AppState,
     server: PlexServer,
+    scope: Option<Scope>,
     settings: PlayerSettings,
     quality: &'static Quality,
     mpv: Arc<Mpv>,
@@ -378,9 +477,37 @@ struct Player {
     /// Entry order before shuffling, to restore it.
     unshuffled: Option<Vec<u64>>,
     stop_after: bool,
+    /// "Stop after this" was turned on by the sleep timer's "end of item".
+    sleep_item: bool,
     /// mpv's own `keep-open`, restored when "stop after this" is turned off.
     keep_open: Value,
     played_any: bool,
+    /// Volume, speed, chapters and diagnostics, published as they change.
+    tracker: Tracker,
+    /// Answers to background requests, back into the loop.
+    internal: mpsc::UnboundedSender<Internal>,
+    /// The last item ended with nothing after it.
+    finished_queue: bool,
+    /// Items that failed one after the other.
+    failures_in_a_row: usize,
+    /// Playback of this rating key restarted from a local checkpoint at this position.
+    recovered: Option<(String, i64)>,
+    /// Where the first item was told to start, for a failure before it loaded.
+    initial_start: Option<(String, i64)>,
+    /// More of the Plex queue is being fetched.
+    extending: bool,
+}
+
+/// Results of requests made off the loop, so slow answers never hold up mpv's events.
+enum Internal {
+    /// The full item (markers, streams, chapters) of a queue entry.
+    Detail { uid: u64, item: Option<Metadata> },
+    /// The playable items behind something added to the queue.
+    Leaves { source: Metadata, next: bool, result: Result<Vec<Metadata>, String> },
+    /// Plex's play queue after items were added to it.
+    Added { uids: Vec<u64>, queue: Option<MediaContainer> },
+    /// The items of the Plex play queue, to find what follows the end of the local one.
+    Upcoming { items: Vec<Metadata> },
 }
 
 async fn spawn_mpv(settings: &PlayerSettings, headers: Vec<(String, String)>) -> Result<(Arc<Mpv>, mpsc::UnboundedReceiver<Event>)> {
@@ -412,8 +539,12 @@ fn release(mpv: &Arc<Mpv>) -> bool {
 }
 
 async fn run(app: AppState, req: PlayRequest) -> Result<()> {
-    let server = app.server()?;
+    let _run = RunGuard::new();
+    let session = app.session().ok_or_else(|| anyhow!("Not connected to a server."))?;
+    let server = session.server.clone();
+    let scope = Scope::of(&session);
     let settings = app.settings().player;
+    let forced = START_OFFSET.lock().unwrap().take();
     let queue = build_queue(&server, &req, &settings).await?;
 
     let info = server.client_info().clone();
@@ -435,6 +566,8 @@ async fn run(app: AppState, req: PlayRequest) -> Result<()> {
     {
         mpv.observe_property(i as u64 + 1, name).await?;
     }
+    Tracker::observe(&mpv).await;
+    controls::apply_saved(&mpv).await;
     if !settings.skip_key.trim().is_empty() {
         let _ = mpv.bind_message(settings.skip_key.trim(), "patina-skip").await;
     }
@@ -444,9 +577,11 @@ async fn run(app: AppState, req: PlayRequest) -> Result<()> {
         let _ = mpv.set_property("media-controls", "no").await;
     }
 
+    let (internal_tx, mut internal) = mpsc::unbounded_channel();
     let mut p = Player {
         app: app.clone(),
         server: server.clone(),
+        scope: Some(scope.clone()),
         settings: settings.clone(),
         quality: req.quality.as_deref().and_then(config::quality).unwrap_or_else(|| settings.quality()),
         mpv: mpv.clone(),
@@ -457,8 +592,16 @@ async fn run(app: AppState, req: PlayRequest) -> Result<()> {
         cur: None,
         unshuffled: None,
         stop_after: false,
+        sleep_item: false,
         keep_open,
         played_any: false,
+        tracker: Tracker::new(controls::connection_info(&session)),
+        internal: internal_tx,
+        finished_queue: false,
+        failures_in_a_row: 0,
+        recovered: None,
+        initial_start: None,
+        extending: false,
     };
 
     // Resolve stream URLs up front; items that cannot be played are dropped so
@@ -467,11 +610,24 @@ async fn run(app: AppState, req: PlayRequest) -> Result<()> {
     for (i, item) in queue.items.iter().enumerate() {
         let media_index = crate::prefs::media_index(&app, item, if i == queue.start { req.media_index } else { 0 });
         let mut opts = vec![("force-media-title", item.full_title())];
+        if i == queue.start {
+            p.initial_start = Some((item.rating_key().to_string(), 0));
+        }
         if i == queue.start
             && req.resume
-            && let Some(offset) = item.view_offset.filter(|o| *o > 0)
         {
-            opts.push(("start", format!("{:.3}", offset as f64 / 1000.0)));
+            // A position asked for, else a local checkpoint newer than what the server knows (a
+            // connection that dropped before it was told), else the server's.
+            let asked = forced.as_ref().filter(|(key, _)| key == item.rating_key()).map(|(_, ms)| *ms);
+            let local = recovery::resume_position(&scope, item);
+            let offset = asked.or(local).or(item.view_offset).filter(|o| *o > 0);
+            if let Some(offset) = offset {
+                p.initial_start = Some((item.rating_key().to_string(), offset));
+                opts.push(("start", format!("{:.3}", offset as f64 / 1000.0)));
+                if asked.or(local).is_some_and(|ms| item.view_offset.is_none_or(|v| (ms - v).abs() > 2000)) {
+                    p.recovered = Some((item.rating_key().to_string(), offset));
+                }
+            }
         }
         if i == queue.start {
             start = p.entries.len();
@@ -489,6 +645,7 @@ async fn run(app: AppState, req: PlayRequest) -> Result<()> {
 
     let mut ticker = tokio::time::interval(Duration::from_secs(10));
     ticker.tick().await;
+    let mut state_ticker = tokio::time::interval(Duration::from_secs(1));
 
     loop {
         tokio::select! {
@@ -499,21 +656,29 @@ async fn run(app: AppState, req: PlayRequest) -> Result<()> {
                 }
             }
             Some(cmd) = commands.recv() => {
-                if let Err(e) = p.on_command(cmd).await {
-                    app.error(format!("Could not change the queue: {e:#}"));
-                }
+                p.on_command(cmd).await;
                 p.emit_queue();
+                p.persist_queue();
             }
+            Some(msg) = internal.recv() => p.on_internal(msg).await,
             _ = ticker.tick() => p.tick().await,
+            _ = state_ticker.tick() => p.tracker.publish(&p.app, false),
         }
     }
 
+    // A queue played to its end is done; anything else can be offered again after a restart.
+    let at_end = p.finished_queue || p.cur.as_ref().is_some_and(|c| c.reached_end) && !p.has_next();
+    if at_end && controls::repeat() == controls::Repeat::Off {
+        let _ = recovery::clear_queue(&scope);
+    } else {
+        p.persist_queue();
+    }
     if let Some(c) = p.cur.take() {
         let completed = c.reached_end;
-        p.finish(c, completed).await;
+        p.finish(&c, completed);
     }
     for session in p.entries.iter().filter_map(|e| e.transcode_session.as_ref()) {
-        let _ = server.stop_transcode(session).await;
+        reporter().send(server.clone(), Op::StopTranscode(session.clone()));
     }
     let ours = release(&mpv);
     mpv.wait(Duration::from_secs(2)).await;
@@ -521,8 +686,9 @@ async fn run(app: AppState, req: PlayRequest) -> Result<()> {
         *COMMANDS.lock().unwrap() = None;
         app.set_now_playing(None);
         app.set_queue(None);
+        controls::finished(&app);
     }
-    app.bump();
+    p.refresh_after_reports();
     Ok(())
 }
 
@@ -593,6 +759,59 @@ impl Player {
         }));
     }
 
+    /// Tell Plex about the current state of an item. Never waits for the answer.
+    fn report(&self, c: &Current, state: TimelineState) {
+        if let Some(op) = timeline_op(c, state) {
+            reporter().send(self.server.clone(), op);
+        }
+    }
+
+    /// Views refetch watch state once Plex has the last reports.
+    fn refresh_after_reports(&self) {
+        let app = self.app.clone();
+        crate::runtime().spawn(async move {
+            crate::report::flush(Duration::from_secs(20)).await;
+            app.bump();
+        });
+    }
+
+    /// Save the local position of the playing item and the queue around it.
+    fn checkpoint(&mut self) {
+        if !self.reports() {
+            return;
+        }
+        let (Some(scope), Some(c)) = (&self.scope, self.cur.as_mut()) else { return };
+        c.checkpoint_at = Instant::now();
+        if c.time_ms > 0
+            && let Some(rk) = c.item.rating_key.as_deref()
+            && let Err(e) = recovery::save_checkpoint(scope, rk, c.time_ms, c.duration_ms)
+        {
+            tracing::debug!("could not save the playback position: {e:#}");
+        }
+    }
+
+    fn persist_queue(&self) {
+        if !self.reports() {
+            return;
+        }
+        let (Some(scope), Some(index)) = (&self.scope, self.cur_index()) else { return };
+        let Some(c) = self.cur.as_ref() else { return };
+        let (range, current) = recovery::window(self.entries.len(), index);
+        let queue = SavedQueue {
+            account: scope.account.clone(),
+            server: scope.server.clone(),
+            saved_at: crate::offline::now(),
+            kind: self.kind.to_string(),
+            items: self.entries[range].iter().map(|e| recovery::slim(&e.item)).collect(),
+            current,
+            position_ms: c.time_ms,
+            quality: Some(self.quality.id.to_string()),
+        };
+        if let Err(e) = recovery::save_queue(scope, queue) {
+            tracing::debug!("could not save the queue: {e:#}");
+        }
+    }
+
     /// Handle one mpv event; false when playback is over.
     async fn on_event(&mut self, ev: Event) -> bool {
         match ev {
@@ -619,8 +838,10 @@ impl Player {
                         if self.reports()
                             && let Some(c) = self.cur.as_ref()
                         {
-                            report(&self.server, c, if paused { TimelineState::Paused } else { TimelineState::Playing }).await;
+                            self.report(c, if paused { TimelineState::Paused } else { TimelineState::Playing });
                         }
+                        self.checkpoint();
+                        self.persist_queue();
                     }
                 }
                 "eof-reached" => {
@@ -643,29 +864,63 @@ impl Player {
                         sync_stream_choice(&self.server, &self.mpv, c, &name, &data).await;
                     }
                 }
-                "idle-active" if data.as_bool() == Some(true) && self.played_any => {
+                // Playback is over once mpv has gone idle after playing, or after every item failed.
+                "idle-active" if data.as_bool() == Some(true) && (self.played_any || self.failures_in_a_row > 0) => {
                     let _ = self.mpv.quit().await;
+                }
+                other if Tracker::observes(other) => {
+                    let urgent = self.tracker.on_property(other, &data);
+                    self.tracker.publish(&self.app, urgent);
                 }
                 _ => {}
             },
+            Event::StartFile { .. } => {
+                // A new file: start its diagnostics over. Repeating one item starts a file without
+                // changing the playlist position, so pick the item up here as well.
+                if self.cur.is_none()
+                    && let Ok(pos) = self.mpv.get_property("playlist-pos").await
+                {
+                    self.on_position(pos.as_i64().unwrap_or(-1)).await;
+                }
+                self.begin_item_state();
+            }
             Event::FileLoaded => {
                 self.played_any = true;
-                if let Some(c) = self.cur.as_mut()
-                    && self.settings.sync_streams
-                    && c.transcode_session.is_none()
-                {
-                    crate::prefs::apply_auto(&self.app, &self.server, &mut c.item, c.media_index);
-                    apply_plex_streams(&self.server, &self.mpv, c).await;
+                self.failures_in_a_row = 0;
+                let loaded_key = self.cur.as_ref().and_then(|c| c.item.rating_key.clone());
+                if failure::current().is_some_and(|f| f.item.rating_key != loaded_key) {
+                    // Playback moved on to something else that works.
+                    failure::clear(&self.app);
+                }
+                if let Some(c) = self.cur.as_mut() {
+                    c.loaded = true;
+                    if self.settings.sync_streams && c.transcode_session.is_none() {
+                        if c.detail_pending {
+                            c.streams_pending = true;
+                        } else {
+                            crate::prefs::apply_auto(&self.app, &self.server, &mut c.item, c.media_index);
+                            apply_plex_streams(&self.server, &self.mpv, c).await;
+                        }
+                    }
                 }
             }
-            Event::EndFile { reason, playlist_entry_id, .. } => {
+            Event::EndFile { reason, playlist_entry_id, error } => {
                 // Jumping or skipping moves `playlist-pos` before the old file's
                 // end-file arrives; that one ended already, not the new item.
                 let other = matches!((playlist_entry_id, self.cur.as_ref().and_then(|c| c.mpv_id)), (Some(e), Some(c)) if e != c);
                 if !other && let Some(mut c) = self.cur.take() {
                     let completed = reason == "eof";
                     c.reached_end |= completed;
-                    self.finish(c, completed).await;
+                    if completed && !self.has_next_after(c.uid) && controls::repeat() == controls::Repeat::Off {
+                        self.finished_queue = true;
+                    }
+                    if reason == "error" {
+                        self.on_failure(&c, error.as_deref()).await;
+                    }
+                    self.finish(&c, completed);
+                    if completed && controls::sleep_at_item_end() {
+                        let _ = self.mpv.quit().await;
+                    }
                 }
             }
             Event::ClientMessage { args } => {
@@ -680,37 +935,113 @@ impl Player {
         true
     }
 
+    fn has_next_after(&self, uid: u64) -> bool {
+        self.index_of(uid).is_some_and(|i| i + 1 < self.entries.len())
+    }
+
+    /// The playing item's per-file state for the front ends: chapters from Plex and a recovered position.
+    fn begin_item_state(&mut self) {
+        self.tracker.new_item(self.cur.as_ref().map(|c| c.item.chapters.as_slice()).unwrap_or(&[]));
+        let recovered = self.cur.as_ref().and_then(|c| self.recovered.as_ref().filter(|(key, _)| key == c.item.rating_key()).map(|(_, ms)| *ms));
+        self.tracker.recovered_from(recovered);
+        self.tracker.publish(&self.app, true);
+    }
+
+    /// mpv gave up on an item: tell the front end why, and what can be done.
+    async fn on_failure(&mut self, c: &Current, error: Option<&str>) {
+        self.failures_in_a_row += 1;
+        let index = self.index_of(c.uid);
+        let upcoming: Vec<Metadata> = index.map(|i| self.entries[i..].iter().map(|e| e.item.clone()).collect()).unwrap_or_default();
+        let remaining = upcoming.len().saturating_sub(1);
+        // Where trying again picks up: the playhead, or for a file that never started, where it was meant to start.
+        let position = if c.time_ms > 0 {
+            c.time_ms
+        } else {
+            self.initial_start.as_ref().filter(|(key, _)| key == c.item.rating_key()).map_or(0, |(_, ms)| *ms)
+        };
+        let request = PlayRequest {
+            item: upcoming.first().cloned().unwrap_or_else(|| c.item.clone()),
+            selection: if upcoming.len() > 1 { upcoming } else { Vec::new() },
+            resume: true,
+            media_index: c.media_index,
+            live: self.live,
+            quality: Some(self.quality.id.to_string()),
+            ..Default::default()
+        };
+        failure::record(
+            &self.app,
+            failure::Report {
+                item: c.item.clone(),
+                error: error.map(str::to_string),
+                kind: None,
+                phase: if c.loaded { Phase::Playing } else { Phase::Start },
+                position_ms: position,
+                media_index: c.media_index,
+                quality: self.quality.id.to_string(),
+                remaining,
+                request,
+            },
+        );
+        // Everything failing in turn (or one item failing over and over under repeat-all) ends playback.
+        if self.failures_in_a_row >= self.entries.len().max(1) {
+            let _ = self.mpv.quit().await;
+        }
+    }
+
     async fn on_position(&mut self, pos: i64) {
         let uid = (pos >= 0).then(|| self.entries.get(pos as usize).map(|e| e.uid)).flatten();
         if self.cur.as_ref().map(|c| c.uid) == uid {
             return;
         }
         if let Some(c) = self.cur.take() {
-            self.finish(c, false).await;
+            self.finish(&c, false);
         }
         if self.stop_after {
             self.set_stop_after(false).await;
         }
         let Some(index) = uid.and_then(|u| self.index_of(u)) else { return };
         let e = &self.entries[index];
-        let mut c = begin(&self.server, &e.item, e.uid, e.media_index, e.transcode_session.clone()).await;
+        let mut c = begin(&e.item, e.uid, e.media_index, e.transcode_session.clone());
         c.mpv_id = self.mpv.get_property(&format!("playlist/{pos}/id")).await.ok().and_then(|v| v.as_i64());
+        if c.detail_pending {
+            // Queue entries lack markers and sometimes streams; fetch the full item without holding up playback.
+            let (server, tx, key, uid) = (self.server.clone(), self.internal.clone(), c.item.rating_key().to_string(), c.uid);
+            crate::runtime().spawn(async move {
+                let item = server.metadata(&key, MetadataOptions::playback()).await.ok().flatten();
+                let _ = tx.send(Internal::Detail { uid, item });
+            });
+        }
         self.cur = Some(c);
+        self.begin_item_state();
         self.publish();
         self.emit_queue();
         if self.reports()
             && let Some(c) = self.cur.as_ref()
         {
-            report(&self.server, c, TimelineState::Playing).await;
+            self.report(c, TimelineState::Playing);
         }
+        self.persist_queue();
         if index + 1 == self.entries.len() {
-            self.extend_from_plex().await;
+            self.extend_from_plex();
         }
     }
 
     async fn on_time(&mut self, t: i64) {
         let next_title = self.cur_index().and_then(|i| self.entries.get(i + 1)).map(|e| e.item.full_title());
         let video = self.kind == "video" && !self.live;
+        self.tracker.on_time(t);
+        // Repeating one item restarts the file without ending it: when the position jumps from
+        // near the end back to the start, the pass that just finished counts as watched.
+        let wrapped = controls::repeat() == controls::Repeat::One
+            && !self.stop_after
+            && self.cur.as_ref().is_some_and(|c| c.duration_ms > 0 && c.time_ms >= c.duration_ms - 10_000 && t < 15_000);
+        if wrapped && let Some(c) = self.cur.take() {
+            self.finish(&c, true);
+            self.cur = Some(Current { time_ms: 0, reached_end: false, prompted_marker: None, active_marker: None, ending: false, ..c });
+            if let Some(c) = self.cur.as_ref() {
+                self.report(c, TimelineState::Playing);
+            }
+        }
         let Some(c) = self.cur.as_mut() else { return };
         c.time_ms = t;
         let in_credits = c
@@ -722,6 +1053,7 @@ impl Player {
         let ending = next_title.is_some() && video && (in_credits || near_end);
         let changed = ending != c.ending;
         c.ending = ending;
+        let checkpoint_due = c.checkpoint_at.elapsed() >= Duration::from_secs(5);
         if changed
             && !self.stop_after
             && let Some(title) = next_title.filter(|_| ending)
@@ -733,36 +1065,43 @@ impl Player {
         if changed || stale {
             self.publish();
         }
+        if checkpoint_due {
+            self.checkpoint();
+        }
     }
 
     async fn tick(&mut self) {
         let Some(c) = self.cur.as_ref() else { return };
         if self.reports() {
-            report(&self.server, c, if c.paused { TimelineState::Paused } else { TimelineState::Playing }).await;
+            self.report(c, if c.paused { TimelineState::Paused } else { TimelineState::Playing });
         }
         if let Some(session) = &c.transcode_session {
-            let _ = self.server.ping_transcode(session).await;
+            reporter().send(self.server.clone(), Op::PingTranscode(session.clone()));
         }
+        self.persist_queue();
     }
 
-    async fn finish(&self, c: Current, completed: bool) {
+    /// An item ended (or was left). Never waits for Plex: the reports go to the worker.
+    fn finish(&self, c: &Current, completed: bool) {
         if !self.reports() {
             return;
         }
-        let mut c = c;
         let progress = if c.duration_ms > 0 { c.time_ms as f64 / c.duration_ms as f64 } else { 0.0 };
         let watched = completed || c.reached_end || progress >= self.settings.watched_threshold;
-        if watched && c.duration_ms > 0 {
-            c.time_ms = c.duration_ms;
+        let time_ms = if watched && c.duration_ms > 0 { c.duration_ms } else { c.time_ms };
+        if let Some(op) = timeline_at(c, TimelineState::Stopped, time_ms) {
+            reporter().send(self.server.clone(), op);
         }
-        report(&self.server, &c, TimelineState::Stopped).await;
-        if watched
-            && let Some(rk) = c.item.rating_key.as_deref()
-            && let Err(e) = self.server.scrobble(rk).await
-        {
-            tracing::warn!("scrobble failed: {e}");
+        if watched && let Some(rk) = c.item.rating_key.as_deref() {
+            reporter().send(self.server.clone(), Op::Scrobble { rating_key: rk.to_string() });
         }
-        self.app.bump();
+        if let (Some(scope), Some(rk)) = (&self.scope, c.item.rating_key.as_deref()) {
+            let saved = if watched { recovery::clear_checkpoint(scope, rk) } else { recovery::save_checkpoint(scope, rk, c.time_ms, c.duration_ms) };
+            if let Err(e) = saved {
+                tracing::debug!("could not update the playback position: {e:#}");
+            }
+        }
+        self.refresh_after_reports();
     }
 
     async fn handle_markers(&mut self) {
@@ -819,46 +1158,144 @@ impl Player {
 
     async fn set_stop_after(&mut self, on: bool) {
         self.stop_after = on;
+        controls::set_stop_after(on);
+        if !on {
+            self.sleep_item = false;
+        }
         let value = if on { json!("always") } else { self.keep_open.clone() };
         let _ = self.mpv.set_property("keep-open", value).await;
+        // Stopping after this item beats repeating it.
+        controls::apply_repeat(&self.mpv, controls::repeat(), on).await;
         if on {
             let _ = self.mpv.show_text("Stopping after this", 1500).await;
         }
         self.publish();
+        self.tracker.publish(&self.app, true);
     }
 
     /// Big and endless queues (radio) arrive in windows; fetch what follows.
-    async fn extend_from_plex(&mut self) {
+    fn extend_from_plex(&mut self) {
         let Some(id) = self.play_queue_id else { return };
-        let Ok(mc) = self.server.play_queue(id, Some(50)).await else { return };
-        let known: Vec<i64> = self.entries.iter().filter_map(|e| e.item.play_queue_item_id).collect();
-        let Some(last) = known.last().copied() else { return };
-        let Some(after) = mc.metadata.iter().position(|m| m.play_queue_item_id == Some(last)) else { return };
-        let fresh: Vec<Metadata> = mc.metadata[after + 1..]
-            .iter()
-            .filter(|m| m.play_queue_item_id.is_some_and(|id| !known.contains(&id)))
-            .cloned()
-            .collect();
-        for item in fresh {
-            if let Err(e) = self.insert(item, 0, None, &[]).await {
-                tracing::debug!("could not extend queue: {e}");
-            }
+        if self.extending {
+            return;
         }
-        self.emit_queue();
+        self.extending = true;
+        let (server, tx) = (self.server.clone(), self.internal.clone());
+        crate::runtime().spawn(async move {
+            let items = server.play_queue(id, Some(50)).await.map(|mc| mc.metadata).unwrap_or_default();
+            let _ = tx.send(Internal::Upcoming { items });
+        });
     }
 
-    async fn on_command(&mut self, cmd: QueueCommand) -> Result<()> {
+    async fn on_internal(&mut self, msg: Internal) {
+        match msg {
+            Internal::Detail { uid, item } => {
+                let Some(c) = self.cur.as_mut().filter(|c| c.uid == uid) else { return };
+                c.detail_pending = false;
+                if let Some(mut full) = item {
+                    full.play_queue_item_id = c.item.play_queue_item_id;
+                    if c.duration_ms == 0 {
+                        c.duration_ms = full.duration.unwrap_or(0);
+                    }
+                    self.tracker.set_plex_chapters(&full.chapters);
+                    c.item = full;
+                }
+                if c.streams_pending && c.loaded {
+                    c.streams_pending = false;
+                    crate::prefs::apply_auto(&self.app, &self.server, &mut c.item, c.media_index);
+                    apply_plex_streams(&self.server, &self.mpv, c).await;
+                }
+                self.publish();
+            }
+            Internal::Leaves { source, next, result } => {
+                let added = match result {
+                    Ok(items) => self.add_items(source, items, next).await,
+                    Err(e) => Err(anyhow!(e)),
+                };
+                if let Err(e) = added {
+                    self.app.error(format!("Could not change the queue: {e:#}"));
+                }
+                self.emit_queue();
+                self.persist_queue();
+            }
+            Internal::Added { uids, queue } => {
+                let Some(mc) = queue else { return };
+                let mut known: Vec<i64> = self.entries.iter().filter_map(|e| e.item.play_queue_item_id).collect();
+                for uid in &uids {
+                    let Some(i) = self.index_of(*uid) else { continue };
+                    let rk = self.entries[i].item.rating_key.clone();
+                    let found = mc.metadata.iter().find(|m| m.rating_key == rk && m.play_queue_item_id.is_some_and(|pid| !known.contains(&pid)));
+                    if let Some(pid) = found.and_then(|m| m.play_queue_item_id) {
+                        self.entries[i].item.play_queue_item_id = Some(pid);
+                        known.push(pid);
+                    }
+                }
+            }
+            Internal::Upcoming { items } => {
+                self.extending = false;
+                let known: Vec<i64> = self.entries.iter().filter_map(|e| e.item.play_queue_item_id).collect();
+                let Some(last) = known.last().copied() else { return };
+                let Some(after) = items.iter().position(|m| m.play_queue_item_id == Some(last)) else { return };
+                let fresh: Vec<Metadata> =
+                    items[after + 1..].iter().filter(|m| m.play_queue_item_id.is_some_and(|id| !known.contains(&id))).cloned().collect();
+                for item in fresh {
+                    if let Err(e) = self.insert(item, 0, None, &[]).await {
+                        tracing::debug!("could not extend queue: {e}");
+                    }
+                }
+                self.emit_queue();
+            }
+        }
+    }
+
+    async fn on_command(&mut self, cmd: Cmd) {
         match cmd {
-            QueueCommand::Add { item, next } => self.add(*item, next).await?,
+            Cmd::Queue(cmd) => {
+                if let Err(e) = self.on_queue_command(cmd).await {
+                    self.app.error(format!("Could not change the queue: {e:#}"));
+                }
+            }
+            Cmd::Tune(cmd) => {
+                if let Err(e) = controls::apply(&self.app, &self.mpv, cmd).await {
+                    self.app.error(format!("{e:#}"));
+                }
+                // The sleep timer's "end of item" is "stop after this".
+                let at_end = controls::sleep_at_item_end();
+                if at_end && !self.stop_after {
+                    self.set_stop_after(true).await;
+                } else if !at_end && self.sleep_item && self.stop_after {
+                    self.set_stop_after(false).await;
+                }
+                self.sleep_item = at_end;
+            }
+        }
+        self.tracker.publish(&self.app, true);
+    }
+
+    async fn on_queue_command(&mut self, cmd: QueueCommand) -> Result<()> {
+        match cmd {
+            QueueCommand::Add { item, next } => {
+                if item.is_playable() {
+                    let items = vec![(*item).clone()];
+                    self.add_items(*item, items, next).await?;
+                } else {
+                    // A container's items come from the server; wait for them off the loop.
+                    let (server, tx) = (self.server.clone(), self.internal.clone());
+                    crate::runtime().spawn(async move {
+                        let result = leaves(&server, &item).await.map_err(|e| format!("{e:#}"));
+                        let _ = tx.send(Internal::Leaves { source: *item, next, result });
+                    });
+                }
+            }
             QueueCommand::Remove { uid } => {
                 let Some(i) = self.index_of(uid) else { return Ok(()) };
                 self.mpv.playlist_remove(i).await?;
                 let e = self.entries.remove(i);
                 if let Some(s) = &e.transcode_session {
-                    let _ = self.server.stop_transcode(s).await;
+                    reporter().send(self.server.clone(), Op::StopTranscode(s.clone()));
                 }
-                if let (Some(id), Some(item_id)) = (self.play_queue_id, e.item.play_queue_item_id) {
-                    let _ = self.server.remove_from_play_queue(id, item_id).await;
+                if let (Some(queue), Some(item)) = (self.play_queue_id, e.item.play_queue_item_id) {
+                    reporter().send(self.server.clone(), Op::PlayQueue(QueueOp::Remove { queue, item }));
                 }
                 if let Some(order) = self.unshuffled.as_mut() {
                     order.retain(|u| *u != uid);
@@ -870,8 +1307,8 @@ impl Player {
                 self.move_entry(from, to).await?;
                 let now = self.index_of(uid).unwrap_or(0);
                 let after = now.checked_sub(1).and_then(|i| self.entries[i].item.play_queue_item_id);
-                if let (Some(id), Some(item_id)) = (self.play_queue_id, self.entries[now].item.play_queue_item_id) {
-                    let _ = self.server.move_play_queue_item(id, item_id, after).await;
+                if let (Some(queue), Some(item)) = (self.play_queue_id, self.entries[now].item.play_queue_item_id) {
+                    reporter().send(self.server.clone(), Op::PlayQueue(QueueOp::Move { queue, item, after }));
                 }
             }
             QueueCommand::Jump { uid } => {
@@ -885,10 +1322,10 @@ impl Player {
         Ok(())
     }
 
-    async fn add(&mut self, item: Metadata, next: bool) -> Result<()> {
-        let items = leaves(&self.server, &item).await?;
+    /// Queue `items` (what `source` stands for) in mpv, and mirror them to the Plex queue in the background.
+    async fn add_items(&mut self, source: Metadata, items: Vec<Metadata>, next: bool) -> Result<()> {
         if items.is_empty() {
-            return Err(anyhow!("nothing playable in “{}”", item.title()));
+            return Err(anyhow!("nothing playable in “{}”", source.title()));
         }
         let first = if next { self.cur_index().map(|i| i + 1) } else { None };
         let mut added = Vec::new();
@@ -898,26 +1335,18 @@ impl Player {
                 Err(e) => tracing::warn!("could not queue item: {e}"),
             }
         }
-        // Keep the Plex queue in step so other apps (and later edits) agree.
+        // Keep the Plex queue in step so other apps (and later edits) agree; its answer
+        // tells us the new entries' ids, which arrives as `Internal::Added`.
         if let Some(id) = self.play_queue_id {
-            let uri = match item.kind() {
-                "playlist" => self.server.library_uri(&format!("/playlists/{}/items", item.rating_key())),
-                _ => self.server.item_uri(&[item.rating_key()]),
+            let uri = match source.kind() {
+                "playlist" => self.server.library_uri(&format!("/playlists/{}/items", source.rating_key())),
+                _ => self.server.item_uri(&[source.rating_key()]),
             };
-            if let Ok(mc) = self.server.add_to_play_queue(id, &uri, next).await {
-                let mut known: Vec<i64> = self.entries.iter().filter_map(|e| e.item.play_queue_item_id).collect();
-                for uid in &added {
-                    let Some(i) = self.index_of(*uid) else { continue };
-                    let rk = self.entries[i].item.rating_key.clone();
-                    let found = mc.metadata.iter().find(|m| {
-                        m.rating_key == rk && m.play_queue_item_id.is_some_and(|pid| !known.contains(&pid))
-                    });
-                    if let Some(pid) = found.and_then(|m| m.play_queue_item_id) {
-                        self.entries[i].item.play_queue_item_id = Some(pid);
-                        known.push(pid);
-                    }
-                }
-            }
+            let (server, tx, uids) = (self.server.clone(), self.internal.clone(), added.clone());
+            crate::runtime().spawn(async move {
+                let queue = server.add_to_play_queue(id, &uri, next).await.ok();
+                let _ = tx.send(Internal::Added { uids, queue });
+            });
         }
         if let Some(order) = self.unshuffled.as_mut() {
             order.extend(&added);
@@ -960,33 +1389,28 @@ impl Player {
             let mut upcoming: Vec<u64> = self.entries[base.min(self.entries.len())..].iter().map(|e| e.uid).collect();
             fastrand::shuffle(&mut upcoming);
             self.reorder_upcoming(&upcoming).await?;
-            if let Some(id) = self.play_queue_id {
-                let _ = self.server.shuffle_play_queue(id).await;
+            if let Some(queue) = self.play_queue_id {
+                reporter().send(self.server.clone(), Op::PlayQueue(QueueOp::Shuffle { queue }));
             }
         } else if let Some(order) = self.unshuffled.take() {
             let upcoming: Vec<u64> = self.entries[base.min(self.entries.len())..].iter().map(|e| e.uid).collect();
             let restored: Vec<u64> = order.into_iter().filter(|u| upcoming.contains(u)).collect();
             self.reorder_upcoming(&restored).await?;
-            if let Some(id) = self.play_queue_id {
-                let _ = self.server.unshuffle_play_queue(id).await;
+            if let Some(queue) = self.play_queue_id {
+                reporter().send(self.server.clone(), Op::PlayQueue(QueueOp::Unshuffle { queue }));
             }
         }
         Ok(())
     }
 }
 
-async fn begin(server: &PlexServer, item: &Metadata, uid: u64, media_index: usize, transcode_session: Option<String>) -> Current {
-    // Queue entries lack markers and sometimes streams; fetch the full item.
-    let full = match item.rating_key.as_deref() {
-        Some(rk) if item.kind() != "photo" => server.metadata(rk, MetadataOptions::playback()).await.ok().flatten(),
-        _ => None,
-    };
-    let mut full = full.unwrap_or_else(|| item.clone());
-    full.play_queue_item_id = item.play_queue_item_id;
+/// The state of an item as it starts: from the queue entry alone, since the full item is fetched afterwards.
+fn begin(item: &Metadata, uid: u64, media_index: usize, transcode_session: Option<String>) -> Current {
     Current {
         uid,
-        duration_ms: full.duration.unwrap_or(0),
-        item: full,
+        duration_ms: item.duration.unwrap_or(0),
+        detail_pending: item.rating_key.is_some() && item.kind() != "photo",
+        item: item.clone(),
         media_index,
         time_ms: 0,
         paused: false,
@@ -999,23 +1423,27 @@ async fn begin(server: &PlexServer, item: &Metadata, uid: u64, media_index: usiz
         ending: false,
         last_ui: Instant::now() - Duration::from_secs(5),
         mpv_id: None,
+        loaded: false,
+        streams_pending: false,
+        checkpoint_at: Instant::now(),
     }
 }
 
-async fn report(server: &PlexServer, c: &Current, state: TimelineState) {
-    let (Some(rk), Some(key)) = (c.item.rating_key.clone(), c.item.key.clone()) else { return };
-    let update = TimelineUpdate {
+fn timeline_op(c: &Current, state: TimelineState) -> Option<Op> {
+    timeline_at(c, state, c.time_ms)
+}
+
+fn timeline_at(c: &Current, state: TimelineState, time_ms: i64) -> Option<Op> {
+    let (rk, key) = (c.item.rating_key.clone()?, c.item.key.clone()?);
+    Some(Op::Timeline(TimelineUpdate {
         rating_key: rk,
         key,
         state,
-        time_ms: c.time_ms,
+        time_ms,
         duration_ms: c.duration_ms,
         play_queue_item_id: c.item.play_queue_item_id,
         session: c.transcode_session.clone(),
-    };
-    if let Err(e) = server.timeline(&update).await {
-        tracing::debug!("timeline report failed: {e}");
-    }
+    }))
 }
 
 fn tracks(list: &Value) -> Vec<&Value> {
@@ -1088,10 +1516,8 @@ async fn sync_stream_choice(server: &PlexServer, mpv: &Mpv, c: &Current, prop: &
         }
     };
     let Some(stream_id) = stream_id else { return };
-    let (audio, sub) = if prop == "aid" { (Some(stream_id), None) } else { (None, Some(stream_id)) };
-    if let Err(e) = server.select_streams(part_id, audio, sub, true).await {
-        tracing::debug!("could not save stream choice: {e}");
-    }
+    let (audio, subtitle) = if prop == "aid" { (Some(stream_id), None) } else { (None, Some(stream_id)) };
+    reporter().send(server.clone(), Op::Streams { part_id, audio, subtitle });
 }
 
 // Offline playback -----------------------------------------------------------
@@ -1113,6 +1539,9 @@ async fn run_files(app: AppState, files: Vec<crate::downloads::Download>) -> Res
     for (i, name) in ["playlist-pos", "time-pos", "pause", "duration", "idle-active"].iter().enumerate() {
         mpv.observe_property(i as u64 + 1, name).await?;
     }
+    Tracker::observe(&mpv).await;
+    controls::apply_saved(&mpv).await;
+    let mut tracker = Tracker::new(ConnectionInfo::offline());
     for download in &files {
         let path = download.file.as_deref().ok_or_else(|| anyhow!("Downloaded file is missing"))?;
         mpv.loadfile(path, "append", &[("force-media-title", download.item.full_title()),
@@ -1135,6 +1564,10 @@ async fn run_files(app: AppState, files: Vec<crate::downloads::Download>) -> Res
         match ev {
             Event::Shutdown => { save(&np, false); break; },
             Event::FileLoaded => played_any = true,
+            Event::StartFile { .. } => {
+                tracker.new_item(&[]);
+                tracker.publish(&app, true);
+            }
             Event::EndFile { reason, playlist_entry_id, .. } => {
                 // A skip can publish the new playlist position before the old entry ends.
                 let stale = matches!((playlist_entry_id, current_entry_id), (Some(ended), Some(current)) if ended != current);
@@ -1142,6 +1575,9 @@ async fn run_files(app: AppState, files: Vec<crate::downloads::Download>) -> Res
                     save(&np, reason == "eof");
                     np = None;
                     current_entry_id = None;
+                    if reason == "eof" && controls::sleep_at_item_end() {
+                        let _ = mpv.quit().await;
+                    }
                 }
             },
             Event::PropertyChange { name, data, .. } => {
@@ -1170,7 +1606,9 @@ async fn run_files(app: AppState, files: Vec<crate::downloads::Download>) -> Res
                     "time-pos" => {
                         if let (Some(n), Some(t)) = (np.as_mut(), data.as_f64()) {
                             n.position_ms = (t * 1000.0) as i64;
+                            tracker.on_time(n.position_ms);
                         }
+                        tracker.publish(&app, false);
                         if last_ui.elapsed() < Duration::from_millis(900) {
                             continue;
                         }
@@ -1187,6 +1625,11 @@ async fn run_files(app: AppState, files: Vec<crate::downloads::Download>) -> Res
                     }
                     "idle-active" if data.as_bool() == Some(true) && played_any => {
                         let _ = mpv.quit().await;
+                    }
+                    other if Tracker::observes(other) => {
+                        let urgent = tracker.on_property(other, &data);
+                        tracker.publish(&app, urgent);
+                        continue;
                     }
                     _ => continue,
                 }
@@ -1205,6 +1648,7 @@ async fn run_files(app: AppState, files: Vec<crate::downloads::Download>) -> Res
     mpv.wait(Duration::from_secs(2)).await;
     if ours && ACTIVE.lock().unwrap().is_none() {
         app.set_now_playing(None);
+        controls::finished(&app);
     }
     Ok(())
 }

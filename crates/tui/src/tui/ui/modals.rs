@@ -39,6 +39,12 @@ pub const HELP: &[(&str, &str)] = &[
     ("Q", "play queue: jump, remove, J/K reorder, z shuffle"),
     ("E", "stop after this (when Up next shows: > plays it now)"),
     ("Y", "lyrics of the playing track (enter seeks to a line)"),
+    ("V", "player panel: chapters, diagnostics; after a failure: retry"),
+    ("9 / 0", "volume down / up 5%"),
+    ("M", "mute / unmute"),
+    ("{ / }", "playback speed down / up 0.25x"),
+    ("Z", "sleep timer: off, 15-90 min, end of this item"),
+    ("r", "repeat off / all / one (in the queue or player panel)"),
     ("m → radio", "start radio from an artist, album or track"),
     ("", "Library"),
     ("w / u", "mark watched / unwatched"),
@@ -57,7 +63,7 @@ pub const HELP: &[(&str, &str)] = &[
     ("", "Selecting several items"),
     ("tab", "mark / unmark the item and move on"),
     ("^a", "mark everything shown (loads a whole library first)"),
-    ("M", "actions for the marked items; esc clears the marks"),
+    ("M", "with items marked: actions for them (otherwise mute); esc clears the marks"),
     ("n N w u D", "with items marked: queue next / at the end · mark watched / unwatched · download"),
     ("space  C", "with items marked: add them to a playlist / collection (or a new one)"),
     ("x", "with items marked in a playlist or collection: remove them"),
@@ -75,7 +81,7 @@ pub const HELP: &[(&str, &str)] = &[
     ("A", "jump to a letter (library sorted by title)"),
     ("t", "switch type: shows / seasons / episodes…"),
     ("v", "library views: recommended, collections, folders…"),
-    ("V", "saved views of this library: apply, save the current one, x deletes (shared with the desktop app)"),
+    ("W", "saved views of this library: apply, save the current one, x deletes (shared with the desktop app)"),
     ("H", "hide / show watched"),
     ("", "Other"),
     ("i", "toggle details panel"),
@@ -157,6 +163,8 @@ pub(super) fn draw_modal(f: &mut Frame, app: &App, theme: &Theme) {
         Modal::Tracks(m) => draw_tracks(f, app, m, theme),
         Modal::Queue { sel } => super::player::draw_queue(f, app, *sel, theme),
         Modal::Lyrics { manual } => super::player::draw_lyrics(f, app, *manual, theme),
+        Modal::Player { cursor } => super::player::draw_player(f, app, *cursor, theme),
+        Modal::Failure { cursor } => super::player::draw_failure(f, app, *cursor, theme),
         Modal::Menu(m) => {
             let width = 46u16;
             let area = centered(screen, width, m.rows.len() as u16 + 2);
@@ -231,6 +239,7 @@ pub(super) fn draw_modal(f: &mut Frame, app: &App, theme: &Theme) {
             );
         }
         Modal::Confirm(c) => {
+            let resume = matches!(c.action, ConfirmAction::ResumeQueue);
             let width = (c.message.width() as u16 + 6).clamp(30, 70);
             let wrapped = (c.message.width() as u16).div_ceil(width - 4).max(1);
             let area = centered(screen, width, wrapped + 4 + u16::from(wrapped > 1));
@@ -240,9 +249,11 @@ pub(super) fn draw_modal(f: &mut Frame, app: &App, theme: &Theme) {
                 Line::raw(""),
                 Line::from(vec![
                     Span::styled("y", Style::default().fg(theme.accent).bold()),
-                    Span::raw(" yes   "),
+                    Span::raw(if resume { " resume   " } else { " yes   " }),
                     Span::styled("n", Style::default().fg(theme.accent).bold()),
-                    Span::raw(" no"),
+                    Span::raw(if resume { " not now   " } else { " no" }),
+                    Span::styled(if resume { "x" } else { "" }, Style::default().fg(theme.accent).bold()),
+                    Span::raw(if resume { " forget" } else { "" }),
                 ]),
             ];
             f.render_widget(

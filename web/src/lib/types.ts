@@ -343,6 +343,89 @@ export interface QueueView {
   stopAfter: boolean;
 }
 
+export type Repeat = "off" | "one" | "all";
+
+export interface ChapterView {
+  title: string;
+  timeMs: number;
+}
+
+export interface ConnectionInfo {
+  /** `local`, `remote`, `relay`, or `offline` for a downloaded file. */
+  kind: "local" | "remote" | "relay" | "offline";
+  address?: string;
+}
+
+export interface Diagnostics {
+  /** Playback is stalled waiting for data. */
+  buffering: boolean;
+  bufferPercent?: number;
+  /** Seconds of media ahead of the playhead that are already buffered. */
+  bufferedSecs?: number;
+  /** The hardware decoder in use; `no` is software decoding, absent is unknown (or audio only). */
+  hwdec?: string;
+  droppedFrames: number;
+  decoderDroppedFrames: number;
+  connection?: ConnectionInfo;
+  /** Where playback restarted from a local checkpoint after the connection failed. */
+  recoveredFromMs?: number;
+}
+
+export interface SleepState {
+  mode: "minutes" | "endOfItem";
+  /** Epoch milliseconds the timer ends (`minutes` only). */
+  endsAtMs?: number;
+}
+
+/** Controls and diagnostics of the running player (the `playback-state` event). */
+export interface PlaybackState {
+  /** Percent; mpv allows up to 130. */
+  volume: number;
+  muted: boolean;
+  speed: number;
+  repeat: Repeat;
+  sleep?: SleepState;
+  chapters: ChapterView[];
+  /** Index into `chapters` of the playing chapter. */
+  chapter?: number;
+  diagnostics: Diagnostics;
+}
+
+export interface QualityChoice {
+  id: string;
+  label: string;
+}
+
+/** Why playback failed and what can be tried (the `playback-failure` event). */
+export interface PlaybackFailure {
+  id: number;
+  item: Metadata;
+  /** A sentence for people. */
+  reason: string;
+  /** What mpv said. */
+  detail?: string;
+  kind: "network" | "format" | "output" | "other";
+  /** `start`: nothing played yet. `playing`: it broke after it had started. */
+  phase: "start" | "playing";
+  positionMs: number;
+  /** The version (media) that failed. */
+  mediaIndex: number;
+  quality: string;
+  lowerQuality?: QualityChoice;
+  canRetry: boolean;
+  /** Items after the failed one that stay queued. */
+  remaining: number;
+}
+
+/** The queue that was playing when Patina last stopped, offered as a Resume. */
+export interface SavedQueueView {
+  current: Metadata;
+  positionMs: number;
+  index: number;
+  count: number;
+  savedAt: number;
+}
+
 /** A background task on the server (scan, analysis, ...), live from notifications. */
 export interface ServerActivity {
   uuid: string;

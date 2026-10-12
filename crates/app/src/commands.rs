@@ -3,7 +3,10 @@
 
 use patina_core::config::{self, PlayerSettings, UiSettings};
 use patina_core::ops::{edit, library, lists, playback, server, setup};
+use patina_core::controls::{PlaybackState, Tune};
+use patina_core::failure::{self, PlaybackFailure, Recover};
 use patina_core::player::{self, Control, PlayRequest, QueueCommand};
+use patina_core::recovery::SavedQueueView;
 use patina_core::state::{AppState, Snapshot};
 use patina_core::{downloads, livetv, session, tracks};
 use patina_plex::{Directory, Hub, LibraryQuery, MatchResult, MediaContainer, Metadata, MetadataOptions, Params, Stream};
@@ -328,6 +331,50 @@ pub fn play(app: App, request: PlayRequest) {
 #[tauri::command]
 pub fn control(command: Control) {
     player::control(command);
+}
+
+/// Volume, speed, chapters, repeat and the sleep timer.
+#[tauri::command]
+pub fn tune(app: App, command: Tune) {
+    player::tune(&app, command);
+}
+
+/// The playing item's controls and diagnostics; also pushed as `playback-state`.
+#[tauri::command]
+pub fn playback_state() -> Option<PlaybackState> {
+    patina_core::controls::playback_state()
+}
+
+/// The playback failure waiting for a decision; also pushed as `playback-failure`.
+#[tauri::command]
+pub fn playback_failure() -> Option<PlaybackFailure> {
+    failure::current()
+}
+
+#[tauri::command]
+pub fn recover_playback(app: App, action: Recover) -> Res {
+    Ok(failure::recover(&app, action)?)
+}
+
+#[tauri::command]
+pub fn dismiss_failure(app: App) {
+    failure::clear(&app);
+}
+
+/// The queue saved by the last playback, to offer a Resume.
+#[tauri::command]
+pub fn saved_queue(app: App) -> Option<SavedQueueView> {
+    playback::saved_queue(&app)
+}
+
+#[tauri::command]
+pub fn resume_saved(app: App) -> Res {
+    Ok(playback::resume_saved(&app)?)
+}
+
+#[tauri::command]
+pub fn forget_saved(app: App) {
+    playback::forget_saved(&app);
 }
 
 // Bulk audio & subtitles -----------------------------------------------------

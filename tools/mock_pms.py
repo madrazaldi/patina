@@ -29,6 +29,8 @@ EVENTS = []
 DOWNLOAD_DELAY = 0
 RESUME_VALIDATOR = "normal"
 MISSING_METADATA = set()
+REPORT_DELAY = 0
+REPORT_STATUS = 200
 DROP_DOWNLOAD_ONCE = False
 DROPPED_DOWNLOAD = False
 # --large N adds an "Archive" library (section 4) and a "Marathon" playlist (960) of N entries each,
@@ -697,6 +699,12 @@ class Handler(BaseHTTPRequestHandler):
             years = sorted({m.get("year") for m in all_movies() if m.get("year")}, reverse=True)
             return self.send_json(mc(Directory=[{"key": str(y), "title": str(y)} for y in years]))
         # --- playback reporting -------------------------------------------------
+        if p in ("/:/timeline", "/:/scrobble", "/:/unscrobble") or re.fullmatch(r"/library/parts/\d+", p):
+            # Simulate a slow or failing server for playback reports.
+            time.sleep(REPORT_DELAY)
+            if REPORT_STATUS != 200:
+                self.record("failed report " + p, q)
+                return self.send_json(mc(), REPORT_STATUS)
         if p == "/:/timeline":
             self.record("timeline", q)
             rk = q["ratingKey"][0]
@@ -933,7 +941,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    global MEDIA, DOWNLOAD_DELAY, DROP_DOWNLOAD_ONCE, RESUME_VALIDATOR, MISSING_METADATA, LARGE
+    global MEDIA, DOWNLOAD_DELAY, DROP_DOWNLOAD_ONCE, RESUME_VALIDATOR, MISSING_METADATA, LARGE, REPORT_DELAY, REPORT_STATUS
     ap = argparse.ArgumentParser()
     ap.add_argument("--media", default=".")
     ap.add_argument("--port", type=int, default=32499)
@@ -942,8 +950,12 @@ def main():
     ap.add_argument("--resume-validator", choices=["normal", "missing", "changed"], default="normal", help="Simulate unverified range responses")
     ap.add_argument("--missing-metadata", action="append", default=[], help="Return 404 for this rating key")
     ap.add_argument("--large", type=int, default=0, help="Add an Archive library and a Marathon playlist with this many entries")
+    ap.add_argument("--report-delay", type=float, default=0, help="Seconds to hold timeline, scrobble and stream-selection requests")
+    ap.add_argument("--report-status", type=int, default=200, help="Answer those requests with this HTTP status")
     a = ap.parse_args()
     LARGE = a.large
+    REPORT_DELAY = a.report_delay
+    REPORT_STATUS = a.report_status
     DOWNLOAD_DELAY = a.download_delay
     DROP_DOWNLOAD_ONCE = a.drop_download_once
     RESUME_VALIDATOR = a.resume_validator

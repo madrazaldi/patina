@@ -13,9 +13,9 @@ impl App {
         self.columns.last().map(|c| c.marks.items()).unwrap_or_default()
     }
 
-    /// Keys of selection mode, ahead of the ordinary ones: `tab` marks, `M`
-    /// opens the actions, and while anything is marked the usual action keys
-    /// (`n N w u D space C x`) apply to all of it. Returns whether the key was used.
+    /// Keys of selection mode, ahead of the ordinary ones: `tab` marks, and
+    /// while anything is marked `M` opens the actions (otherwise it mutes) and
+    /// the usual action keys (`n N w u D space C x`) apply to all of it. Returns whether the key was used.
     pub(super) fn marks_key(&mut self, key: KeyEvent) -> bool {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         let Some(col) = self.columns.last() else { return false };
@@ -23,7 +23,7 @@ impl App {
         let op = match key.code {
             KeyCode::Tab => return self.toggle_mark(),
             KeyCode::Char('a') if ctrl => return self.mark_all(),
-            KeyCode::Char('M') if !ctrl => return self.open_bulk_menu(),
+            KeyCode::Char('M') if any && !ctrl => return self.open_bulk_menu(),
             KeyCode::Esc if any && unfiltered => BulkOp::Clear,
             _ if !any || ctrl => return false,
             KeyCode::Char('n') => BulkOp::PlayNext,
