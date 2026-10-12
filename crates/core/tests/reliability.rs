@@ -422,6 +422,100 @@ async fn reports_worker() {
     patina_core::report::flush(Duration::from_secs(40)).await;
 }
 
+/// After switching servers mid-playback, the running queue only takes items from the server it plays from.
+#[test]
+#[ignore = "requires mpv, ffmpeg and python3"]
+fn mpv_queue_stays_on_its_server_after_a_switch() {
+    let temp = tempfile::tempdir().unwrap();
+    let start = |name: &str, machine: &str, seed: &str| {
+        let media = temp.path().join(name);
+        std::fs::create_dir_all(&media).unwrap();
+        assert!(
+            Command::new("ffmpeg")
+                .args(["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=40"])
+                .arg(media.join("movie.mkv"))
+                .status()
+                .unwrap()
+                .success()
+        );
+        let mut child = Command::new("python3")
+            .arg(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tools/mock_pms.py"))
+            .args(["--port", "0", "--name", name, "--machine", machine, "--seed", seed, "--media"])
+            .arg(&media)
+            .stderr(Stdio::piped())
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap();
+        let mut log = std::io::BufReader::new(child.stderr.take().unwrap());
+        let mut first = String::new();
+        log.read_line(&mut first).unwrap();
+        std::thread::spawn(move || std::io::Read::read_to_string(&mut log, &mut String::new()));
+        (child, first.trim().strip_prefix("mock PMS on ").expect("mock server startup").to_owned())
+    };
+    let (mut alpha, alpha_url) = start("Alpha", "alpha-queue", "0");
+    let (mut beta, beta_url) = start("Beta", "beta-queue", "1");
+    let status = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "queue_switch_worker", "--nocapture"])
+        .env("PATINA_TEST_SERVER", &alpha_url)
+        .env("PATINA_TEST_OTHER_SERVER", &beta_url)
+        .env("XDG_CONFIG_HOME", temp.path().join("config"))
+        .env("PATINA_DATA_DIR", temp.path().join("data"))
+        .status()
+        .unwrap();
+    for child in [&mut alpha, &mut beta] {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    assert!(status.success());
+}
+
+#[tokio::test]
+async fn queue_switch_worker() {
+    let (Ok(alpha_url), Ok(beta_url)) = (std::env::var("PATINA_TEST_SERVER"), std::env::var("PATINA_TEST_OTHER_SERVER")) else {
+        return;
+    };
+    use patina_core::player::{self, Control, PlayRequest, QueueCommand};
+    let app = AppState::new(Arc::new(Sink), tokio::runtime::Handle::current());
+    app.update_settings(|s| s.player.extra_args = "--no-config --vo=null --ao=null".into());
+    let info = ClientInfo::new("test", "Patina", "test");
+    let session = |url: &str, machine: &str, name: &str| Session {
+        tv: None,
+        server: PlexServer::new(info.clone(), url, "alice").unwrap(),
+        server_id: machine.into(),
+        server_name: name.into(),
+        user: None,
+        owned: true,
+        servers: vec![],
+    };
+    let (alpha, beta) = (session(&alpha_url, "alpha-queue", "Alpha"), session(&beta_url, "beta-queue", "Beta"));
+    app.set_session(Some(alpha.clone()), vec![]);
+    let first = alpha.server.metadata("100", MetadataOptions::default()).await.unwrap().unwrap();
+    let mut more = alpha.server.metadata("101", MetadataOptions::default()).await.unwrap().unwrap();
+    player::play(app.clone(), PlayRequest { item: first, resume: false, ..Default::default() });
+    wait_for("playback to start", Duration::from_secs(15), || app.now_playing().is_some_and(|n| n.position_ms > 500)).await;
+
+    // Beta is now the connected server; its "101" has no tag, like Alpha's untagged items did.
+    app.set_session(Some(beta.clone()), vec![]);
+    let other = beta.server.metadata("101", MetadataOptions::default()).await.unwrap().unwrap();
+    assert_eq!(other.server_id(), None);
+    assert_ne!(other.title(), more.title(), "the two servers' 101 must be different items");
+    player::queue(app.clone(), QueueCommand::Add { item: Box::new(other), next: false });
+    // Alpha's own item, found from Beta, carries Alpha's tag and is still welcome. Commands
+    // are handled in order, so once it is queued Beta's has been decided too.
+    patina_core::servers::tag(&app, std::slice::from_mut(&mut more), Some("alpha-queue"));
+    let title = more.title().to_string();
+    player::queue(app.clone(), QueueCommand::Add { item: Box::new(more), next: false });
+    wait_for("Alpha's item to be queued", Duration::from_secs(5), || {
+        app.snapshot().queue.is_some_and(|q| q.items.last().is_some_and(|e| e.item.title() == title))
+    })
+    .await;
+    let titles: Vec<String> = app.snapshot().queue.unwrap().items.iter().map(|e| e.item.title().to_string()).collect();
+    assert_eq!(titles.len(), 2, "Beta's item must not join Alpha's queue: {titles:?}");
+
+    player::control(Control::Stop);
+    wait_for("playback to end", Duration::from_secs(6), || app.now_playing().is_none()).await;
+}
+
 async fn wait_for(what: &str, within: Duration, mut done: impl FnMut() -> bool) {
     let began = Instant::now();
     while !done() {

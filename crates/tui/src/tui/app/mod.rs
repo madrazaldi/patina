@@ -122,7 +122,8 @@ pub enum Msg {
         playlist_key: String,
         result: Result<Option<i64>, String>,
     },
-    PlayOptionsItem(Result<Box<Item>, String>),
+    /// The play-options dialog's item, with the version the playback preferences pick.
+    PlayOptionsItem(Result<(Box<Item>, usize), String>),
     /// GUIDs on the account's watchlist.
     Watchlisted(HashSet<String>),
     CollectionRows(Result<Vec<CollectionRow>, String>),
@@ -645,9 +646,10 @@ impl App {
                 self.apply_refresh(Refresh::Playlists);
             }
             Msg::PlayOptionsItem(result) => match result {
-                Ok(item) => {
+                Ok((item, version)) => {
                     if let Some(Modal::PlayOptions(m)) = &mut self.modal {
                         m.item = Some(*item);
+                        m.opts.media_index = version;
                         build_option_rows(m);
                     }
                 }

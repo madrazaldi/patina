@@ -1259,7 +1259,8 @@ impl Player {
                 let fresh: Vec<Metadata> =
                     items[after + 1..].iter().filter(|m| m.play_queue_item_id.is_some_and(|id| !known.contains(&id))).cloned().collect();
                 for item in fresh {
-                    if let Err(e) = self.insert(item, 0, None, &[]).await {
+                    let media_index = crate::prefs::media_index(self.scope.as_ref(), &item, None);
+                    if let Err(e) = self.insert(item, media_index, None, &[]).await {
                         tracing::debug!("could not extend queue: {e}");
                     }
                 }
@@ -1295,7 +1296,9 @@ impl Player {
     async fn on_queue_command(&mut self, cmd: QueueCommand) -> Result<()> {
         match cmd {
             QueueCommand::Add { item, next } => {
-                if item.server_id() != self.server_tag.as_deref() {
+                // Tags are relative to the connected server, which may have changed since the
+                // player started: compare where the item and the player actually are.
+                if crate::prefs::scope_for(&self.app, &item) != self.scope {
                     return Err(anyhow!("A queue plays from one server; “{}” is on another.", item.title()));
                 }
                 if item.is_playable() {
@@ -1353,7 +1356,8 @@ impl Player {
         let first = if next { self.cur_index().map(|i| i + 1) } else { None };
         let mut added = Vec::new();
         for (n, it) in items.into_iter().enumerate() {
-            match self.insert(it, 0, first.map(|i| i + n), &[]).await {
+            let media_index = crate::prefs::media_index(self.scope.as_ref(), &it, None);
+            match self.insert(it, media_index, first.map(|i| i + n), &[]).await {
                 Ok(uid) => added.push(uid),
                 Err(e) => tracing::warn!("could not queue item: {e}"),
             }

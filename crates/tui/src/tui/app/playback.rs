@@ -60,7 +60,12 @@ impl App {
                 _ => None,
             };
             let item = match parent {
-                Some((rk, kind)) => Metadata { rating_key: Some(rk), kind: Some(kind.into()), ..Default::default() },
+                Some((rk, kind)) => {
+                    let mut parent = Metadata { rating_key: Some(rk), kind: Some(kind.into()), ..Default::default() };
+                    // The season or album is on the episode's or track's server.
+                    parent.set_server_id(item.server_id());
+                    parent
+                }
                 None => item.meta,
             };
             return self.start_play(PlayRequest { item, shuffle: true, ..Default::default() }, Vec::new());
@@ -95,7 +100,8 @@ impl App {
                 let m = server.metadata(&key, MetadataOptions::default()).await.map_err(err)?;
                 m.map(|mut m| {
                     m.set_server_id(on.as_deref());
-                    Box::new(Item::from(m))
+                    let version = patina_core::prefs::preferred_version(&core, &m);
+                    (Box::new(Item::from(m)), version)
                 })
                 .ok_or_else(|| "Item not found".to_string())
             }
@@ -109,12 +115,12 @@ impl App {
     pub(super) fn play_with_options(&mut self, m: PlayOptionsModal) {
         let Some(item) = m.item else { return };
         let opts = m.opts;
-        let part = item.media.get(opts.media_index.unwrap_or(0)).and_then(|md| md.parts.first()).and_then(|p| p.id);
+        let part = item.media.get(opts.media_index).and_then(|md| md.parts.first()).and_then(|p| p.id);
         let choose = opts.audio_stream_id.is_some() || opts.subtitle_stream_id.is_some();
         let req = PlayRequest {
             item: item.meta.clone(),
             resume: !opts.from_start,
-            media_index: opts.media_index,
+            media_index: Some(opts.media_index),
             quality: Some(QUALITIES[opts.quality.min(QUALITIES.len() - 1)].id.to_string()),
             ..Default::default()
         };
@@ -197,7 +203,7 @@ pub fn build_option_rows(m: &mut PlayOptionsModal) {
                 rows.push((OptRow::Version(i), label));
             }
         }
-        let part = item.media.get(m.opts.media_index.unwrap_or(0)).and_then(|md| md.parts.first());
+        let part = item.media.get(m.opts.media_index).and_then(|md| md.parts.first());
         let streams = part.map(|p| p.streams.as_slice()).unwrap_or(&[]);
         let audio: Vec<_> = streams.iter().filter(|s| s.stream_type == Some(stream_type::AUDIO)).collect();
         if audio.len() > 1 {

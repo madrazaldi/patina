@@ -399,7 +399,7 @@ impl App {
                             None
                         }
                         Some(OptRow::Version(i)) => {
-                            m.opts.media_index = Some(i);
+                            m.opts.media_index = i;
                             m.opts.audio_stream_id = None;
                             m.opts.subtitle_stream_id = None;
                             build_option_rows(&mut m);

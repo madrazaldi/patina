@@ -424,9 +424,9 @@ pub struct PlaylistPicker {
 #[derive(Debug, Clone, Default)]
 pub struct PlayOptions {
     pub from_start: bool,
-    /// Index into `item.media` (alternate versions); `None` until one is
-    /// chosen, so the playback preferences pick.
-    pub media_index: Option<usize>,
+    /// Index into `item.media` (alternate versions): the playback preferences'
+    /// pick once the item has loaded, until another is chosen.
+    pub media_index: usize,
     /// Plex stream id of the audio track.
     pub audio_stream_id: Option<i64>,
     /// Plex stream id of the subtitle track; `Some(0)` means off.
@@ -467,10 +467,10 @@ impl PlayOptionsModal {
 
     pub fn is_checked(&self, row: &OptRow) -> bool {
         let item = self.item.as_ref();
-        let part = item.and_then(|i| i.media.get(self.opts.media_index.unwrap_or(0))).and_then(|m| m.parts.first());
+        let part = item.and_then(|i| i.media.get(self.opts.media_index)).and_then(|m| m.parts.first());
         let selected = |id: i64| part.and_then(|p| p.streams.iter().find(|s| s.id == Some(id))).is_some_and(|s| s.selected);
         match row {
-            OptRow::Version(i) => *i == self.opts.media_index.unwrap_or(0),
+            OptRow::Version(i) => *i == self.opts.media_index,
             OptRow::Audio(id) => match self.opts.audio_stream_id {
                 Some(sel) => sel == *id,
                 None => selected(*id),
