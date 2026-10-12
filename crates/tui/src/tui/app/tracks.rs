@@ -1,6 +1,6 @@
 use super::*;
 use crossterm::event::{KeyCode, KeyEvent};
-use patina_core::tracks;
+use patina_core::{prefs, tracks};
 
 impl App {
     /// `T`: pick audio and subtitles in one episode, applied across the show or a season.
@@ -41,9 +41,24 @@ impl App {
     }
 
     fn apply_tracks(&mut self) {
-        let Some(Modal::Tracks(m)) = &mut self.modal else { return };
+        let Some(Modal::Tracks(m)) = &self.modal else { return };
         let Some(changes) = m.view.as_ref().map(|v| v.plan.changes.clone()).filter(|_| m.can_apply()) else { return };
-        m.progress = Some((0, changes.len()));
+        let remember = m.remember.then(|| m.query());
+        // Before applying: applying drops the loaded tracks the rules are read from.
+        // The core announces success with a toast.
+        if let Some(q) = remember
+            && let Err(e) = prefs::remember_tracks(&self.core, &q)
+        {
+            self.modal = None;
+            return self.error(err(e));
+        }
+        if changes.is_empty() {
+            self.modal = None;
+            return;
+        }
+        if let Some(Modal::Tracks(m)) = &mut self.modal {
+            m.progress = Some((0, changes.len()));
+        }
         let (core, tx) = (self.core.clone(), self.tx.clone());
         tokio::spawn(async move {
             let ptx = tx.clone();
@@ -115,6 +130,8 @@ impl App {
                 self.apply_tracks();
                 return self.modal.take();
             }
+            // Also keep these choices as the show's automatic playback rules.
+            KeyCode::Char('r') if m.view.is_some() => m.remember = !m.remember,
             // Left/right step through a field's choices in place.
             KeyCode::Left | KeyCode::Right | KeyCode::Char('h' | 'l') if m.cursor < fields && m.view.is_some() => {
                 let (labels, at) = m.choices(m.cursor);

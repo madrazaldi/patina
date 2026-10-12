@@ -48,7 +48,7 @@ pub const HELP: &[(&str, &str)] = &[
     ("J / K", "move a playlist (or custom-sorted collection) entry down / up"),
     ("+", "add to / remove from watchlist"),
     ("C", "add to / remove from collections"),
-    ("T", "audio & subtitles for a whole show or season"),
+    ("T", "audio & subtitles for a whole show or season (r there: remember)"),
     ("c", "related & similar, cast & crew, genres and tags"),
     ("e", "edit details, genres, labels (renames a playlist); menu: poster, background, match"),
     ("S", "scan library for new files"),
@@ -523,7 +523,7 @@ fn draw_tracks(f: &mut Frame, app: &App, m: &TracksModal, theme: &Theme) {
     let hint = match (m.progress, m.choosing) {
         (Some(_), _) => " updating… ",
         (_, Some(_)) => " enter choose · esc back ",
-        _ => " enter choose · ←/→ change · a apply · esc close ",
+        _ => " enter choose · ←/→ change · r remember · a apply · esc close ",
     };
     let block = modal_block(format!(" Audio & subtitles · {} ", truncate(&m.title, 48)), theme).title_bottom(Line::from(Span::styled(hint, dim)));
     let mut lines = vec![Line::from(Span::styled(" Pick tracks in one episode; the closest match is selected in every other.", dim)), Line::raw("")];
@@ -560,7 +560,17 @@ fn draw_tracks(f: &mut Frame, app: &App, m: &TracksModal, theme: &Theme) {
         };
         lines.push(line);
     }
-    let apply = if v.plan.episodes > 0 { format!("Apply to {}", eps(v.plan.episodes)) } else { "Apply".into() };
+    lines.push(Line::from(vec![
+        Span::styled(format!(" [{}] ", if m.remember { "x" } else { " " }), if m.remember { Style::default().fg(theme.accent).bold() } else { dim }),
+        Span::styled("Remember for this show (r): use these languages for new episodes too", dim),
+    ]));
+    let apply = if v.plan.episodes > 0 {
+        format!("Apply to {}", eps(v.plan.episodes))
+    } else if m.remember && m.can_apply() {
+        "Remember".into()
+    } else {
+        "Apply".into()
+    };
     let apply_style = if !m.can_apply() {
         dim
     } else if m.cursor == TRACK_FIELDS.len() {

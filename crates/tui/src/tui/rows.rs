@@ -5,9 +5,11 @@ use patina_core::config::{ACCENTS, QUALITIES, Settings};
 use patina_core::downloads::{Download, State};
 use patina_core::livetv::{Channel, Program, Recordings};
 use patina_core::ops::server::{Maintenance, Overview, Pref, PrefGroup, Stats, Tasks, UsersDevices};
+use patina_core::smart::{self, PolicyView};
 use patina_core::state::{ServerActivity, SessionView};
 use patina_plex::Directory;
 
+use super::auto::{AutoField, AutoPrefs, FIELDS, describe};
 use super::source::{Link, Source};
 use crate::format;
 use crate::item::Item;
@@ -56,6 +58,18 @@ pub enum Act {
     Pref { pref: Box<Pref>, section: Option<String> },
     Setting(SettingKey),
     Account(AccountOp),
+    /// A rule of the profile's automatic playback preferences.
+    Auto(AutoField),
+    /// A show with automatic playback preferences of its own.
+    AutoShow { rating_key: String, title: String },
+    /// Clear every automatic playback rule of the profile.
+    AutoClear,
+    /// A smart download policy.
+    Policy(Box<PolicyView>),
+    /// The storage budget for downloads.
+    Budget,
+    /// Bring downloads in line with the smart download policies now.
+    SmartRun,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -311,6 +325,51 @@ pub fn downloads(list: &[Download]) -> Vec<Item> {
             .kv("File", d.file.clone().unwrap_or_default())
             .text(d.error.clone().unwrap_or_default());
         out.push(row.item(title));
+    }
+    out
+}
+
+/// The smart download policies and the storage budget, above the downloads.
+pub fn smart_downloads(o: &smart::Overview) -> Vec<Item> {
+    let mut out = vec![heading("Smart downloads")];
+    if o.policies.is_empty() {
+        out.push(
+            Row::new("smart:none", Act::Info)
+                .text("Choose “Keep next unwatched downloaded…” in the menu of a show, season or playlist.")
+                .item("No policies yet"),
+        );
+    }
+    for p in &o.policies {
+        let policy = &p.policy;
+        let on = p.active && policy.enabled;
+        let note = match (policy.enabled, p.active) {
+            (false, _) => "paused".to_string(),
+            (_, false) => "other server".to_string(),
+            _ => format!("keep {} · {} on disk", policy.keep, p.downloads),
+        };
+        let row = Row::new(format!("smart:{}", policy.id), Act::Policy(Box::new(p.clone())))
+            .glyph(if on { "⟳" } else { "Ⅱ" }, if on { Tone::Accent } else { Tone::Dim })
+            .note(note)
+            .kv("Keeps", format!("the next {} unwatched", policy.keep))
+            .kv("Kind", policy.target.label())
+            .kv("Server", policy.server_name.clone())
+            .kv("Remove watched", if policy.delete_watched { "yes" } else { "no" })
+            .kv("Downloaded", if p.downloads > 0 { format!("{} · {}", p.downloads, format::bytes(p.bytes)) } else { String::new() })
+            .text(if p.active { "" } else { "Belongs to another account or server; it works again when you switch to it." });
+        out.push(row.item(policy.title.clone()));
+    }
+    let budget = o.budget.map_or("no limit".to_string(), |b| format::bytes(b as i64));
+    out.push(
+        Row::new("smart:budget", Act::Budget)
+            .glyph("•", Tone::Dim)
+            .note(budget.clone())
+            .kv("Budget", budget)
+            .kv("Used", format::bytes(o.used as i64))
+            .text("Smart downloads stop adding when all downloads together would use more than this.")
+            .item("Storage budget"),
+    );
+    if o.policies.iter().any(|p| p.active) {
+        out.push(Row::new("smart:run", Act::SmartRun).glyph("›", Tone::Accent).text("Fetch and remove downloads to match the policies now.").item("Check now"));
     }
     out
 }
@@ -695,9 +754,16 @@ pub fn people(d: &UsersDevices) -> Vec<Item> {
 
 // ---- settings ---------------------------------------------------------------------
 
+/// One rule of automatic playback preferences; `unset` says what no value means.
+pub fn auto_row(f: AutoField, rules: &patina_core::prefs::Rules, unset: &str) -> Item {
+    let label = f.label(rules, unset);
+    let tone = if f.value(rules).is_empty() { Tone::Dim } else { Tone::Accent };
+    Row::new(format!("auto:{}", f.id()), Act::Auto(f)).glyph("•", tone).note(label.clone()).kv("Value", label).text(f.help()).item(f.title())
+}
+
 /// The Settings screen: player settings (shared with the GUI), the terminal
 /// client's own, the account and where things are saved.
-pub fn settings(s: &Settings, probe: Option<&Result<String, String>>, session: Option<&SessionView>, offline: bool) -> Vec<Item> {
+pub fn settings(s: &Settings, probe: Option<&Result<String, String>>, session: Option<&SessionView>, offline: bool, auto: Option<&AutoPrefs>) -> Vec<Item> {
     let p = &s.player;
     let set = |key: SettingKey, title: &str, value: String, text: &str| {
         let tone = if value == "on" { Tone::Accent } else { Tone::Dim };
@@ -755,6 +821,25 @@ pub fn settings(s: &Settings, probe: Option<&Result<String, String>>, session: O
         or(&p.downloads_dir, "default"),
         &format!("Where movies, episodes and music you download for offline viewing are saved. Now: {}", p.downloads_dir().display()),
     ));
+    if let Some(auto) = auto {
+        out.push(heading("Automatic playback"));
+        for f in FIELDS {
+            out.push(auto_row(f, &auto.profile, "not set"));
+        }
+        if !auto.profile.is_empty() {
+            out.push(Row::new("auto:clear", Act::AutoClear).glyph("›", Tone::Accent).text("Remove every rule of this profile. Shows keep their own.").item("Clear all rules…"));
+        }
+        if !auto.shows.is_empty() {
+            out.push(heading("Shows with their own preferences"));
+            for s in &auto.shows {
+                let row = Row::new(format!("auto:show:{}", s.rating_key), Act::AutoShow { rating_key: s.rating_key.clone(), title: s.title.clone() })
+                    .glyph("›", Tone::Accent)
+                    .note(describe(&s.rules))
+                    .text("Enter edits; x clears this show's preferences.");
+                out.push(row.item(s.title.clone()));
+            }
+        }
+    }
     out.extend([
         heading("Terminal"),
         flag(SettingKey::Inspector, "Details panel", s.tui.show_inspector, "Show the details panel next to the columns (i toggles it for now)."),
@@ -886,5 +971,61 @@ mod tests {
         assert_eq!(s.player.skip_key, "TAB");
         assert!(SettingKey::Quality.toggle(&mut s).is_none());
         assert_eq!(SettingKey::Accent.choices()[0].1, "Terminal default");
+    }
+
+    #[test]
+    fn smart_downloads_list_policies_scope_and_budget() {
+        let policy = |id: &str, active: bool, enabled: bool| PolicyView {
+            policy: smart::Policy {
+                id: id.into(),
+                account: "a".into(),
+                server_id: "s".into(),
+                server_name: "S".into(),
+                rating_key: "1".into(),
+                target: smart::Target::Show,
+                title: format!("Show {id}"),
+                keep: 3,
+                delete_watched: true,
+                enabled,
+            },
+            active,
+            downloads: 2,
+            bytes: 2048,
+        };
+        let overview = smart::Overview { policies: vec![policy("a", true, true), policy("b", false, true), policy("c", true, false)], budget: Some(10 << 30), used: 1 << 30 };
+        let rows = smart_downloads(&overview);
+        let notes: Vec<(&str, &str)> = rows.iter().map(|i| (i.title(), i.row.as_ref().unwrap().note.as_str())).collect();
+        assert_eq!(
+            notes,
+            [("Smart downloads", ""), ("Show a", "keep 3 · 2 on disk"), ("Show b", "other server"), ("Show c", "paused"), ("Storage budget", "10.0 GB"), ("Check now", "")]
+        );
+        // Another account's or server's policy is dimmed, an active one is accented.
+        assert_eq!(rows[1].row.as_ref().unwrap().tone, Tone::Accent);
+        assert_eq!(rows[2].row.as_ref().unwrap().tone, Tone::Dim);
+        // Nothing to check without a policy of this connection.
+        let none = smart_downloads(&smart::Overview { policies: Vec::new(), budget: None, used: 0 });
+        let titles: Vec<&str> = none.iter().map(|i| i.title()).collect();
+        assert_eq!(titles, ["Smart downloads", "No policies yet", "Storage budget"]);
+    }
+
+    #[test]
+    fn settings_list_automatic_playback_rules_and_shows_with_their_own() {
+        let mut profile = patina_core::prefs::Rules::default();
+        AutoField::Audio.set(&mut profile, "eng");
+        let mut show = patina_core::prefs::Rules::default();
+        AutoField::Subtitles.set(&mut show, "off");
+        let auto = AutoPrefs { profile, shows: vec![patina_core::prefs::ShowRules { rating_key: "9".into(), title: "Dark".into(), rules: show }] };
+        let rows = settings(&Settings::default(), None, None, false, Some(&auto));
+        let titles: Vec<&str> = rows.iter().map(|i| i.title()).collect();
+        let at = titles.iter().position(|t| *t == "Automatic playback").unwrap();
+        assert_eq!(titles[at + 1], "Audio languages");
+        assert_eq!(rows[at + 1].row.as_ref().unwrap().note, "eng");
+        assert_eq!(rows[at + 2].row.as_ref().unwrap().note, "not set");
+        assert!(titles.contains(&"Clear all rules…") && titles.contains(&"Dark"));
+        let dark = rows.iter().find(|i| i.title() == "Dark").unwrap();
+        assert_eq!(dark.row.as_ref().unwrap().note, "subtitles off");
+        // Signed out: no section.
+        let signed_out = settings(&Settings::default(), None, None, false, None);
+        assert!(!signed_out.iter().any(|i| i.title() == "Automatic playback"));
     }
 }

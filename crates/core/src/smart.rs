@@ -371,7 +371,7 @@ pub fn reconcile_soon(app: &AppState) {
 // Managing policies ----------------------------------------------------------
 
 /// A policy as front ends show it.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PolicyView {
     #[serde(flatten)]
@@ -383,7 +383,7 @@ pub struct PolicyView {
     pub bytes: i64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Overview {
     pub policies: Vec<PolicyView>,

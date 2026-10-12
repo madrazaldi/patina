@@ -92,6 +92,10 @@ impl App {
         }
         if matches!(kind, Kind::Show | Kind::Season | Kind::Episode) {
             rows.push((Tracks, "Audio & subtitles for the show…", "T"));
+            rows.push((ShowPrefs, "Playback preferences for the show…", ""));
+        }
+        if item.rating_key.is_some() && matches!(kind, Kind::Show | Kind::Season | Kind::Playlist) {
+            rows.push((KeepDownloaded, "Keep next unwatched downloaded…", ""));
         }
         if matches!(kind, Kind::Movie | Kind::Episode) {
             rows.push((SearchSubtitles, "Search subtitles online…", ""));
@@ -292,6 +296,8 @@ impl App {
                 }
             }
             Tracks => self.open_tracks(),
+            ShowPrefs => self.open_show_prefs(),
+            KeepDownloaded => self.open_keep(),
             SwitchUser => self.open_users(),
             DeletePlaylist | RemoveFromPlaylist | RemoveFromCollection | TerminateSession | DeleteHistory => self.delete_action(),
             GoToParent => self.go_to_parent(false),

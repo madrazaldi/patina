@@ -562,7 +562,7 @@ pub struct View {
 }
 
 /// A show with rules of its own.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ShowRules {
     pub rating_key: String,

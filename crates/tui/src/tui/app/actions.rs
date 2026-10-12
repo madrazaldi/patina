@@ -247,6 +247,10 @@ impl App {
             }
             InputPurpose::TwoFactor { login, password } => self.password_sign_in(login, password, value),
             InputPurpose::Setting(key) => self.save_setting(key, Some(value)),
+            InputPurpose::Auto { field, show } => self.save_auto(field, show, value),
+            InputPurpose::KeepNext { rating_key, title, delete_watched } => self.save_keep(rating_key, title, delete_watched, &value),
+            InputPurpose::KeepPolicy { id } => self.save_keep_policy(&id, &value),
+            InputPurpose::Budget => self.save_budget(&value),
             InputPurpose::Pref { id, section } => self.save_pref(id, section, value),
             InputPurpose::LibraryName(mut form) => {
                 form.name = value;
@@ -324,6 +328,8 @@ impl App {
                 self.server_op(Refresh::Paths(vec![path, PLAYLISTS.into()]), "Playlist cleared", move |s| async move { s.clear_playlist(&playlist_id).await })
             }
             ConfirmAction::RemoveDownload { id } => downloads::remove(&self.core, &id),
+            ConfirmAction::ClearAuto { show } => self.clear_auto(show),
+            ConfirmAction::StopKeeping { id, delete_files } => self.stop_keeping(&id, delete_files),
             ConfirmAction::DeleteRule { id } => {
                 let server = self.server();
                 self.spawn_op(Refresh::Source(Source::Rules), async move {

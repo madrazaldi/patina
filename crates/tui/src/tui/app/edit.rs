@@ -285,6 +285,8 @@ impl App {
                 self.server_op(Refresh::Item(rating_key.clone()), "Subtitle downloaded", move |s| async move { s.download_subtitle(&rating_key, &key).await });
             }
             (PickKind::Setting(key), PickEntry::Text(v)) => self.save_setting(key, Some(v)),
+            (PickKind::AutoShow { show }, PickEntry::Text(id)) => self.pick_auto_show(show, id),
+            (PickKind::Auto { field, show }, PickEntry::Text(v)) => self.save_auto(field, show, v),
             (PickKind::Pref { id, section }, PickEntry::Text(v)) => self.save_pref(id, section, v),
             (PickKind::Servers, PickEntry::Text(id)) => self.switch_server(id),
             (PickKind::LibraryKind, PickEntry::Text(kind)) => {

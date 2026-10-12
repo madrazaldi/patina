@@ -372,7 +372,11 @@ pub(super) fn row_hints(item: &Item) -> Vec<(&'static str, &'static str)> {
         Act::Server(_) | Act::Account(_) => vec![("enter", "run")],
         Act::OpenUrl(_) => vec![("enter", "open")],
         Act::Library(_) => vec![("enter", "actions"), ("l", "settings")],
-        Act::Pref { .. } | Act::Setting(_) => vec![("enter", "change")],
+        Act::Pref { .. } | Act::Setting(_) | Act::Auto(_) | Act::Budget => vec![("enter", "change")],
+        Act::AutoShow { .. } => vec![("enter", "edit"), ("x", "clear")],
+        Act::AutoClear => vec![("enter", "clear all")],
+        Act::Policy(_) => vec![("enter", "keep how many"), ("x", "stop keeping")],
+        Act::SmartRun => vec![("enter", "check now")],
         _ => Vec::new(),
     }
 }
