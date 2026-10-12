@@ -678,32 +678,55 @@ pub fn preferred_version(app: &AppState, item: &Metadata) -> usize {
     media_index(scope_for(app, item).as_ref(), item, None)
 }
 
+/// The track rules that apply to `item` when it starts: `None` for anything but a movie
+/// or episode, a resumed item (it keeps the tracks it had), or no track rules.
+fn track_rules(scope: Option<&Scope>, item: &Metadata) -> Option<Resolved> {
+    if !matches!(item.kind(), "movie" | "episode") || item.view_offset.unwrap_or(0) > 0 {
+        return None;
+    }
+    let rules = effective(&load(), scope?, show_of(item)).resolve();
+    rules.has_track_rules().then_some(rules)
+}
+
+/// Select the rules' tracks in `item`; returns the part and the streams that changed.
+fn choose_in(rules: &Resolved, item: &mut Metadata, media_index: usize) -> Option<(i64, Option<i64>, Option<i64>)> {
+    let index = if media_index < item.media.len() { media_index } else { 0 };
+    let part = item.media.get_mut(index).and_then(|m| m.parts.first_mut())?;
+    let part_id = part.id?;
+    let choice = choose_streams(rules, part);
+    let (audio, subtitle) = apply_choice(part, &choice);
+    (audio.is_some() || subtitle.is_some()).then_some((part_id, audio, subtitle))
+}
+
 /// Apply the rules to the streams of an item that is about to play: select the
 /// tracks in `item` (so mpv is given them) and save them to Plex in the
 /// background so other apps agree. A resumed item keeps the tracks it had.
 /// `scope` is the account and the server the item plays from.
 pub fn apply_auto(app: &AppState, scope: Option<&Scope>, server: &PlexServer, item: &mut Metadata, media_index: usize) {
-    if !matches!(item.kind(), "movie" | "episode") || item.view_offset.unwrap_or(0) > 0 {
-        return;
+    let Some(rules) = track_rules(scope, item) else { return };
+    let Some((part_id, audio, subtitle)) = choose_in(&rules, item, media_index) else { return };
+    let server = server.clone();
+    app.spawn(async move {
+        if let Err(e) = server.select_streams(part_id, audio, subtitle, false).await {
+            tracing::debug!("could not save automatic track choice: {e}");
+        }
+    });
+}
+
+/// The same choice for an item that will be transcoded: the transcoder plays (and burns in)
+/// the server's selection, so it is saved before the transcode starts. Queue entries can lack
+/// streams; the full item is fetched then.
+pub async fn save_auto(scope: Option<&Scope>, server: &PlexServer, item: &Metadata, media_index: usize) -> Result<()> {
+    let Some(rules) = track_rules(scope, item) else { return Ok(()) };
+    let has_streams = item.media.get(media_index).or(item.media.first()).and_then(|m| m.parts.first()).is_some_and(|p| !p.streams.is_empty());
+    let mut item = match has_streams {
+        true => item.clone(),
+        false => server.metadata(item.rating_key(), Default::default()).await?.ok_or_else(|| anyhow!("\"{}\" was not found", item.title()))?,
+    };
+    if let Some((part_id, audio, subtitle)) = choose_in(&rules, &mut item, media_index) {
+        server.select_streams(part_id, audio, subtitle, false).await?;
     }
-    let Some(scope) = scope else { return };
-    let rules = effective(&load(), scope, show_of(item)).resolve();
-    if !rules.has_track_rules() {
-        return;
-    }
-    let index = if media_index < item.media.len() { media_index } else { 0 };
-    let Some(part) = item.media.get_mut(index).and_then(|m| m.parts.first_mut()) else { return };
-    let Some(part_id) = part.id else { return };
-    let choice = choose_streams(&rules, part);
-    let (audio, subtitle) = apply_choice(part, &choice);
-    if audio.is_some() || subtitle.is_some() {
-        let server = server.clone();
-        app.spawn(async move {
-            if let Err(e) = server.select_streams(part_id, audio, subtitle, false).await {
-                tracing::debug!("could not save automatic track choice: {e}");
-            }
-        });
-    }
+    Ok(())
 }
 
 #[cfg(test)]

@@ -400,9 +400,13 @@ struct Loaded {
     transcode_session: Option<String>,
 }
 
+/// Whether `item` plays through the transcoder rather than from its file.
+fn transcoded(item: &Metadata, quality: &Quality, live: bool) -> bool {
+    live || (quality.kbps.is_some() && matches!(item.kind(), "movie" | "episode" | "clip" | "trailer"))
+}
+
 fn media_url(server: &PlexServer, item: &Metadata, media_index: usize, quality: &Quality, live: bool) -> Result<Loaded> {
-    let video = matches!(item.kind(), "movie" | "episode" | "clip" | "trailer");
-    if live || (quality.kbps.is_some() && video) {
+    if transcoded(item, quality, live) {
         let session = uuid::Uuid::new_v4().to_string();
         let opts = TranscodeOptions {
             session: session.clone(),
@@ -623,8 +627,19 @@ async fn run(app: AppState, req: PlayRequest, origin: Option<Scope>) -> Result<(
     // Resolve stream URLs up front; items that cannot be played are dropped so
     // mpv playlist positions line up with `entries`.
     let mut start = 0;
+    let mut later = Vec::new();
     for (i, item) in queue.items.iter().enumerate() {
         let media_index = crate::prefs::media_index(Some(&scope), item, if i == queue.start { req.media_index } else { None });
+        if !p.live && transcoded(item, p.quality, false) {
+            if i == queue.start {
+                // The transcoder starts as soon as mpv opens the file.
+                if let Err(e) = crate::prefs::save_auto(Some(&scope), &server, item, media_index).await {
+                    tracing::debug!("could not save automatic track choice: {e:#}");
+                }
+            } else {
+                later.push((item.clone(), media_index));
+            }
+        }
         let mut opts = vec![("force-media-title", item.full_title())];
         if i == queue.start {
             p.initial_start = Some((item.rating_key().to_string(), 0));
@@ -656,6 +671,7 @@ async fn run(app: AppState, req: PlayRequest, origin: Option<Scope>) -> Result<(
         let _ = mpv.quit().await;
         return Err(anyhow!("nothing in the queue could be played"));
     }
+    p.save_tracks_later(later);
     mpv.set_property("playlist-pos", start as i64).await?;
     p.emit_queue();
 
@@ -744,6 +760,29 @@ impl Player {
             _ => self.entries.push(entry),
         }
         Ok(uid)
+    }
+
+    /// Save the automatic track choice of queued items that will be transcoded, in the background:
+    /// mpv opens (and so starts transcoding) them only when it gets there.
+    fn save_tracks_later(&self, items: Vec<(Metadata, usize)>) {
+        let items: Vec<_> = items.into_iter().filter(|(item, _)| !self.live && transcoded(item, self.quality, false)).collect();
+        if items.is_empty() {
+            return;
+        }
+        let (scope, server) = (self.scope.clone(), self.server.clone());
+        crate::runtime().spawn(async move {
+            use futures::StreamExt;
+            futures::stream::iter(items)
+                .for_each_concurrent(4, |(item, media_index)| {
+                    let (scope, server) = (scope.clone(), server.clone());
+                    async move {
+                        if let Err(e) = crate::prefs::save_auto(scope.as_ref(), &server, &item, media_index).await {
+                            tracing::debug!("could not save automatic track choice: {e:#}");
+                        }
+                    }
+                })
+                .await;
+        });
     }
 
     fn emit_queue(&self) {
@@ -1258,12 +1297,15 @@ impl Player {
                 let Some(after) = items.iter().position(|m| m.play_queue_item_id == Some(last)) else { return };
                 let fresh: Vec<Metadata> =
                     items[after + 1..].iter().filter(|m| m.play_queue_item_id.is_some_and(|id| !known.contains(&id))).cloned().collect();
+                let mut later = Vec::new();
                 for item in fresh {
                     let media_index = crate::prefs::media_index(self.scope.as_ref(), &item, None);
+                    later.push((item.clone(), media_index));
                     if let Err(e) = self.insert(item, media_index, None, &[]).await {
                         tracing::debug!("could not extend queue: {e}");
                     }
                 }
+                self.save_tracks_later(later);
                 self.emit_queue();
             }
         }
@@ -1355,13 +1397,16 @@ impl Player {
         }
         let first = if next { self.cur_index().map(|i| i + 1) } else { None };
         let mut added = Vec::new();
+        let mut later = Vec::new();
         for (n, it) in items.into_iter().enumerate() {
             let media_index = crate::prefs::media_index(self.scope.as_ref(), &it, None);
+            later.push((it.clone(), media_index));
             match self.insert(it, media_index, first.map(|i| i + n), &[]).await {
                 Ok(uid) => added.push(uid),
                 Err(e) => tracing::warn!("could not queue item: {e}"),
             }
         }
+        self.save_tracks_later(later);
         // Keep the Plex queue in step so other apps (and later edits) agree; its answer
         // tells us the new entries' ids, which arrives as `Internal::Added`.
         if let Some(id) = self.play_queue_id {

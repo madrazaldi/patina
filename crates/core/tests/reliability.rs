@@ -516,6 +516,82 @@ async fn queue_switch_worker() {
     wait_for("playback to end", Duration::from_secs(6), || app.now_playing().is_none()).await;
 }
 
+/// A transcode plays (and burns in) the server's selected tracks, so the automatic choice
+/// is saved before the transcoder is asked for the stream.
+#[test]
+#[ignore = "requires mpv and python3"]
+fn mpv_transcode_gets_the_automatic_track_choice() {
+    let temp = tempfile::tempdir().unwrap();
+    let media = temp.path().join("media");
+    std::fs::create_dir_all(&media).unwrap();
+    std::fs::write(media.join("movie.mkv"), vec![7u8; 4096]).unwrap();
+    let events_path = temp.path().join("events.log");
+    let mut server = Command::new("python3")
+        .arg(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tools/mock_pms.py"))
+        .args(["--port", "0", "--media"])
+        .arg(&media)
+        .stderr(Stdio::piped())
+        .stdout(std::fs::File::create(&events_path).unwrap())
+        .spawn()
+        .unwrap();
+    let mut log = std::io::BufReader::new(server.stderr.take().unwrap());
+    let mut first = String::new();
+    log.read_line(&mut first).unwrap();
+    std::thread::spawn(move || std::io::Read::read_to_string(&mut log, &mut String::new()));
+    let url = first.trim().strip_prefix("mock PMS on ").expect("mock server startup").to_owned();
+    let status = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "transcode_tracks_worker", "--nocapture"])
+        .env("PATINA_TEST_SERVER", &url)
+        .env("XDG_CONFIG_HOME", temp.path().join("config"))
+        .env("PATINA_DATA_DIR", temp.path().join("data"))
+        .status()
+        .unwrap();
+    let _ = server.kill();
+    let _ = server.wait();
+    assert!(status.success());
+    let events = std::fs::read_to_string(events_path).unwrap();
+    // English audio (1012) and subtitles off (0), before the transcode request.
+    let lines: Vec<&str> = events.lines().collect();
+    let saved = lines.iter().position(|l| {
+        l.contains("\"what\": \"select_streams\"") && l.contains("\"audioStreamID\": \"1012\"") && l.contains("\"subtitleStreamID\": \"0\"")
+    });
+    let transcode = lines.iter().position(|l| l.contains("/video/:/transcode/universal/start.m3u8"));
+    assert!(transcode.is_some(), "the transcoder was never asked:\n{events}");
+    assert!(saved.is_some_and(|s| Some(s) < transcode), "the automatic choice was not saved before transcoding:\n{events}");
+}
+
+#[tokio::test]
+async fn transcode_tracks_worker() {
+    let Ok(url) = std::env::var("PATINA_TEST_SERVER") else {
+        return;
+    };
+    use patina_core::player::{self, PlayRequest};
+    use patina_core::prefs::{self, Rules, SubtitleMode};
+    let app = AppState::new(Arc::new(Sink), tokio::runtime::Handle::current());
+    app.update_settings(|s| s.player.extra_args = "--no-config --vo=null --ao=null".into());
+    let server = PlexServer::new(ClientInfo::new("test", "Patina", "test"), &url, "alice").unwrap();
+    app.set_session(
+        Some(Session {
+            tv: None,
+            server: server.clone(),
+            server_id: "mock-machine-0001".into(),
+            server_name: "Mock".into(),
+            user: None,
+            owned: true,
+            servers: vec![],
+        }),
+        vec![],
+    );
+    let rules = Rules { audio_languages: Some(vec!["eng".into()]), subtitles: Some(SubtitleMode::Off), ..Default::default() };
+    prefs::save(&app, None, None, rules).unwrap();
+    let item = server.metadata("101", MetadataOptions::default()).await.unwrap().unwrap();
+    player::play(app.clone(), PlayRequest { item, resume: false, quality: Some("20m-1080".into()), ..Default::default() });
+    // The mock has no transcoder, so mpv gives up; what matters is what was saved first.
+    wait_for("playback to start", Duration::from_secs(10), player::is_active).await;
+    wait_for("playback to end", Duration::from_secs(30), || !player::is_active()).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+}
+
 async fn wait_for(what: &str, within: Duration, mut done: impl FnMut() -> bool) {
     let began = Instant::now();
     while !done() {
