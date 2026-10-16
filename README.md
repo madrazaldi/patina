@@ -2,12 +2,48 @@
 
 # Patina
 
+[![CI](https://github.com/madrazaldi/patina/actions/workflows/ci.yml/badge.svg)](https://github.com/madrazaldi/patina/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/madrazaldi/patina?include_prereleases&sort=semver)](https://github.com/madrazaldi/patina/releases/latest)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
+
 A Plex client written in Rust, with its front ends on one shared backend:
 
 - **Patina desktop**, a desktop app built with Tauri and Svelte (`web/`).
 - **patina-tui**, a keyboard-driven terminal client with Miller columns, plus a scriptable CLI with `--json` output. See [Terminal client](#terminal-client-patina-tui).
 
 All of them play everything in **mpv**. mpv starts normally, so it reads your own `mpv.conf`, `input.conf`, scripts and shaders from mpv's default config directory (`~/.config/mpv` on macOS/Linux, `%APPDATA%\mpv` on Windows). They share one config file, sign-in and downloads, and can run at the same time.
+
+![Patina desktop: Home](docs/screenshots/home.webp)
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/library.webp" alt="A library with filters, saved views and the A–Z rail"></td>
+    <td width="50%"><img src="docs/screenshots/item.webp" alt="A movie's detail page with audio and subtitle pickers"></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/pick.webp" alt="Pick something to watch"></td>
+    <td width="50%"><img src="docs/screenshots/tui-library.webp" alt="patina-tui: Miller columns with a details panel"></td>
+  </tr>
+</table>
+
+<sub>Screenshots use the bundled mock server (`tools/mock_pms.py`) with placeholder artwork.</sub>
+
+## Install
+
+Download the latest build from [Releases](https://github.com/madrazaldi/patina/releases/latest). Each release lists `SHA256SUMS` for its files.
+
+| Platform | Desktop app | Terminal client |
+|---|---|---|
+| macOS (Apple silicon and Intel) | `Patina_<version>_universal.dmg` | `patina-tui-v<version>-aarch64-apple-darwin.tar.gz` (Intel: `x86_64-apple-darwin`) |
+| Linux x86_64 | `Patina_<version>_amd64.AppImage`, `.deb`, `.rpm` | `patina-tui-v<version>-x86_64-unknown-linux-gnu.tar.gz` |
+| Linux arm64 | `Patina_<version>_aarch64.AppImage`, `.deb`, `.rpm` | `patina-tui-v<version>-aarch64-unknown-linux-gnu.tar.gz` |
+| Windows x64 | `Patina_<version>_x64-setup.exe` or `_x64_en-US.msi` | `patina-tui-v<version>-x86_64-pc-windows-msvc.zip` |
+
+Install [mpv](https://mpv.io/installation/) too (0.38 or later): Patina plays everything in it.
+
+The macOS builds are not notarized, so Gatekeeper blocks them the first time. After moving Patina to Applications, run `xattr -dr com.apple.quarantine /Applications/Patina.app` (or `xattr -d com.apple.quarantine patina-tui` for the terminal client), or open it from Finder with right-click → Open.
+
+To build from source instead, see [Build & run](#build--run).
 
 ## Features
 
@@ -91,6 +127,8 @@ A terminal client for the same backend: you browse your libraries in Miller colu
 
 ### Install
 
+Download the archive for your platform from [Releases](https://github.com/madrazaldi/patina/releases/latest) and put `patina-tui` on your `PATH`, or build it from a checkout:
+
 ```sh
 cargo install --path crates/tui
 ```
@@ -108,6 +146,8 @@ patina-tui login --url http://192.168.1.10:32400 --token YOUR_TOKEN
 ```
 
 When the server can't be reached, `d` browses and plays your downloads offline.
+
+![patina-tui: server streaming statistics](docs/screenshots/tui-server.webp)
 
 ### Differences from the desktop app
 
@@ -311,3 +351,22 @@ cargo run -p patina-tui -- search --all-servers ember
 ```
 
 Debug builds also accept `PATINA_ROUTE=/item/100` (also `/pick`, `/search`, `/library/1` and so on; opens a page) and `PATINA_PLAY=<ratingKey>` (starts playback).
+
+## Releasing
+
+CI (`.github/workflows/ci.yml`) runs clippy and the tests on Linux, macOS and Windows, the mpv playback tests on Linux, and the web type-check, build and Playwright tests for every push to `main` and every pull request.
+
+To cut a release from a clean `main`:
+
+```sh
+tools/release.sh 0.2.0          # bumps [workspace.package] version, commits "Release v0.2.0", tags v0.2.0
+git push origin main v0.2.0
+```
+
+The tag starts `.github/workflows/release.yml`, which builds the desktop app (macOS universal, Linux x86_64 and arm64, Windows) and `patina-tui` (five targets) into a draft GitHub release with generated notes and `SHA256SUMS`. A tag with a suffix such as `v0.2.0-rc.1` becomes a pre-release. Review the draft and publish it.
+
+## License
+
+Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or [MIT license](LICENSE-MIT) at your option.
+
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in Patina by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.

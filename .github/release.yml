@@ -1,0 +1,14 @@
+# Groups the generated release notes by pull request label.
+changelog:
+  exclude:
+    labels: [skip-changelog]
+    authors: [dependabot]
+  categories:
+    - title: Features
+      labels: [feature, enhancement]
+    - title: Fixes
+      labels: [bug, fix]
+    - title: Terminal client
+      labels: [tui]
+    - title: Other changes
+      labels: ["*"]
