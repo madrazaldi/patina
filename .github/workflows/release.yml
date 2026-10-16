@@ -2,7 +2,8 @@ name: Release
 
 # Push a tag matching the workspace version (e.g. `v0.2.0` for version = "0.2.0") to build
 # the Tauri desktop app and patina-tui for every platform into a draft GitHub release.
-# Review the draft, then publish it by hand.
+# `tools/release.sh 0.2.0` bumps the version, commits and tags. Review the draft, then publish
+# it by hand. Tags with a pre-release suffix (`v0.2.0-rc.1`) are marked as pre-releases.
 
 on:
   push:
@@ -40,9 +41,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          prerelease=false
+          case "$GITHUB_REF_NAME" in *-*) prerelease=true ;; esac
           id=$(gh api "repos/$GITHUB_REPOSITORY/releases" \
             -f tag_name="$GITHUB_REF_NAME" -f name="Patina $GITHUB_REF_NAME" \
-            -F draft=true -F generate_release_notes=true --jq .id)
+            -F draft=true -F prerelease=$prerelease -F generate_release_notes=true --jq .id)
           echo "id=$id" >> "$GITHUB_OUTPUT"
 
   # The Tauri desktop app.
@@ -58,12 +61,14 @@ jobs:
           - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu }
           - { os: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu }
           - { os: windows-latest, target: x86_64-pc-windows-msvc }
+          # One .dmg for Apple silicon and Intel. Ad-hoc signed, not notarized.
+          - { os: macos-latest, target: universal-apple-darwin, rust: "aarch64-apple-darwin,x86_64-apple-darwin" }
     steps:
       - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: ${{ matrix.rust || matrix.target }}
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -123,7 +128,7 @@ jobs:
         run: |
           name="patina-tui-$GITHUB_REF_NAME-${{ matrix.target }}"
           mkdir "$name"
-          cp README.md "$name/"
+          cp README.md LICENSE-MIT LICENSE-APACHE "$name/"
           if [ "$RUNNER_OS" = Windows ]; then
             cp "target/${{ matrix.target }}/release/patina-tui.exe" "$name/"
             7z a "$name.zip" "$name" >/dev/null
@@ -134,3 +139,19 @@ jobs:
             archive="$name.tar.gz"
           fi
           gh release upload "$GITHUB_REF_NAME" "$archive" --clobber
+
+  checksums:
+    name: Checksums
+    needs: [desktop, tui]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Upload SHA256SUMS
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir assets && cd assets
+          gh release download "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --pattern '*'
+          rm -f SHA256SUMS
+          sha256sum -- * > SHA256SUMS
+          cat SHA256SUMS
+          gh release upload "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" SHA256SUMS --clobber

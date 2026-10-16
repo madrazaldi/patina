@@ -38,7 +38,7 @@ The mock logs every timeline, scrobble and stream-selection call. Downloads go t
 
 `.github/workflows/ci.yml` runs on every push to `main` and every PR: clippy with `-D warnings` and `cargo test` on Linux, macOS and Windows (Windows runs unit tests only), the mpv smoke test on Linux, and `bun run check`, `bun run build` and Playwright for `web/`. `CI OK` is the single required check.
 
-To release, bump `version` in `[workspace.package]`, commit, and push a matching tag (`v0.2.0`). `release.yml` builds the Tauri bundles for Linux (x86_64 and arm64) and Windows, and `patina-tui` archives for all five targets into a draft GitHub release. Publish it by hand.
+To release, run `tools/release.sh 0.2.0` on a clean `main` (it bumps `version` in `[workspace.package]`, refreshes `Cargo.lock`, commits and tags `v0.2.0`), then `git push origin main v0.2.0`. `release.yml` builds the Tauri bundles for macOS (universal, ad-hoc signed, not notarized), Linux (x86_64 and arm64) and Windows, `patina-tui` archives for all five targets, and `SHA256SUMS` into a draft GitHub release with notes grouped by `.github/release.yml`. A tag with a suffix (`v0.2.0-rc.1`) is a pre-release. Publish it by hand. The project is dual-licensed MIT OR Apache-2.0.
 
 ## Architecture
 
