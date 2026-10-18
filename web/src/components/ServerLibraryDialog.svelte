@@ -2,6 +2,11 @@
   // Add a library, or rename one and change its folders when `section` is set.
   import { Plus, X } from "@lucide/svelte";
   import { untrack } from "svelte";
+  import * as Alert from "$lib/components/ui/alert";
+  import { Button } from "$lib/components/ui/button";
+  import { Input } from "$lib/components/ui/input";
+  import { Label } from "$lib/components/ui/label";
+  import * as NativeSelect from "$lib/components/ui/native-select";
   import { modal } from "../lib/dialog";
   import { api } from "../lib/api";
   import { act, captureScope, message } from "../lib/state.svelte";
@@ -70,103 +75,60 @@
   <h2 id="library-edit-title">{initial ? `Edit ${initial.title}` : "Add library"}</h2>
   <p class="desc">{initial ? "Rename the library or change the folders it scans." : "Point Plex at folders of media on the server."}</p>
 
-  <div class="form">
-    <label class="field">
-      <span>Name</span>
-      <input class="input" data-initial-focus placeholder={initial ? "" : label} bind:value={name} />
-    </label>
+  <div class="grid grid-cols-2 gap-x-4 gap-y-3.5">
+    <div class="col-span-2 flex flex-col gap-2">
+      <Label for="library-name">Name</Label>
+      <Input id="library-name" data-initial-focus placeholder={initial ? "" : label} bind:value={name} />
+    </div>
     {#if !initial}
-      <label class="field">
-        <span>Type</span>
-        <select class="select" bind:value={kind}>
-          {#each KINDS as [k, l] (k)}<option value={k}>{l}</option>{/each}
-        </select>
-      </label>
-      <label class="field">
-        <span>Agent</span>
-        <select class="select" bind:value={agent} disabled={!choices?.agents.length}>
-          {#each choices?.agents ?? [] as [id, title] (id)}<option value={id}>{title || id}</option>{/each}
-        </select>
-      </label>
-      <label class="field">
-        <span>Scanner</span>
-        <select class="select" bind:value={scanner} disabled={!choices?.scanners.length}>
-          {#each choices?.scanners ?? [] as s (s)}<option value={s}>{s}</option>{/each}
-        </select>
-      </label>
-      <label class="field">
-        <span>Language</span>
-        <input class="input" placeholder="en-US" bind:value={language} />
-      </label>
-      {#if choicesError}<div class="error-box full">{choicesError}</div>{/if}
+      <div class="flex flex-col gap-2">
+        <Label for="library-type">Type</Label>
+        <NativeSelect.Root id="library-type" class="w-full" bind:value={kind}>
+          {#each KINDS as [k, l] (k)}<NativeSelect.Option value={k}>{l}</NativeSelect.Option>{/each}
+        </NativeSelect.Root>
+      </div>
+      <div class="flex flex-col gap-2">
+        <Label for="library-agent">Agent</Label>
+        <NativeSelect.Root id="library-agent" class="w-full" bind:value={agent} disabled={!choices?.agents.length}>
+          {#each choices?.agents ?? [] as [id, title] (id)}<NativeSelect.Option value={id}>{title || id}</NativeSelect.Option>{/each}
+        </NativeSelect.Root>
+      </div>
+      <div class="flex flex-col gap-2">
+        <Label for="library-scanner">Scanner</Label>
+        <NativeSelect.Root id="library-scanner" class="w-full" bind:value={scanner} disabled={!choices?.scanners.length}>
+          {#each choices?.scanners ?? [] as s (s)}<NativeSelect.Option value={s}>{s}</NativeSelect.Option>{/each}
+        </NativeSelect.Root>
+      </div>
+      <div class="flex flex-col gap-2">
+        <Label for="library-language">Language</Label>
+        <Input id="library-language" placeholder="en-US" bind:value={language} />
+      </div>
+      {#if choicesError}
+        <Alert.Root variant="destructive" class="col-span-2"><Alert.Description>{choicesError}</Alert.Description></Alert.Root>
+      {/if}
     {/if}
   </div>
 
-  <div class="folders">
-    <div class="field-head">
-      <span>Folders</span>
-      <span class="faint">Paths as the server sees them, e.g. /data/movies</span>
+  <div class="mt-5">
+    <div class="mb-2 flex items-baseline justify-between gap-3">
+      <Label>Folders</Label>
+      <span class="text-muted-foreground text-xs">Paths as the server sees them, e.g. /data/movies</span>
     </div>
     {#each locations, i}
-      <div class="folder">
-        <input class="input grow" placeholder="/path/to/media" bind:value={locations[i]} onkeydown={(e) => e.key === "Enter" && submit()} />
-        <button class="icon-btn" title="Remove folder" disabled={locations.length === 1} onclick={() => locations.splice(i, 1)}>
-          <X size={14} />
-        </button>
+      <div class="mb-1.5 flex items-center gap-1">
+        <Input class="flex-1" placeholder="/path/to/media" bind:value={locations[i]} onkeydown={(e) => e.key === "Enter" && submit()} />
+        <Button variant="ghost" size="icon" title="Remove folder" disabled={locations.length === 1} onclick={() => locations.splice(i, 1)}>
+          <X />
+        </Button>
       </div>
     {/each}
-    <button class="btn sm quiet add" onclick={() => locations.push("")}><Plus size={14} />Add folder</button>
+    <Button variant="ghost" size="sm" class="-ml-1.5" onclick={() => locations.push("")}><Plus />Add folder</Button>
   </div>
 
   <div class="foot">
-    <button class="btn quiet" onclick={onclose}>Cancel</button>
-    <button class="btn primary" disabled={busy || paths.length === 0 || (!initial && !choices)} onclick={submit}>
+    <Button variant="ghost" onclick={onclose}>Cancel</Button>
+    <Button disabled={busy || paths.length === 0 || (!initial && !choices)} onclick={submit}>
       {initial ? "Save" : "Add library"}
-    </button>
+    </Button>
   </div>
 </dialog>
-
-<style>
-  .form {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 14px 16px;
-  }
-  .field {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .field:first-child,
-  .full {
-    grid-column: 1 / -1;
-  }
-  .field > span,
-  .field-head > span:first-child {
-    font-size: 10.5px;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--text-3);
-  }
-  .folders {
-    margin-top: 18px;
-  }
-  .field-head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 6px;
-    font-size: 12px;
-  }
-  .folder {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    margin-bottom: 6px;
-  }
-  .add {
-    margin-left: -10px;
-  }
-</style>

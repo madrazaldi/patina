@@ -37,7 +37,7 @@
   let accent = $derived(app.info?.accents.find((a) => a.id === app.settings?.ui.accent)?.color);
   $effect(() => {
     const root = document.documentElement.style;
-    if (accent) root.setProperty("--accent", accent);
+    if (accent) root.setProperty("--tint", accent);
     root.setProperty("--poster", `${app.settings?.ui.poster_size ?? 160}px`);
   });
 

@@ -1,6 +1,10 @@
 <script lang="ts">
-  // One server or library setting: a toggle, a select, or text with Save.
+  // One server or library setting: a switch, a select, or text with Save.
   // `onsave` resolves to whether the new value was stored.
+  import { Button } from "$lib/components/ui/button";
+  import { Input } from "$lib/components/ui/input";
+  import * as NativeSelect from "$lib/components/ui/native-select";
+  import { Switch } from "$lib/components/ui/switch";
   import type { Pref } from "../lib/types";
 
   let { pref, onsave, showId = true }: { pref: Pref; onsave: (value: string) => Promise<boolean>; showId?: boolean } = $props();
@@ -15,62 +19,30 @@
   }
 </script>
 
-<div class="pref">
-  <div class="label">
-    <b>{pref.label}</b>
-    {#if showId}<code>{pref.id}</code>{/if}
-    {#if pref.summary}<span>{pref.summary}</span>{/if}
+<div class="grid grid-cols-[minmax(0,1fr)_minmax(180px,320px)] items-center gap-6 px-4 py-3.5">
+  <div class="min-w-0">
+    <div class="text-sm font-medium">
+      {pref.label}
+      {#if showId}<code class="text-muted-foreground ml-2 font-mono text-[11px] font-normal">{pref.id}</code>{/if}
+    </div>
+    {#if pref.summary}<p class="text-muted-foreground mt-0.5 text-[13px] leading-snug">{pref.summary}</p>{/if}
   </div>
-  <div class="control">
+  <div class="flex items-center justify-end gap-2">
     {#if pref.kind === "bool"}
-      <button class={["toggle", { on: on(pref.value) }]} aria-label={pref.label} onclick={() => save(on(pref.value) ? "false" : "true")}></button>
+      <Switch aria-label={pref.label} bind:checked={() => on(pref.value), (v) => void save(v ? "true" : "false")} />
     {:else if pref.options.length}
-      <select class="select" value={pref.value} onchange={(e) => save(e.currentTarget.value)}>
-        {#each pref.options as [v, l] (v)}<option value={v}>{l}</option>{/each}
-      </select>
+      <NativeSelect.Root class="w-full" value={pref.value} onchange={(e) => save(e.currentTarget.value)}>
+        {#each pref.options as [v, l] (v)}<NativeSelect.Option value={v}>{l}</NativeSelect.Option>{/each}
+      </NativeSelect.Root>
     {:else}
-      <input
-        class="input"
+      <Input
         value={edit ?? pref.value}
         oninput={(e) => (edit = e.currentTarget.value)}
         onkeydown={(e) => e.key === "Enter" && edit !== undefined && save(edit)}
       />
       {#if edit !== undefined && edit !== pref.value}
-        <button class="btn sm primary" onclick={() => edit !== undefined && save(edit)}>Save</button>
+        <Button size="sm" onclick={() => edit !== undefined && save(edit)}>Save</Button>
       {/if}
     {/if}
   </div>
 </div>
-
-<style>
-  .pref {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(180px, 320px);
-    gap: 24px;
-    align-items: center;
-    padding: 12px 0;
-  }
-  b {
-    font-weight: 500;
-  }
-  code {
-    margin-left: 8px;
-    font: 11px var(--mono);
-    color: var(--text-3);
-  }
-  span {
-    display: block;
-    margin-top: 3px;
-    font-size: 12px;
-    color: var(--text-3);
-  }
-  .control {
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-  }
-  .input,
-  .select {
-    width: 100%;
-  }
-</style>

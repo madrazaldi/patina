@@ -313,7 +313,7 @@ cargo test -p patina-core --test reliability -- --ignored --test-threads=1 mpv_
 | `crates/mpv` (`patina-mpv`) | Starts mpv and controls it over JSON IPC (commands, property observation, events, key bindings). |
 | `crates/core` (`patina-core`) | The backend both front ends share, with no UI code: settings, sign-in and sessions, mpv playback and play queues, downloads, live server updates, Live TV, lyrics, and the heavier server queries. Front ends receive its events through an `EventSink`. |
 | `crates/app` (`patina`) | The Tauri desktop app: a thin layer that exposes core to the frontend as typed commands and forwards its events to the webview. It also handles OS media controls. Tokens never reach the webview; artwork is served through the `plximg` URI scheme. |
-| `web/` | The Svelte 5 + TypeScript frontend. `bun run check` type-checks it. |
+| `web/` | The Svelte 5 + TypeScript frontend, styled with Tailwind CSS and [shadcn-svelte](https://shadcn-svelte.com) components. `bun run check` type-checks it. |
 | `crates/tui` (`patina-tui`) | The terminal client (ratatui) and its CLI. |
 
 ## Developing without a Plex server

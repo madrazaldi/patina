@@ -2,6 +2,10 @@
   // The fields of one set of automatic playback preferences. Used for the
   // profile (Settings) and for a single show; a show's unset fields inherit the
   // profile's. The matching itself is in crates/core/src/prefs.rs.
+  import * as Field from "$lib/components/ui/field";
+  import { Input } from "$lib/components/ui/input";
+  import * as NativeSelect from "$lib/components/ui/native-select";
+  import { cn } from "$lib/utils";
   import type { ForcedMode, HdrMode, PlaybackRules, ResolutionPref, SubtitleMode } from "../lib/types";
 
   let {
@@ -9,12 +13,14 @@
     unset = "Not set",
     onsave,
     disabled = false,
+    class: className,
   }: {
     rules: PlaybackRules;
     /** Label of the "no preference" choice. */
     unset?: string;
     onsave: (rules: PlaybackRules) => void;
     disabled?: boolean;
+    class?: string;
   } = $props();
 
   const NONE = "";
@@ -61,13 +67,14 @@
   let codecs = $derived(rules.codec && !CODECS.some(([id]) => id === rules.codec) ? [...CODECS, [rules.codec, rules.codec] as [string, string]] : CODECS);
 </script>
 
-<div class="rows">
-  <div class="setting">
-    <div class="label"><b>Audio languages</b><span>In order of preference, e.g. “eng, ja”. Codes or names.</span></div>
-    <div class="control">
-      <input
-        class="input"
-        style="width: 200px"
+<div class={cn("bg-card/60 divide-y overflow-hidden rounded-xl border", className)}>
+  <div class="flex items-center justify-between gap-6 px-4 py-3.5">
+    <Field.Content>
+      <Field.Title>Audio languages</Field.Title>
+      <Field.Description class="text-[13px]">In order of preference, e.g. “eng, ja”. Codes or names.</Field.Description>
+    </Field.Content>
+    <div class="w-52 flex-none">
+      <Input
         placeholder={unset}
         {disabled}
         value={(rules.audioLanguages ?? []).join(", ")}
@@ -75,43 +82,38 @@
       />
     </div>
   </div>
-  <div class="setting">
-    <div class="label"><b>Skip commentary</b><span>Never pick commentary or audio-description tracks.</span></div>
-    <div class="control">
-      <select
-        class="select"
-        style="width: 200px"
-        {disabled}
-        value={rules.avoidCommentary == null ? NONE : String(rules.avoidCommentary)}
-        onchange={(e) => set({ avoidCommentary: e.currentTarget.value === NONE ? null : e.currentTarget.value === "true" })}
-      >
-        <option value={NONE}>{unset}</option>
-        <option value="true">Skip commentary</option>
-        <option value="false">Allow commentary</option>
-      </select>
+  <div class="flex items-center justify-between gap-6 px-4 py-3.5">
+    <Field.Content>
+      <Field.Title>Skip commentary</Field.Title>
+      <Field.Description class="text-[13px]">Never pick commentary or audio-description tracks.</Field.Description>
+    </Field.Content>
+    <div class="w-52 flex-none">
+      <NativeSelect.Root class="w-full" {disabled} value={rules.avoidCommentary == null ? NONE : String(rules.avoidCommentary)} onchange={(e) => set({ avoidCommentary: e.currentTarget.value === NONE ? null : e.currentTarget.value === "true" })}>
+        <NativeSelect.Option value={NONE}>{unset}</NativeSelect.Option>
+        <NativeSelect.Option value="true">Skip commentary</NativeSelect.Option>
+        <NativeSelect.Option value="false">Allow commentary</NativeSelect.Option>
+      </NativeSelect.Root>
     </div>
   </div>
-  <div class="setting">
-    <div class="label"><b>Subtitles</b><span>When subtitles are turned on.</span></div>
-    <div class="control">
-      <select
-        class="select"
-        style="width: 200px"
-        {disabled}
-        value={rules.subtitles ?? NONE}
-        onchange={(e) => set({ subtitles: pick<SubtitleMode>(e.currentTarget.value) })}
-      >
-        <option value={NONE}>{unset}</option>
-        {#each SUBTITLES as [id, label] (id)}<option value={id}>{label}</option>{/each}
-      </select>
+  <div class="flex items-center justify-between gap-6 px-4 py-3.5">
+    <Field.Content>
+      <Field.Title>Subtitles</Field.Title>
+      <Field.Description class="text-[13px]">When subtitles are turned on.</Field.Description>
+    </Field.Content>
+    <div class="w-52 flex-none">
+      <NativeSelect.Root class="w-full" {disabled} value={rules.subtitles ?? NONE} onchange={(e) => set({ subtitles: pick<SubtitleMode>(e.currentTarget.value) })}>
+        <NativeSelect.Option value={NONE}>{unset}</NativeSelect.Option>
+        {#each SUBTITLES as [id, label] (id)}<NativeSelect.Option value={id}>{label}</NativeSelect.Option>{/each}
+      </NativeSelect.Root>
     </div>
   </div>
-  <div class="setting">
-    <div class="label"><b>Subtitle languages</b><span>The audio languages when empty.</span></div>
-    <div class="control">
-      <input
-        class="input"
-        style="width: 200px"
+  <div class="flex items-center justify-between gap-6 px-4 py-3.5">
+    <Field.Content>
+      <Field.Title>Subtitle languages</Field.Title>
+      <Field.Description class="text-[13px]">The audio languages when empty.</Field.Description>
+    </Field.Content>
+    <div class="w-52 flex-none">
+      <Input
         placeholder={unset}
         {disabled}
         value={(rules.subtitleLanguages ?? []).join(", ")}
@@ -119,64 +121,50 @@
       />
     </div>
   </div>
-  <div class="setting">
-    <div class="label"><b>Forced subtitles</b><span>Which kind of subtitle track to pick.</span></div>
-    <div class="control">
-      <select
-        class="select"
-        style="width: 200px"
-        {disabled}
-        value={rules.forced ?? NONE}
-        onchange={(e) => set({ forced: pick<ForcedMode>(e.currentTarget.value) })}
-      >
-        <option value={NONE}>{unset}</option>
-        {#each FORCED as [id, label] (id)}<option value={id}>{label}</option>{/each}
-      </select>
+  <div class="flex items-center justify-between gap-6 px-4 py-3.5">
+    <Field.Content>
+      <Field.Title>Forced subtitles</Field.Title>
+      <Field.Description class="text-[13px]">Which kind of subtitle track to pick.</Field.Description>
+    </Field.Content>
+    <div class="w-52 flex-none">
+      <NativeSelect.Root class="w-full" {disabled} value={rules.forced ?? NONE} onchange={(e) => set({ forced: pick<ForcedMode>(e.currentTarget.value) })}>
+        <NativeSelect.Option value={NONE}>{unset}</NativeSelect.Option>
+        {#each FORCED as [id, label] (id)}<NativeSelect.Option value={id}>{label}</NativeSelect.Option>{/each}
+      </NativeSelect.Root>
     </div>
   </div>
-  <div class="setting">
-    <div class="label"><b>Version: resolution</b><span>Which version to play when a title has several files.</span></div>
-    <div class="control">
-      <select
-        class="select"
-        style="width: 200px"
-        {disabled}
-        value={rules.resolution ?? NONE}
-        onchange={(e) => set({ resolution: pick<ResolutionPref>(e.currentTarget.value) })}
-      >
-        <option value={NONE}>{unset}</option>
-        {#each RESOLUTION as [id, label] (id)}<option value={id}>{label}</option>{/each}
-      </select>
+  <div class="flex items-center justify-between gap-6 px-4 py-3.5">
+    <Field.Content>
+      <Field.Title>Version: resolution</Field.Title>
+      <Field.Description class="text-[13px]">Which version to play when a title has several files.</Field.Description>
+    </Field.Content>
+    <div class="w-52 flex-none">
+      <NativeSelect.Root class="w-full" {disabled} value={rules.resolution ?? NONE} onchange={(e) => set({ resolution: pick<ResolutionPref>(e.currentTarget.value) })}>
+        <NativeSelect.Option value={NONE}>{unset}</NativeSelect.Option>
+        {#each RESOLUTION as [id, label] (id)}<NativeSelect.Option value={id}>{label}</NativeSelect.Option>{/each}
+      </NativeSelect.Root>
     </div>
   </div>
-  <div class="setting">
-    <div class="label"><b>Version: video codec</b></div>
-    <div class="control">
-      <select
-        class="select"
-        style="width: 200px"
-        {disabled}
-        value={rules.codec ?? NONE}
-        onchange={(e) => set({ codec: e.currentTarget.value === NONE ? null : e.currentTarget.value })}
-      >
-        <option value={NONE}>{unset}</option>
-        {#each codecs as [id, label] (id)}<option value={id}>{label}</option>{/each}
-      </select>
+  <div class="flex items-center justify-between gap-6 px-4 py-3.5">
+    <Field.Content>
+      <Field.Title>Version: video codec</Field.Title>
+    </Field.Content>
+    <div class="w-52 flex-none">
+      <NativeSelect.Root class="w-full" {disabled} value={rules.codec ?? NONE} onchange={(e) => set({ codec: e.currentTarget.value === NONE ? null : e.currentTarget.value })}>
+        <NativeSelect.Option value={NONE}>{unset}</NativeSelect.Option>
+        {#each codecs as [id, label] (id)}<NativeSelect.Option value={id}>{label}</NativeSelect.Option>{/each}
+      </NativeSelect.Root>
     </div>
   </div>
-  <div class="setting">
-    <div class="label"><b>Version: HDR</b></div>
-    <div class="control">
-      <select
-        class="select"
-        style="width: 200px"
-        {disabled}
-        value={rules.hdr ?? NONE}
-        onchange={(e) => set({ hdr: pick<HdrMode>(e.currentTarget.value) })}
-      >
-        <option value={NONE}>{unset}</option>
-        {#each HDR as [id, label] (id)}<option value={id}>{label}</option>{/each}
-      </select>
+  <div class="flex items-center justify-between gap-6 px-4 py-3.5">
+    <Field.Content>
+      <Field.Title>Version: HDR</Field.Title>
+    </Field.Content>
+    <div class="w-52 flex-none">
+      <NativeSelect.Root class="w-full" {disabled} value={rules.hdr ?? NONE} onchange={(e) => set({ hdr: pick<HdrMode>(e.currentTarget.value) })}>
+        <NativeSelect.Option value={NONE}>{unset}</NativeSelect.Option>
+        {#each HDR as [id, label] (id)}<NativeSelect.Option value={id}>{label}</NativeSelect.Option>{/each}
+      </NativeSelect.Root>
     </div>
   </div>
 </div>

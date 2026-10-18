@@ -1,6 +1,7 @@
 <script lang="ts">
   // Seasons, episodes, albums, tracks or collection items below a detail header.
   import { Play, X } from "@lucide/svelte";
+  import { Button } from "$lib/components/ui/button";
   import Card from "./Card.svelte";
   import Img from "./Img.svelte";
   import Row from "./Row.svelte";
@@ -98,35 +99,41 @@
         {@const spoiler = app.spoilers && !plex.isWatched(ep)}
         {@const p = plex.progress(ep)}
         <div
-          class="episode"
+          class="group/ep hover:bg-muted/50 grid cursor-pointer grid-cols-[28px_220px_1fr] items-start gap-5 p-4 transition-colors"
           role="button"
           tabindex="0"
           onclick={() => open(ep)}
           onkeydown={(e) => e.key === "Enter" && open(ep)}
           oncontextmenu={(e) => openMenu(ep, e)}
         >
-          <div class="n num">{ep.index ?? ""}</div>
-          <div class="thumb">
-            <Img src={img(ep.thumb, 480, 270, ep.patinaServer)} class={spoiler ? "spoiler" : ""} />
-            {#if p != null}<div class="progress"><i style:width="{p * 100}%"></i></div>{/if}
-            <button
-              class="play"
+          <div class="text-muted-foreground num pt-0.5 text-right text-sm">{ep.index ?? ""}</div>
+          <div class="bg-muted relative aspect-video overflow-hidden rounded-lg ring-1 ring-foreground/10 [&_img]:size-full [&_img]:object-cover">
+            <Img src={img(ep.thumb, 480, 270, ep.patinaServer)} class={spoiler ? "blur-[14px] brightness-75" : ""} />
+            {#if p != null}
+              <div class="absolute inset-x-0 bottom-0 h-[3px] bg-black/55"><i class="bg-tint block h-full" style:width="{p * 100}%"></i></div>
+            {/if}
+            <Button
+              variant="secondary"
+              size="icon-sm"
+              class="absolute bottom-2.5 left-2 rounded-full bg-foreground pl-0.5 text-background opacity-0 transition-opacity group-hover/ep:opacity-100 hover:bg-foreground/90 focus-visible:opacity-100"
               title="Play"
               onclick={(e) => {
                 e.stopPropagation();
                 play(ep);
-              }}><Play size={14} fill="currentColor" /></button
+              }}><Play fill="currentColor" /></Button
             >
           </div>
-          <div class="body">
-            <h3>{plex.title(ep)}</h3>
-            <div class="when">
+          <div class="min-w-0">
+            <h3 class="text-sm font-medium group-hover/ep:underline group-hover/ep:decoration-border group-hover/ep:underline-offset-4">{plex.title(ep)}</h3>
+            <div class="text-muted-foreground mt-1 text-xs">
               {[ep.originallyAvailableAt && airDate(ep.originallyAvailableAt), ep.duration && duration(ep.duration)]
                 .filter(Boolean)
                 .join(" · ")}
-              {#if plex.isWatched(ep)}<span class="seen">· Watched</span>{/if}
+              {#if plex.isWatched(ep)}<span class="text-tint">· Watched</span>{/if}
             </div>
-            {#if ep.summary}<p class={{ spoiler }}>{ep.summary}</p>{/if}
+            {#if ep.summary}
+              <p class={["text-muted-foreground mt-2 line-clamp-3 max-w-[75ch] text-sm transition-[filter]", spoiler && "blur-[5px] hover:blur-none"]}>{ep.summary}</p>
+            {/if}
           </div>
         </div>
       {/each}
@@ -136,33 +143,33 @@
     <div class="rows">
       {#each list as t (t.ratingKey)}
         <div
-          class="list-row clickable track"
+          class="list-row clickable grid-cols-[28px_1fr_auto]"
           role="button"
           tabindex="0"
           onclick={() => play(t)}
           onkeydown={(e) => e.key === "Enter" && play(t)}
           oncontextmenu={(e) => openMenu(t, e)}
         >
-          <span class="faint num idx">{t.index ?? ""}</span>
+          <span class="text-muted-foreground num text-right text-sm">{t.index ?? ""}</span>
           <div class="grow">
             <div class="t">{plex.title(t)}</div>
             {#if t.originalTitle}<div class="s">{t.originalTitle}</div>{/if}
           </div>
-          <div class="end">{t.duration ? clock(t.duration) : ""}</div>
+          <div class="end text-sm">{t.duration ? clock(t.duration) : ""}</div>
         </div>
       {/each}
     </div>
   {:else if kind === "collection"}
     <div class="section-head">
       <h2>{items.length} item{items.length === 1 ? "" : "s"}</h2>
-      {#if reorderable}<span class="hint faint">Drag to reorder</span>{/if}
+      {#if reorderable}<span class="text-muted-foreground text-xs">Drag to reorder</span>{/if}
     </div>
-    <div class="grid" bind:this={grid} onclickcapture={(e) => dropped && e.stopPropagation()}>
+    <div class="poster-grid" bind:this={grid} onclickcapture={(e) => dropped && e.stopPropagation()}>
       {#each items as m (m.ratingKey)}
         {@const rk = m.ratingKey ?? ""}
         <div
           class={[
-            "cell",
+            "cell group/cell",
             {
               movable: reorderable,
               dragging: drag?.moved && drag.rk === rk,
@@ -179,14 +186,16 @@
         >
           <Card item={m} />
           {#if editable}
-            <button
-              class="remove"
+            <Button
+              variant="secondary"
+              size="icon-xs"
+              class="remove absolute top-1.5 right-1.5 bg-background/80 opacity-0 backdrop-blur-sm group-hover/cell:opacity-100 focus-visible:opacity-100"
               title="Remove from collection"
               onpointerdown={(e) => e.stopPropagation()}
               onclick={(e) => {
                 e.stopPropagation();
                 removeItem(m);
-              }}><X size={13} /></button
+              }}><X /></Button
             >
           {/if}
         </div>
@@ -194,117 +203,13 @@
     </div>
   {:else}
     <div class="section-head"><h2>{kind === "artist" ? "Albums" : `${list.length} items`}</h2></div>
-    <div class="grid">
+    <div class="poster-grid">
       {#each list as m (m.ratingKey)}<Card item={m} />{/each}
     </div>
   {/if}
 {/if}
 
 <style>
-  .episode {
-    display: grid;
-    grid-template-columns: 28px 220px 1fr;
-    gap: 20px;
-    align-items: start;
-    padding: 16px 0;
-    cursor: pointer;
-  }
-  .episode:hover h3 {
-    text-decoration: underline;
-    text-decoration-color: var(--line-2);
-    text-underline-offset: 3px;
-  }
-  .n {
-    padding-top: 2px;
-    color: var(--text-3);
-    text-align: right;
-  }
-  .thumb {
-    position: relative;
-    aspect-ratio: 16 / 9;
-    border-radius: var(--r);
-    overflow: hidden;
-    background: var(--surface);
-  }
-  .thumb :global(img) {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-  .thumb :global(img.spoiler) {
-    filter: blur(14px) brightness(0.7);
-  }
-  .progress {
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    height: 3px;
-    background: rgba(0, 0, 0, 0.55);
-  }
-  .progress i {
-    display: block;
-    height: 100%;
-    background: var(--accent);
-  }
-  .play {
-    position: absolute;
-    left: 8px;
-    bottom: 10px;
-    display: grid;
-    place-items: center;
-    width: 30px;
-    height: 30px;
-    padding: 0 0 0 2px;
-    border: 0;
-    border-radius: 50%;
-    background: var(--text);
-    color: #0c0c0c;
-    opacity: 0;
-    cursor: pointer;
-    transition: opacity 0.15s var(--ease);
-  }
-  .episode:hover .play {
-    opacity: 1;
-  }
-  h3 {
-    font-size: 14px;
-    font-weight: 500;
-  }
-  .when {
-    margin-top: 3px;
-    font-size: 12px;
-    color: var(--text-3);
-  }
-  .seen {
-    color: var(--accent);
-  }
-  .body p {
-    margin-top: 8px;
-    max-width: 75ch;
-    color: var(--text-2);
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    line-clamp: 3;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-    transition: filter 0.2s;
-  }
-  .body p.spoiler {
-    filter: blur(5px);
-  }
-  .body p.spoiler:hover {
-    filter: none;
-  }
-  .track {
-    grid-template-columns: 28px 1fr auto;
-  }
-  .idx {
-    text-align: right;
-  }
-  .hint {
-    font-size: 11.5px;
-  }
   .cell {
     position: relative;
     min-width: 0;
@@ -323,7 +228,7 @@
     bottom: 0;
     width: 2px;
     border-radius: 1px;
-    background: var(--accent);
+    background: var(--tint);
   }
   .cell.drop-before::before {
     left: -10px;
@@ -331,31 +236,7 @@
   .cell.drop-after::after {
     right: -10px;
   }
-  .remove {
-    position: absolute;
-    top: 6px;
-    right: 6px;
-    display: grid;
-    place-items: center;
-    width: 22px;
-    height: 22px;
-    padding: 0;
-    border: 0;
-    border-radius: 3px;
-    background: rgba(12, 12, 12, 0.82);
-    color: var(--text-2);
-    opacity: 0;
-    cursor: pointer;
-    transition: opacity 0.15s var(--ease);
-  }
-  .remove:hover {
-    color: var(--text);
-  }
-  .cell:hover .remove,
-  .remove:focus-visible {
-    opacity: 1;
-  }
-  .cell.dragging .remove {
+  .cell.dragging :global(.remove) {
     display: none;
   }
 </style>

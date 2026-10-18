@@ -2,7 +2,40 @@
   // Command palette (Cmd/Ctrl+K): fuzzy-filtered navigation, playback, saved views, servers and settings.
   // Rendered only while `app.palette` is set, so every open starts fresh. The input is an ARIA combobox
   // controlling a listbox; focus stays in the input and `aria-activedescendant` follows the highlighted option.
-  import { tick } from "svelte";
+  import { tick, type Component } from "svelte";
+  import {
+    Activity,
+    ArrowLeft,
+    ArrowLeftRight,
+    ArrowRight,
+    Bookmark,
+    CornerDownLeft,
+    Dices,
+    Download,
+    Eye,
+    EyeOff,
+    FastForward,
+    Film,
+    House,
+    Library,
+    ListMusic,
+    ListOrdered,
+    MicVocal,
+    Pause,
+    Play,
+    RefreshCw,
+    Rewind,
+    Search,
+    Server,
+    Settings,
+    SkipBack,
+    SkipForward,
+    Square,
+    Tv,
+    Undo2,
+    User,
+  } from "@lucide/svelte";
+  import { Kbd } from "$lib/components/ui/kbd";
   import { api } from "../lib/api";
   import { modal } from "../lib/dialog";
   import { match } from "../lib/fuzzy";
@@ -38,6 +71,41 @@
   );
 
   const close = () => (app.palette = false);
+
+  const ICONS: Record<string, Component<any>> = {
+    home: House,
+    pick: Dices,
+    playlists: ListMusic,
+    watchlist: Bookmark,
+    livetv: Tv,
+    downloads: Download,
+    activity: Activity,
+    server: Server,
+    settings: Settings,
+    back: ArrowLeft,
+    forward: ArrowRight,
+    search: Search,
+    "search-all": Search,
+    stop: Square,
+    back10: Rewind,
+    forward30: FastForward,
+    next: SkipForward,
+    previous: SkipBack,
+    queue: ListOrdered,
+    lyrics: MicVocal,
+    undo: Undo2,
+    user: User,
+    refresh: RefreshCw,
+  };
+  function iconFor(c: Command): Component<any> | undefined {
+    if (c.id === "pause") return app.nowPlaying?.paused ? Play : Pause;
+    if (c.id === "spoilers") return app.spoilers ? Eye : EyeOff;
+    if (c.id.startsWith("library:")) return Library;
+    if (c.id.startsWith("playlist:")) return ListMusic;
+    if (c.id.startsWith("view:")) return Film;
+    if (c.id.startsWith("server:")) return ArrowLeftRight;
+    return ICONS[c.id];
+  }
 
   async function focusSearch(text?: string) {
     if (text !== undefined) app.search = text;
@@ -201,126 +269,62 @@
   let activeId = $derived(`palette-option-${options[active]?.id.replace(/[^\w-]/g, "_")}`);
 </script>
 
-<dialog class="palette" use:modal={close} aria-label="Command palette">
-  <input
-    class="query"
-    role="combobox"
-    aria-label="Type a command or search"
-    aria-expanded="true"
-    aria-controls="palette-list"
-    aria-autocomplete="list"
-    aria-activedescendant={activeId}
-    placeholder="Type a command or search…"
-    autocomplete="off"
-    spellcheck="false"
-    data-initial-focus
-    bind:value={query}
-    onkeydown={key}
-  />
-  <ul id="palette-list" class="options" role="listbox" aria-label="Commands" bind:this={list}>
+<dialog
+  class="palette bg-popover text-popover-foreground ring-foreground/10 mx-auto mt-[12vh] mb-auto w-[min(600px,calc(100vw-48px))] overflow-hidden rounded-xl border-0 p-0 shadow-xl ring-1"
+  use:modal={close}
+  aria-label="Command palette"
+>
+  <div class="flex h-12 items-center gap-2 border-b px-3.5">
+    <Search class="size-4 shrink-0 opacity-50" aria-hidden="true" />
+    <input
+      class="placeholder:text-muted-foreground h-full flex-1 bg-transparent text-sm outline-hidden"
+      role="combobox"
+      aria-label="Type a command or search"
+      aria-expanded="true"
+      aria-controls="palette-list"
+      aria-autocomplete="list"
+      aria-activedescendant={activeId}
+      placeholder="Type a command or search…"
+      autocomplete="off"
+      spellcheck="false"
+      data-initial-focus
+      bind:value={query}
+      onkeydown={key}
+    />
+  </div>
+  <ul id="palette-list" class="max-h-[min(52vh,420px)] overflow-y-auto p-1" role="listbox" aria-label="Commands" bind:this={list}>
     {#each options as c, i (c.id)}
+      {@const Icon = iconFor(c)}
       {#if !filtering && (i === 0 || options[i - 1].group !== c.group)}
-        <li class="group" role="presentation">{c.group}</li>
+        <li class={["text-muted-foreground px-2 py-1.5 text-xs font-medium", { "mt-1": i > 0 }]} role="presentation">{c.group}</li>
       {/if}
       <!-- Keyboard use goes through the combobox input above; options are not tab stops. -->
       <!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
       <li
         id={`palette-option-${c.id.replace(/[^\w-]/g, "_")}`}
-        class={["option", { on: i === active }]}
+        class={["option flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm select-none", i === active ? "on bg-accent text-accent-foreground" : "text-popover-foreground"]}
         role="option"
         aria-selected={i === active}
         onclick={() => run(c)}
         onmousemove={() => active !== i && (active = i)}
       >
-        <span class="ellipsis grow">{c.label}</span>
-        {#if filtering}<span class="where">{c.group}</span>{/if}
+        {#if Icon}<Icon class="text-muted-foreground size-4 shrink-0" aria-hidden="true" />{/if}
+        <span class="min-w-0 flex-1 truncate">{c.label}</span>
+        {#if filtering}<span class="text-muted-foreground ml-3 text-xs">{c.group}</span>{/if}
       </li>
     {/each}
   </ul>
   <div class="sr-only" role="status">{results.length} {results.length === 1 ? "command" : "commands"}</div>
-  <div class="tips"><span><kbd>↑↓</kbd> move</span><span><kbd>↵</kbd> run</span><span><kbd>esc</kbd> close</span></div>
+  <div class="bg-muted/40 text-muted-foreground flex items-center gap-4 border-t px-3.5 py-2 text-xs">
+    <span class="flex items-center gap-1.5"><Kbd>↑↓</Kbd> move</span>
+    <span class="flex items-center gap-1.5"><Kbd><CornerDownLeft /></Kbd> run</span>
+    <span class="flex items-center gap-1.5"><Kbd>esc</Kbd> close</span>
+  </div>
 </dialog>
 
 <style>
-  dialog.palette {
-    width: min(600px, calc(100vw - 48px));
-    margin: 12vh auto auto;
-    padding: 0;
-    overflow: hidden;
-    border: 1px solid var(--line-2);
-    border-radius: 8px;
-    background: #141414;
-    color: var(--text);
-    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
-  }
   dialog.palette::backdrop {
-    background: rgba(0, 0, 0, 0.55);
-  }
-  .query {
-    display: block;
-    width: 100%;
-    height: 48px;
-    padding: 0 18px;
-    border: 0;
-    border-bottom: 1px solid var(--line);
-    outline: 0;
-    background: none;
-    color: var(--text);
-    font-size: 15px;
-  }
-  .query::placeholder {
-    color: var(--text-3);
-  }
-  .options {
-    max-height: min(52vh, 420px);
-    margin: 0;
-    padding: 6px;
-    overflow-y: auto;
-    list-style: none;
-  }
-  .group {
-    padding: 10px 10px 4px;
-    font-size: 10.5px;
-    font-weight: 600;
-    letter-spacing: 0.09em;
-    text-transform: uppercase;
-    color: var(--text-3);
-  }
-  .option {
-    display: flex;
-    align-items: center;
-    height: 32px;
-    padding: 0 10px;
-    border-radius: 4px;
-    color: var(--text-2);
-    cursor: pointer;
-  }
-  .option.on {
-    background: rgba(255, 255, 255, 0.08);
-    color: var(--text);
-  }
-  .where {
-    margin-left: 12px;
-    font-size: 11.5px;
-    color: var(--text-3);
-  }
-  .tips {
-    display: flex;
-    gap: 16px;
-    padding: 8px 14px;
-    border-top: 1px solid var(--line);
-    font-size: 11.5px;
-    color: var(--text-3);
-  }
-  kbd {
-    font: 11px var(--mono);
-  }
-  .sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
+    background: rgb(0 0 0 / 0.45);
+    backdrop-filter: blur(4px);
   }
 </style>

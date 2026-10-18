@@ -1,6 +1,10 @@
 <script lang="ts">
   // Poster / background picker, shown while `app.artworkTarget` is set.
   import { Check } from "@lucide/svelte";
+  import * as Alert from "$lib/components/ui/alert";
+  import { Button } from "$lib/components/ui/button";
+  import * as Empty from "$lib/components/ui/empty";
+  import { Spinner } from "$lib/components/ui/spinner";
   import Img from "./Img.svelte";
   import { modal } from "../lib/dialog";
   import { api } from "../lib/api";
@@ -54,11 +58,16 @@
     <p class="desc">{plex.fullTitle(target.item)}</p>
 
     {#if error}
-      <div class="error-box">{error}</div>
+      <Alert.Root variant="destructive"><Alert.Description>{error}</Alert.Description></Alert.Root>
     {:else if choices === null}
-      <div class="spinner"></div>
+      <div class="flex justify-center py-6"><Spinner class="text-muted-foreground" /></div>
     {:else if choices.length === 0}
-      <p class="faint">No {art ? "backgrounds" : "posters"} available.</p>
+      <Empty.Root class="border border-dashed p-6">
+        <Empty.Header>
+          <Empty.Title>Nothing to choose</Empty.Title>
+          <Empty.Description>No {art ? "backgrounds" : "posters"} available.</Empty.Description>
+        </Empty.Header>
+      </Empty.Root>
     {:else}
       <div class={["choices", { art, square }]}>
         {#each choices as a, i (a.key ?? a.ratingKey ?? i)}
@@ -67,15 +76,15 @@
             <span class="frame">
               <Img src={art ? img(a.thumb ?? a.key, 480, 270) : square ? img(a.thumb ?? a.key, 300, 300) : img(a.thumb ?? a.key, 240, 360)} />
               {#if a.selected}<span class="mark"><Check size={12} strokeWidth={2.4} /></span>{/if}
-              {#if busy && busy === url}<span class="wait"><span class="spinner"></span></span>{/if}
+              {#if busy && busy === url}<span class="wait"><Spinner /></span>{/if}
             </span>
-            <span class="provider ellipsis">{a.selected ? "Current" : (a.provider ?? "")}</span>
+            <span class="provider truncate">{a.selected ? "Current" : (a.provider ?? "")}</span>
           </button>
         {/each}
       </div>
     {/if}
 
-    <div class="foot"><button class="btn quiet" disabled={!!busy} onclick={close}>Cancel</button></div>
+    <div class="foot"><Button variant="outline" disabled={!!busy} onclick={close}>Cancel</Button></div>
   </dialog>
 {/if}
 
@@ -93,11 +102,16 @@
   }
   .choice {
     min-width: 0;
+    border-radius: var(--radius-lg);
+    outline: none;
     padding: 0;
     border: 0;
     background: none;
     text-align: left;
     cursor: pointer;
+  }
+  .choice:focus-visible .frame {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent);
   }
   .choice:disabled {
     cursor: default;
@@ -106,10 +120,10 @@
     position: relative;
     display: block;
     aspect-ratio: 2 / 3;
-    border-radius: var(--r);
+    border-radius: var(--radius-lg);
     overflow: hidden;
-    background: var(--surface);
-    box-shadow: inset 0 0 0 1px var(--line);
+    background: var(--muted);
+    box-shadow: inset 0 0 0 1px var(--border);
   }
   .art .frame {
     aspect-ratio: 16 / 9;
@@ -129,7 +143,7 @@
     filter: brightness(0.75);
   }
   .selected .frame {
-    outline: 1px solid var(--accent);
+    outline: 2px solid var(--tint);
     outline-offset: 2px;
   }
   .mark {
@@ -140,9 +154,9 @@
     place-items: center;
     width: 20px;
     height: 20px;
-    border-radius: 3px;
-    background: rgba(12, 12, 12, 0.82);
-    color: var(--accent);
+    border-radius: 9999px;
+    background: var(--popover);
+    color: var(--tint);
   }
   .wait {
     position: absolute;
@@ -154,10 +168,10 @@
   .provider {
     display: block;
     margin-top: 6px;
-    font-size: 11.5px;
-    color: var(--text-3);
+    font-size: 12px;
+    color: var(--muted-foreground);
   }
   .selected .provider {
-    color: var(--accent);
+    color: var(--tint);
   }
 </style>

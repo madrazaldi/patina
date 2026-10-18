@@ -1,6 +1,12 @@
 <script lang="ts">
   // "Add to collection" dialog, shown while `app.collectionTarget` is set.
   import { Check, Plus } from "@lucide/svelte";
+  import * as Alert from "$lib/components/ui/alert";
+  import { Button } from "$lib/components/ui/button";
+  import * as Empty from "$lib/components/ui/empty";
+  import { Input } from "$lib/components/ui/input";
+  import * as Item from "$lib/components/ui/item";
+  import { Spinner } from "$lib/components/ui/spinner";
   import Img from "./Img.svelte";
   import { modal } from "../lib/dialog";
   import { api } from "../lib/api";
@@ -66,64 +72,49 @@
     <p class="desc">{plex.fullTitle(item)}</p>
 
     {#if error}
-      <div class="error-box">{error}</div>
+      <Alert.Root variant="destructive"><Alert.Description>{error}</Alert.Description></Alert.Root>
     {:else if lists === null}
-      <div class="spinner"></div>
+      <div class="flex justify-center py-6"><Spinner class="text-muted-foreground" /></div>
     {:else if lists.length === 0}
-      <p class="faint">This library has no collections yet.</p>
+      <Empty.Root class="border border-dashed p-6">
+        <Empty.Header>
+          <Empty.Title>No collections yet</Empty.Title>
+          <Empty.Description>This library has no collections yet.</Empty.Description>
+        </Empty.Header>
+      </Empty.Root>
     {:else}
-      <div class="rows lists">
+      <Item.Group class="max-h-[300px] gap-1 overflow-auto">
         {#each lists as c (c.ratingKey)}
           {@const has = member.includes(c.title ?? "")}
-          <button
-            class="list-row clickable"
-            disabled={has}
-            onclick={() => add({ collection: c.ratingKey }, `Added to “${c.title}”`)}
-          >
-            <div class="thumb"><Img src={img(c.thumb ?? c.composite, 96, 144)} /></div>
-            <div class="grow">
-              <div class="t">{c.title}</div>
-              <div class="s">{has ? "Already in this collection" : plex.subtitle(c)}</div>
-            </div>
-            <div class="end">{#if has}<Check />{:else}<Plus />{/if}</div>
-          </button>
+          <Item.Root size="sm" class="hover:bg-muted focus-visible:bg-muted cursor-pointer text-left has-disabled:cursor-default has-disabled:opacity-55 has-disabled:hover:bg-transparent">
+            {#snippet child({ props })}
+              <button type="button" {...props} disabled={has} onclick={() => add({ collection: c.ratingKey }, `Added to “${c.title}”`)}>
+                <Item.Media variant="image" class="h-12 w-8">
+                  <Img src={img(c.thumb ?? c.composite, 96, 144)} />
+                </Item.Media>
+                <Item.Content>
+                  <Item.Title>{c.title}</Item.Title>
+                  <Item.Description>{has ? "Already in this collection" : plex.subtitle(c)}</Item.Description>
+                </Item.Content>
+                <Item.Actions>
+                  {#if has}<Check class="text-muted-foreground size-4" />{:else}<Plus class="text-muted-foreground size-4" />{/if}
+                </Item.Actions>
+              </button>
+            {/snippet}
+          </Item.Root>
         {/each}
-      </div>
+      </Item.Group>
     {/if}
 
-    <div class="new">
-      <input
-        class="input grow"
+    <div class="mt-4 flex gap-2">
+      <Input
+        class="flex-1"
         placeholder="New collection"
         bind:value={name}
         onkeydown={(e) => e.key === "Enter" && create()}
       />
-      <button class="btn" disabled={!name.trim()} onclick={create}>Create</button>
+      <Button variant="outline" disabled={!name.trim()} onclick={create}>Create</Button>
     </div>
-    <div class="foot"><button class="btn quiet" onclick={close}>Cancel</button></div>
+    <div class="foot"><Button variant="outline" onclick={close}>Cancel</Button></div>
   </dialog>
 {/if}
-
-<style>
-  .lists {
-    max-height: 300px;
-    overflow: auto;
-  }
-  .lists button {
-    width: 100%;
-    border-left: 0;
-    border-right: 0;
-    border-bottom: 0;
-    background: none;
-    text-align: left;
-  }
-  .lists button:disabled {
-    cursor: default;
-    opacity: 0.55;
-  }
-  .new {
-    display: flex;
-    gap: 8px;
-    margin-top: 18px;
-  }
-</style>

@@ -2,6 +2,15 @@
   // Set audio and subtitle tracks for many episodes at once. The matching is
   // done in Rust (crates/app/src/tracks.rs); this dialog only collects choices.
   import { TriangleAlert } from "@lucide/svelte";
+  import * as Alert from "$lib/components/ui/alert";
+  import { Button } from "$lib/components/ui/button";
+  import { Checkbox } from "$lib/components/ui/checkbox";
+  import * as Empty from "$lib/components/ui/empty";
+  import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from "$lib/components/ui/field";
+  import * as NativeSelect from "$lib/components/ui/native-select";
+  import { Progress } from "$lib/components/ui/progress";
+  import { Separator } from "$lib/components/ui/separator";
+  import { Spinner } from "$lib/components/ui/spinner";
   import { modal } from "../lib/dialog";
   import { api } from "../lib/api";
   import * as plex from "../lib/plex";
@@ -112,20 +121,26 @@
     <p class="desc">{show[1]}: pick tracks in one episode and Patina selects the closest match in every other.</p>
 
     {#if error}
-      <div class="error-box">{error}</div>
+      <Alert.Root variant="destructive"><Alert.Description>{error}</Alert.Description></Alert.Root>
     {:else if !view}
-      <div class="loading">
-        <div class="spinner"></div>
-        <span class="faint">Reading tracks from every episode…</span>
+      <div class="text-muted-foreground flex flex-col items-center gap-3 py-10 text-sm">
+        <Spinner class="size-5" />
+        <span>Reading tracks from every episode…</span>
       </div>
     {:else if view.total === 0}
-      <p class="faint">This show has no episodes.</p>
+      <Empty.Root class="border border-dashed p-6">
+        <Empty.Header>
+          <Empty.Title>No episodes</Empty.Title>
+          <Empty.Description>This show has no episodes.</Empty.Description>
+        </Empty.Header>
+      </Empty.Root>
     {:else}
-      <div class="fields">
-        <label>
-          <span>Apply to</span>
-          <select
-            class="select"
+      <FieldGroup class="grid grid-cols-2 gap-x-4 gap-y-4">
+        <Field>
+          <FieldLabel for="tracks-season">Apply to</FieldLabel>
+          <NativeSelect.Root
+            id="tracks-season"
+            class="w-full"
             data-initial-focus
             disabled={busy}
             value={season === null ? "all" : String(season)}
@@ -136,16 +151,17 @@
               resetTracks();
             }}
           >
-            <option value="all">All seasons ({epCount(view.total)})</option>
+            <NativeSelect.Option value="all">All seasons ({epCount(view.total)})</NativeSelect.Option>
             {#each view.seasons as s (s.index)}
-              <option value={String(s.index)}>{s.title} ({epCount(s.count)})</option>
+              <NativeSelect.Option value={String(s.index)}>{s.title} ({epCount(s.count)})</NativeSelect.Option>
             {/each}
-          </select>
-        </label>
-        <label>
-          <span>Take tracks from</span>
-          <select
-            class="select"
+          </NativeSelect.Root>
+        </Field>
+        <Field>
+          <FieldLabel for="tracks-reference">Take tracks from</FieldLabel>
+          <NativeSelect.Root
+            id="tracks-reference"
+            class="w-full"
             disabled={busy}
             value={view.reference ?? ""}
             onchange={(e) => {
@@ -154,14 +170,15 @@
             }}
           >
             {#each view.scope as ep (ep.ratingKey)}
-              <option value={ep.ratingKey}>{ep.label}</option>
+              <NativeSelect.Option value={ep.ratingKey}>{ep.label}</NativeSelect.Option>
             {/each}
-          </select>
-        </label>
-        <label>
-          <span>Audio</span>
-          <select
-            class="select"
+          </NativeSelect.Root>
+        </Field>
+        <Field>
+          <FieldLabel for="tracks-audio">Audio</FieldLabel>
+          <NativeSelect.Root
+            id="tracks-audio"
+            class="w-full"
             disabled={busy || view.audio.length === 0}
             value={audio === null ? "keep" : String(audio)}
             onchange={(e) => {
@@ -169,38 +186,39 @@
               audio = v === "keep" ? null : Number(v);
             }}
           >
-            <option value="keep">Don't change</option>
+            <NativeSelect.Option value="keep">Don't change</NativeSelect.Option>
             {#each view.audio as s (s.id)}
-              <option value={String(s.id)}>{s.label}</option>
+              <NativeSelect.Option value={String(s.id)}>{s.label}</NativeSelect.Option>
             {/each}
-          </select>
-        </label>
-        <label>
-          <span>Subtitles</span>
-          <select class="select" disabled={busy} bind:value={subtitle}>
-            <option value="keep">Don't change</option>
-            <option value="off">None (turn off)</option>
+          </NativeSelect.Root>
+        </Field>
+        <Field>
+          <FieldLabel for="tracks-subtitle">Subtitles</FieldLabel>
+          <NativeSelect.Root id="tracks-subtitle" class="w-full" disabled={busy} bind:value={subtitle}>
+            <NativeSelect.Option value="keep">Don't change</NativeSelect.Option>
+            <NativeSelect.Option value="off">None (turn off)</NativeSelect.Option>
             {#each view.subtitles as s (s.id)}
-              <option value={String(s.id)}>{s.label}{s.external ? " · external" : ""}</option>
+              <NativeSelect.Option value={String(s.id)}>{s.label}{s.external ? " · external" : ""}</NativeSelect.Option>
             {/each}
-          </select>
-        </label>
-      </div>
+          </NativeSelect.Root>
+        </Field>
+      </FieldGroup>
 
-      <label class="remember">
-        <input type="checkbox" bind:checked={remember} disabled={busy || view.nothingChosen} />
-        <span>
-          Remember for this show
-          <small>Use these languages for new episodes too, and whenever the show starts playing.</small>
-        </span>
-      </label>
+      <Field orientation="horizontal" class="mt-4 items-start">
+        <Checkbox id="tracks-remember" bind:checked={remember} disabled={busy || view.nothingChosen} />
+        <FieldContent>
+          <FieldLabel for="tracks-remember" class="font-normal">Remember for this show</FieldLabel>
+          <FieldDescription>Use these languages for new episodes too, and whenever the show starts playing.</FieldDescription>
+        </FieldContent>
+      </Field>
 
-      <div class="summary">
+      <Separator class="mt-5" />
+      <div class="mt-4 flex flex-col gap-2.5 text-sm">
         {#if progress}
-          <div class="bar"><i style:width="{(progress[0] / Math.max(1, progress[1])) * 100}%"></i></div>
-          <span class="num">Updating {progress[0]} of {progress[1]}…</span>
+          <Progress value={progress[0]} max={Math.max(1, progress[1])} />
+          <span class="tabular-nums">Updating {progress[0]} of {progress[1]}…</span>
         {:else if view.nothingChosen}
-          <span class="faint">
+          <span class="text-muted-foreground">
             Choose an audio or subtitle track. Matches are found by language first, then title, codec and channels.
           </span>
         {:else if view.plan.episodes === 0 && !view.plan.noAudio.length && !view.plan.noSubtitle.length}
@@ -209,110 +227,27 @@
           <span>{view.plan.episodes} of {epCount(view.scope.length)} will change.</span>
         {/if}
         {#if !busy && view.plan.noAudio.length}
-          <details>
-            <summary><TriangleAlert size={14} />{missHead(view.plan.noAudio.length, `no audio matching “${view.audioName}”`)}</summary>
-            <ul>{#each view.plan.noAudio as e (e)}<li>{e}</li>{/each}</ul>
+          <details class="text-muted-foreground">
+            <summary class="flex cursor-pointer list-none items-center gap-2"><TriangleAlert class="size-3.5 text-amber-500" />{missHead(view.plan.noAudio.length, `no audio matching “${view.audioName}”`)}</summary>
+            <ul class="text-muted-foreground mt-2 max-h-[140px] list-disc overflow-auto pl-5 text-xs">{#each view.plan.noAudio as e (e)}<li>{e}</li>{/each}</ul>
           </details>
         {/if}
         {#if !busy && view.plan.noSubtitle.length}
-          <details>
-            <summary>
-              <TriangleAlert size={14} />{missHead(view.plan.noSubtitle.length, `no subtitles matching “${view.subtitleName}”`)}
+          <details class="text-muted-foreground">
+            <summary class="flex cursor-pointer list-none items-center gap-2">
+              <TriangleAlert class="size-3.5 text-amber-500" />{missHead(view.plan.noSubtitle.length, `no subtitles matching “${view.subtitleName}”`)}
             </summary>
-            <ul>{#each view.plan.noSubtitle as e (e)}<li>{e}</li>{/each}</ul>
+            <ul class="text-muted-foreground mt-2 max-h-[140px] list-disc overflow-auto pl-5 text-xs">{#each view.plan.noSubtitle as e (e)}<li>{e}</li>{/each}</ul>
           </details>
         {/if}
       </div>
     {/if}
 
     <div class="foot">
-      <button class="btn quiet" disabled={busy} onclick={close}>Cancel</button>
-      <button class="btn primary" disabled={busy || !canApply} onclick={apply}>
+      <Button variant="outline" disabled={busy} onclick={close}>Cancel</Button>
+      <Button disabled={busy || !canApply} onclick={apply}>
         {view && view.plan.episodes > 0 ? `Apply to ${epCount(view.plan.episodes)}` : remember && canApply ? "Remember" : "Apply"}
-      </button>
+      </Button>
     </div>
   </dialog>
 {/if}
-
-<style>
-  .loading {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 12px;
-    padding: 40px 0;
-  }
-  .fields {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 14px 16px;
-  }
-  label span {
-    display: block;
-    margin-bottom: 5px;
-    font-size: 10.5px;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--text-3);
-  }
-  label .select {
-    width: 100%;
-  }
-  label.remember {
-    display: flex;
-    align-items: flex-start;
-    gap: 9px;
-    margin-top: 16px;
-    cursor: pointer;
-  }
-  label.remember input {
-    margin-top: 2px;
-  }
-  label.remember span {
-    margin: 0;
-    font-size: 13px;
-    font-weight: 400;
-    letter-spacing: 0;
-    text-transform: none;
-    color: var(--text-1, inherit);
-  }
-  label.remember small {
-    display: block;
-    margin-top: 2px;
-    font-size: 11.5px;
-    color: var(--text-3);
-  }
-  .summary {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    margin-top: 20px;
-    padding-top: 16px;
-    border-top: 1px solid var(--line);
-  }
-  .summary .bar {
-    height: 2px;
-  }
-  details {
-    color: var(--text-2);
-  }
-  summary {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    cursor: pointer;
-    list-style: none;
-  }
-  summary :global(svg) {
-    color: #d6a44c;
-  }
-  ul {
-    margin: 8px 0 0;
-    padding-left: 21px;
-    max-height: 140px;
-    overflow: auto;
-    color: var(--text-3);
-    font-size: 12px;
-  }
-</style>

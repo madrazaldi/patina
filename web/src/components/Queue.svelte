@@ -1,6 +1,8 @@
 <script lang="ts">
   // The running play queue, shown in the panel over the now-playing bar. Rows reorder by dragging.
   import { AudioLines, CircleStop, Shuffle, X } from "@lucide/svelte";
+  import { Button } from "$lib/components/ui/button";
+  import * as Empty from "$lib/components/ui/empty";
   import Img from "./Img.svelte";
   import { api, type QueueCommand } from "../lib/api";
   import { clock, duration, plural } from "../lib/format";
@@ -68,31 +70,35 @@
   }
 </script>
 
-<header class="head">
+<header class="flex items-center gap-0.5 border-b py-1.5 pr-1.5 pl-4">
   <div class="grow ellipsis">
-    <span class="label">Up next</span>
-    <span class="faint">· {upcoming > 0 ? plural(upcoming, "item") : "Nothing"}</span>
+    <span class="text-foreground text-xs font-semibold tracking-wider uppercase">Up next</span>
+    <span class="text-muted-foreground text-xs">· {upcoming > 0 ? plural(upcoming, "item") : "Nothing"}</span>
   </div>
-  <button
-    class={["icon-btn", { on: queue.shuffled }]}
+  <Button
+    variant="ghost"
+    size="icon-sm"
+    class={["text-muted-foreground", { on: queue.shuffled }, queue.shuffled && "text-tint"]}
     title={queue.shuffled ? "Unshuffle" : "Shuffle"}
-    onclick={() => send({ kind: "shuffle", on: !queue.shuffled })}><Shuffle size={15} /></button
+    onclick={() => send({ kind: "shuffle", on: !queue.shuffled })}><Shuffle /></Button
   >
-  <button
-    class={["icon-btn", { on: queue.stopAfter }]}
+  <Button
+    variant="ghost"
+    size="icon-sm"
+    class={["text-muted-foreground", { on: queue.stopAfter }, queue.stopAfter && "text-tint"]}
     title={queue.stopAfter ? "Keep playing after this" : "Stop after this"}
-    onclick={() => send({ kind: "stopAfter", on: !queue.stopAfter })}><CircleStop size={15} /></button
+    onclick={() => send({ kind: "stopAfter", on: !queue.stopAfter })}><CircleStop /></Button
   >
 </header>
 
-<div class="list" bind:this={list}>
+<div class="list relative min-h-0 flex-1 overflow-y-auto p-1" bind:this={list}>
   {#each queue.items as { uid, item }, i (uid)}
     {@const [t, s] = plex.playingLines(item)}
     {@const playing = i === current}
     {@const last = i === queue.items.length - 1}
     <div
       class={[
-        "row",
+        "row group/row",
         {
           current: playing,
           past: current >= 0 && i < current,
@@ -111,77 +117,57 @@
       onclick={() => jump(uid)}
       onkeydown={(e) => e.key === "Enter" && jump(uid)}
     >
-      <div class={["art", { square: plex.shapeFor(item) === "square" }]}>
+      <div class={["bg-muted h-9 flex-none overflow-hidden rounded-sm [&_img]:size-full [&_img]:object-cover", plex.shapeFor(item) === "square" ? "w-9" : "w-6"]}>
         <Img src={img(plex.poster(item) ?? item.thumb, 96, 96)} />
       </div>
       <div class="grow">
-        <div class="t ellipsis">{t}</div>
-        <div class="s ellipsis">{s}</div>
+        <div class={["ellipsis text-[12.5px]", playing && "font-medium"]}>{t}</div>
+        <div class="ellipsis text-muted-foreground text-xs">{s}</div>
       </div>
-      <div class="end num">
+      <div class="num text-muted-foreground flex flex-none items-center gap-0.5 text-xs">
         {#if playing}
-          <span class="playing"><AudioLines size={14} /></span>
+          <span class="flex pr-1.5 text-tint"><AudioLines class="size-4" /></span>
         {:else}
           {#if item.duration}
             <span>{plex.kind(item) === "track" ? clock(item.duration) : duration(item.duration)}</span>
           {/if}
-          <button
-            class="icon-btn rm"
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            class="text-muted-foreground opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100"
             title="Remove from queue"
             onpointerdown={(e) => e.stopPropagation()}
             onclick={(e) => {
               e.stopPropagation();
               send({ kind: "remove", uid });
-            }}><X size={14} /></button
+            }}><X /></Button
           >
         {/if}
       </div>
     </div>
   {:else}
-    <p class="empty faint">The queue is empty.</p>
+    <Empty.Root class="border-0 p-6">
+      <Empty.Description>The queue is empty.</Empty.Description>
+    </Empty.Root>
   {/each}
 </div>
 
 <style>
-  .head {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-    padding: 6px 6px 6px 14px;
-    border-bottom: 1px solid var(--line);
-  }
-  .label {
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.09em;
-    text-transform: uppercase;
-    color: var(--text-2);
-  }
-  .head .faint {
-    font-size: 12px;
-  }
-  .list {
-    position: relative;
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    padding: 4px;
-  }
   .row {
     display: flex;
     align-items: center;
     gap: 12px;
     height: 48px;
     padding: 0 6px 0 8px;
-    border-radius: var(--r);
+    border-radius: var(--radius-md);
     touch-action: none;
     cursor: pointer;
   }
   .row:hover {
-    background: rgba(255, 255, 255, 0.04);
+    background: color-mix(in srgb, var(--muted) 60%, transparent);
   }
   .row.current {
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--muted);
     cursor: default;
   }
   .row.past {
@@ -191,61 +177,9 @@
     opacity: 0.3;
   }
   .row.drop-above {
-    box-shadow: inset 0 1px 0 var(--accent);
+    box-shadow: inset 0 1px 0 var(--tint);
   }
   .row.drop-below {
-    box-shadow: inset 0 -1px 0 var(--accent);
-  }
-  .art {
-    width: 24px;
-    height: 36px;
-    flex: none;
-    border-radius: 2px;
-    overflow: hidden;
-    background: var(--surface);
-  }
-  .art.square {
-    width: 36px;
-  }
-  .art :global(img) {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-  .t {
-    font-size: 12.5px;
-  }
-  .current .t {
-    font-weight: 500;
-  }
-  .s {
-    font-size: 11.5px;
-    color: var(--text-3);
-  }
-  .end {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-    flex: none;
-    font-size: 11.5px;
-    color: var(--text-3);
-  }
-  .playing {
-    display: flex;
-    padding-right: 5px;
-    color: var(--accent);
-  }
-  .rm {
-    width: 24px;
-    height: 24px;
-    opacity: 0;
-  }
-  .row:hover .rm,
-  .rm:focus-visible {
-    opacity: 1;
-  }
-  .empty {
-    padding: 20px 10px;
-    text-align: center;
+    box-shadow: inset 0 -1px 0 var(--tint);
   }
 </style>

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, tick, untrack } from "svelte";
+  import { Skeleton } from "$lib/components/ui/skeleton";
   import Card from "./Card.svelte";
   import type { Metadata } from "../lib/types";
   import type { Shape } from "../lib/plex";
@@ -79,7 +80,7 @@
         {#if item}
           <Card {item} {shape} {selecting} selected={selected.has(item.ratingKey ?? "")} ontoggle={() => toggle(item)} />
         {:else}
-          <div class="placeholder" aria-label="Loading title"></div>
+          <Skeleton class="h-[calc(100%-64px)] rounded-lg" aria-label="Loading title" />
         {/if}
       </div>
     {/each}
@@ -88,5 +89,4 @@
 <style>
   .virtual-grid { position: relative; min-height: 100px; }
   .window { position: absolute; left: 0; right: 0; display: grid; column-gap: 20px; }
-  .placeholder { height: calc(100% - 64px); border-radius: var(--r); background: var(--surface); }
 </style>

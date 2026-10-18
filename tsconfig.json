@@ -9,7 +9,11 @@
     "verbatimModuleSyntax": true,
     "isolatedModules": true,
     "skipLibCheck": true,
-    "types": ["vite/client"]
+    "types": ["vite/client"],
+    "paths": {
+      "$lib": ["./web/src/lib"],
+      "$lib/*": ["./web/src/lib/*"]
+    }
   },
   "include": ["web/src/**/*.ts", "web/src/**/*.svelte"]
 }

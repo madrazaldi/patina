@@ -1,6 +1,9 @@
 <script lang="ts">
   // Volume, speed, repeat, sleep timer, chapters and playback diagnostics, in the panel over the now-playing bar.
   import { Repeat1, Repeat as RepeatIcon, Volume2, VolumeX } from "@lucide/svelte";
+  import { Button } from "$lib/components/ui/button";
+  import { Separator } from "$lib/components/ui/separator";
+  import { Slider } from "$lib/components/ui/slider";
   import { api, type Tune } from "../lib/api";
   import { clock } from "../lib/format";
   import { app } from "../lib/state.svelte";
@@ -39,6 +42,11 @@
     offline: "Downloaded file",
   } as const;
 
+  const label = "text-muted-foreground w-12 flex-none text-[10.5px] font-semibold tracking-wider uppercase";
+  const heading = "text-muted-foreground text-[10.5px] font-semibold tracking-wider uppercase";
+  const chip = "text-muted-foreground hover:text-foreground rounded-full px-2.5";
+  const on = "border-tint/55 text-tint hover:text-tint";
+
   // Open with the playing chapter in view.
   let chapters: HTMLDivElement | undefined = $state();
   $effect(() => {
@@ -47,204 +55,104 @@
   });
 </script>
 
-<div class="body">
-  <section>
-    <div class="row">
-      <button class={["icon-btn", { on: ps.muted }]} title={ps.muted ? "Unmute" : "Mute"} onclick={() => send({ kind: "mute" })}>
-        {#if ps.muted}<VolumeX size={16} />{:else}<Volume2 size={16} />{/if}
-      </button>
-      <input
-        class="slider"
-        type="range"
-        min="0"
-        max="130"
-        step="1"
-        aria-label="Volume"
-        value={ps.volume}
-        oninput={(e) => send({ kind: "volume", value: Number(e.currentTarget.value) })}
-      />
-      <span class="num value">{Math.round(ps.volume)}%</span>
+<div class="flex flex-col gap-4 overflow-y-auto p-4">
+  <section class="flex flex-col gap-3">
+    <div class="flex items-center gap-2.5">
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        class={["text-muted-foreground", { on: ps.muted }, ps.muted && "text-tint"]}
+        title={ps.muted ? "Unmute" : "Mute"}
+        onclick={() => send({ kind: "mute" })}
+      >
+        {#if ps.muted}<VolumeX />{:else}<Volume2 />{/if}
+      </Button>
+      <div class="flex flex-1" role="group" aria-label="Volume">
+        <Slider type="single" min={0} max={130} step={1} value={ps.volume} onValueChange={(v) => send({ kind: "volume", value: v })} />
+      </div>
+      <span class="num text-muted-foreground w-10 text-right text-sm">{Math.round(ps.volume)}%</span>
     </div>
-    <div class="row">
-      <span class="label">Speed</span>
-      <div class="chips">
+    <div class="flex items-center gap-2.5">
+      <span class={label}>Speed</span>
+      <div class="flex flex-wrap gap-1">
         {#each speeds as s (s)}
-          <button class={["chip", { on: ps.speed === s }]} onclick={() => send({ kind: "speed", value: s })}>{s}x</button>
+          <Button variant="outline" size="xs" class={[chip, ps.speed === s && on]} onclick={() => send({ kind: "speed", value: s })}>{s}x</Button>
         {/each}
       </div>
     </div>
-    <div class="row">
-      <span class="label">Repeat</span>
-      <div class="chips">
+    <div class="flex items-center gap-2.5">
+      <span class={label}>Repeat</span>
+      <div class="flex flex-wrap gap-1">
         {#each repeats as r (r.mode)}
-          <button class={["chip", { on: ps.repeat === r.mode }]} onclick={() => send({ kind: "repeat", mode: r.mode })}>
-            {#if r.mode === "one"}<Repeat1 size={12} />{:else if r.mode === "all"}<RepeatIcon size={12} />{/if}{r.label}
-          </button>
+          <Button variant="outline" size="xs" class={[chip, ps.repeat === r.mode && on]} onclick={() => send({ kind: "repeat", mode: r.mode })}>
+            {#if r.mode === "one"}<Repeat1 />{:else if r.mode === "all"}<RepeatIcon />{/if}{r.label}
+          </Button>
         {/each}
       </div>
     </div>
-    <div class="row">
-      <span class="label">Sleep</span>
-      <div class="chips">
-        <button class={["chip", { on: !ps.sleep }]} onclick={() => send({ kind: "sleepOff" })}>Off</button>
+    <div class="flex items-start gap-2.5">
+      <span class={[label, "pt-1"]}>Sleep</span>
+      <div class="flex flex-wrap gap-1">
+        <Button variant="outline" size="xs" class={[chip, !ps.sleep && on]} onclick={() => send({ kind: "sleepOff" })}>Off</Button>
         {#each sleeps as m (m)}
-          <button class="chip" onclick={() => send({ kind: "sleepMinutes", minutes: m })}>{m}m</button>
+          <Button variant="outline" size="xs" class={chip} onclick={() => send({ kind: "sleepMinutes", minutes: m })}>{m}m</Button>
         {/each}
-        <button class={["chip", { on: ps.sleep?.mode === "endOfItem" }]} onclick={() => send({ kind: "sleepEndOfItem" })}>End of item</button>
+        <Button variant="outline" size="xs" class={[chip, ps.sleep?.mode === "endOfItem" && on]} onclick={() => send({ kind: "sleepEndOfItem" })}>End of item</Button>
       </div>
     </div>
     {#if left != null}
-      <div class="faint note">Playback stops in {leftLabel(left)}.</div>
+      <div class="text-muted-foreground text-xs">Playback stops in {leftLabel(left)}.</div>
     {:else if ps.sleep?.mode === "endOfItem"}
-      <div class="faint note">Playback stops when this item ends.</div>
+      <div class="text-muted-foreground text-xs">Playback stops when this item ends.</div>
     {/if}
   </section>
 
   {#if ps.chapters.length}
-    <section>
-      <div class="label">Chapters</div>
-      <div class="chapters" bind:this={chapters}>
+    <Separator />
+    <section class="flex flex-col gap-2">
+      <div class={heading}>Chapters</div>
+      <div class="-mx-1 flex max-h-36 flex-col overflow-y-auto" bind:this={chapters}>
         {#each ps.chapters as c, i (i)}
-          <button class={["chapter", { current: ps.chapter === i }]} onclick={() => send({ kind: "chapter", index: i })}>
-            <span class="ellipsis grow">{c.title || `Chapter ${i + 1}`}</span>
-            <span class="num faint">{clock(c.timeMs)}</span>
-          </button>
+          <Button
+            variant="ghost"
+            size="sm"
+            class={["chapter h-auto justify-start gap-2.5 px-2 py-1.5 font-normal", ps.chapter === i && "current text-tint"]}
+            onclick={() => send({ kind: "chapter", index: i })}
+          >
+            <span class="ellipsis grow text-left">{c.title || `Chapter ${i + 1}`}</span>
+            <span class="num text-muted-foreground">{clock(c.timeMs)}</span>
+          </Button>
         {/each}
       </div>
     </section>
   {/if}
 
-  <section>
-    <div class="label">Diagnostics</div>
-    <dl>
-      <dt>Connection</dt>
-      <dd>{d.connection ? connection[d.connection.kind] : "Unknown"}{#if d.connection?.address}<span class="faint"> · {d.connection.address}</span>{/if}</dd>
-      <dt>Buffer</dt>
-      <dd>
+  <Separator />
+  <section class="flex flex-col gap-2">
+    <div class={heading}>Diagnostics</div>
+    <dl class="m-0 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-xs">
+      <dt class="text-muted-foreground">Connection</dt>
+      <dd class="m-0 min-w-0">{d.connection ? connection[d.connection.kind] : "Unknown"}{#if d.connection?.address}<span class="text-muted-foreground"> · {d.connection.address}</span>{/if}</dd>
+      <dt class="text-muted-foreground">Buffer</dt>
+      <dd class="m-0 min-w-0">
         {#if d.buffering}
           Buffering{#if d.bufferPercent != null}, {d.bufferPercent}% full{/if}
         {:else if d.bufferedSecs != null}
           {d.bufferedSecs.toFixed(1)} s ahead
         {:else}
-          <span class="faint">n/a</span>
+          <span class="text-muted-foreground">n/a</span>
         {/if}
       </dd>
       {#if app.nowPlaying?.item.type !== "track"}
-        <dt>Decoder</dt>
-        <dd>{d.hwdec == null ? "Unknown" : d.hwdec === "no" ? "Software" : `Hardware (${d.hwdec})`}</dd>
-        <dt>Dropped frames</dt>
-        <dd>{d.droppedFrames} output · {d.decoderDroppedFrames} decoder</dd>
+        <dt class="text-muted-foreground">Decoder</dt>
+        <dd class="m-0 min-w-0">{d.hwdec == null ? "Unknown" : d.hwdec === "no" ? "Software" : `Hardware (${d.hwdec})`}</dd>
+        <dt class="text-muted-foreground">Dropped frames</dt>
+        <dd class="m-0 min-w-0">{d.droppedFrames} output · {d.decoderDroppedFrames} decoder</dd>
       {/if}
       {#if d.recoveredFromMs != null}
-        <dt>Recovered</dt>
-        <dd>Resumed from {clock(d.recoveredFromMs)} after the connection failed</dd>
+        <dt class="text-muted-foreground">Recovered</dt>
+        <dd class="m-0 min-w-0">Resumed from {clock(d.recoveredFromMs)} after the connection failed</dd>
       {/if}
     </dl>
   </section>
 </div>
-
-<style>
-  .body {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-    padding: 14px;
-    overflow-y: auto;
-  }
-  section {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-  .row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-  .label {
-    flex: none;
-    width: 48px;
-    font-size: 10.5px;
-    font-weight: 600;
-    letter-spacing: 0.09em;
-    text-transform: uppercase;
-    color: var(--text-3);
-  }
-  section > .label {
-    width: auto;
-  }
-  .slider {
-    flex: 1;
-    accent-color: var(--accent);
-  }
-  .value {
-    width: 40px;
-    text-align: right;
-    color: var(--text-2);
-  }
-  .chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-  }
-  .chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    height: 22px;
-    padding: 0 8px;
-    border: 1px solid var(--line-2);
-    border-radius: 11px;
-    background: transparent;
-    color: var(--text-2);
-    font-size: 11.5px;
-    cursor: pointer;
-  }
-  .chip:hover {
-    color: var(--text);
-  }
-  .chip.on {
-    color: var(--accent);
-    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
-  }
-  .note {
-    font-size: 12px;
-  }
-  .chapters {
-    display: flex;
-    flex-direction: column;
-    max-height: 140px;
-    overflow-y: auto;
-  }
-  .chapter {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 5px 8px;
-    border: 0;
-    border-radius: 3px;
-    background: transparent;
-    text-align: left;
-    cursor: pointer;
-  }
-  .chapter:hover {
-    background: rgba(255, 255, 255, 0.05);
-  }
-  .chapter.current {
-    color: var(--accent);
-  }
-  dl {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 4px 14px;
-    margin: 0;
-    font-size: 12px;
-  }
-  dt {
-    color: var(--text-3);
-  }
-  dd {
-    margin: 0;
-    min-width: 0;
-  }
-</style>

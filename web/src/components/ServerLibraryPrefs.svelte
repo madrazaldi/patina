@@ -1,5 +1,10 @@
 <script lang="ts">
   // Advanced settings of one library, rendered like the server settings.
+  import { Settings2 } from "@lucide/svelte";
+  import { Button } from "$lib/components/ui/button";
+  import * as Empty from "$lib/components/ui/empty";
+  import { Label } from "$lib/components/ui/label";
+  import { Switch } from "$lib/components/ui/switch";
   import ServerPrefRow from "./ServerPrefRow.svelte";
   import Status from "./Status.svelte";
   import { modal } from "../lib/dialog";
@@ -25,38 +30,35 @@
   }
 </script>
 
-<dialog class="modal wide" use:modal={onclose} aria-labelledby="library-prefs-title">
-  <div class="head">
+<dialog class="modal wide w-[min(760px,calc(100vw-48px))]" use:modal={onclose} aria-labelledby="library-prefs-title">
+  <div class="flex items-start justify-between gap-4">
     <div>
       <h2 id="library-prefs-title">{section.title} settings</h2>
       <p class="desc">Changes are saved as you make them.</p>
     </div>
     {#if hasAdvanced}
-      <button class={["chip", { active: advanced }]} onclick={() => (advanced = !advanced)}>Show advanced</button>
+      <div class="flex items-center gap-2 pt-1">
+        <Switch id="library-prefs-advanced" size="sm" bind:checked={advanced} />
+        <Label for="library-prefs-advanced" class="text-muted-foreground font-normal">Show advanced</Label>
+      </div>
     {/if}
   </div>
   {#if !prefs.data}
     <Status loading={!prefs.error} error={prefs.error} />
   {:else if shown.length === 0}
-    <p class="faint">This library has no settings.</p>
+    <Empty.Root class="border">
+      <Empty.Header>
+        <Empty.Media variant="icon"><Settings2 /></Empty.Media>
+        <Empty.Title>No settings</Empty.Title>
+        <Empty.Description>This library has no settings.</Empty.Description>
+      </Empty.Header>
+    </Empty.Root>
   {:else}
-    <div class="rows">
+    <div class="mt-4 max-h-[60vh] divide-y overflow-auto rounded-lg border">
       {#each shown as p (p.id)}
         <ServerPrefRow pref={p} showId={false} onsave={(v) => save(p, v)} />
       {/each}
     </div>
   {/if}
-  <div class="foot"><button class="btn quiet" onclick={onclose}>Done</button></div>
+  <div class="foot"><Button variant="ghost" onclick={onclose}>Done</Button></div>
 </dialog>
-
-<style>
-  .modal.wide {
-    width: min(760px, calc(100vw - 48px));
-  }
-  .head {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 16px;
-  }
-</style>

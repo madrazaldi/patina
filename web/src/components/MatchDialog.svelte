@@ -1,6 +1,13 @@
 <script lang="ts">
   // "Fix match" dialog, shown while `app.matchTarget` is set.
   import { untrack } from "svelte";
+  import * as Alert from "$lib/components/ui/alert";
+  import { Badge } from "$lib/components/ui/badge";
+  import { Button } from "$lib/components/ui/button";
+  import * as Empty from "$lib/components/ui/empty";
+  import { Input } from "$lib/components/ui/input";
+  import * as Item from "$lib/components/ui/item";
+  import { Spinner } from "$lib/components/ui/spinner";
   import Img from "./Img.svelte";
   import { modal } from "../lib/dialog";
   import { api } from "../lib/api";
@@ -79,96 +86,55 @@
     <p class="desc">{plex.fullTitle(item)}</p>
 
     <form
-      class="search"
+      class="mb-4 flex gap-2"
       onsubmit={(e) => {
         e.preventDefault();
         search(true);
       }}
     >
-      <input class="input grow" placeholder="Title" bind:value={title} />
-      <input class="input year num" placeholder="Year" inputmode="numeric" bind:value={year} />
-      <button class="btn" type="submit" disabled={!title.trim()}>Search</button>
+      <Input class="flex-1" placeholder="Title" bind:value={title} />
+      <Input class="w-[76px] tabular-nums" placeholder="Year" inputmode="numeric" bind:value={year} />
+      <Button variant="outline" type="submit" disabled={!title.trim()}>Search</Button>
     </form>
 
     {#if error}
-      <div class="error-box">{error}</div>
+      <Alert.Root variant="destructive"><Alert.Description>{error}</Alert.Description></Alert.Root>
     {:else if results === null}
-      <div class="spinner"></div>
+      <div class="flex justify-center py-6"><Spinner class="text-muted-foreground" /></div>
     {:else if results.length === 0}
-      <p class="faint">No matches. Try a different title or year.</p>
+      <Empty.Root class="border border-dashed p-6">
+        <Empty.Header>
+          <Empty.Title>No matches</Empty.Title>
+          <Empty.Description>No matches. Try a different title or year.</Empty.Description>
+        </Empty.Header>
+      </Empty.Root>
     {:else}
-      <div class="rows results">
+      <Item.Group class="max-h-[52vh] gap-1 overflow-auto">
         {#each results as r, i (r.guid ?? i)}
-          <button class="list-row clickable result" disabled={busy} onclick={() => apply(r)}>
-            <div class={["thumb", { square }]}><Img src={img(r.thumb, 96, square ? 96 : 144)} /></div>
-            <div class="grow">
-              <div class="t">
-                {r.name}{#if r.year != null}<span class="faint"> ({r.year})</span>{/if}
-                {#if r.matched}<span class="tag accent">Current</span>{/if}
-              </div>
-              {#if r.summary}<p class="sum">{r.summary}</p>{/if}
-            </div>
-            <div class="end">{r.score != null ? `${r.score}%` : ""}</div>
-          </button>
+          <Item.Root size="sm" class="hover:bg-muted focus-visible:bg-muted cursor-pointer items-start text-left has-disabled:cursor-default has-disabled:opacity-60 has-disabled:hover:bg-transparent">
+            {#snippet child({ props })}
+              <button type="button" {...props} disabled={busy} onclick={() => apply(r)}>
+                <Item.Media variant="image" class={square ? "" : "h-12 w-8"}>
+                  <Img src={img(r.thumb, 96, square ? 96 : 144)} />
+                </Item.Media>
+                <Item.Content>
+                  <Item.Title class="line-clamp-none flex-wrap">
+                    {r.name}{#if r.year != null}<span class="text-muted-foreground font-normal"> ({r.year})</span>{/if}
+                    {#if r.matched}<Badge variant="secondary">Current</Badge>{/if}
+                  </Item.Title>
+                  {#if r.summary}<Item.Description class="line-clamp-2 text-xs">{r.summary}</Item.Description>{/if}
+                </Item.Content>
+                {#if r.score != null}<Item.Actions class="text-muted-foreground text-xs tabular-nums">{r.score}%</Item.Actions>{/if}
+              </button>
+            {/snippet}
+          </Item.Root>
         {/each}
-      </div>
+      </Item.Group>
     {/if}
 
     <div class="foot">
-      <button class="btn quiet danger unmatch" disabled={busy} onclick={unmatch}>Unmatch</button>
-      <button class="btn quiet" disabled={busy} onclick={close}>Cancel</button>
+      <Button variant="destructive" class="mr-auto" disabled={busy} onclick={unmatch}>Unmatch</Button>
+      <Button variant="outline" disabled={busy} onclick={close}>Cancel</Button>
     </div>
   </dialog>
 {/if}
-
-<style>
-  .search {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 16px;
-  }
-  .year {
-    width: 76px;
-  }
-  .results {
-    max-height: 52vh;
-    overflow: auto;
-  }
-  .result {
-    width: 100%;
-    align-items: start;
-    padding: 10px 4px;
-    border-left: 0;
-    border-right: 0;
-    border-bottom: 0;
-    background: none;
-    text-align: left;
-  }
-  .result:disabled {
-    cursor: default;
-    opacity: 0.6;
-  }
-  .result .t {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    white-space: normal;
-  }
-  .sum {
-    margin-top: 3px;
-    color: var(--text-3);
-    font-size: 12px;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-  .result .end {
-    padding-top: 1px;
-    font-size: 12px;
-  }
-  .unmatch {
-    margin-right: auto;
-  }
-</style>

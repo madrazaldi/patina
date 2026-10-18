@@ -1,6 +1,9 @@
 <script lang="ts">
   // plex.tv watchlist. Each entry links to the server's own copy when there is one.
-  import { X } from "@lucide/svelte";
+  import { TriangleAlert, X } from "@lucide/svelte";
+  import * as Alert from "$lib/components/ui/alert";
+  import { Button } from "$lib/components/ui/button";
+  import { cn } from "$lib/utils";
   import Img from "../components/Img.svelte";
   import Status from "../components/Status.svelte";
   import { api } from "../lib/api";
@@ -96,91 +99,45 @@
   </div>
   {#if list.error && list.data !== undefined}<Status error={list.error} retry={() => list.reload()} stale />{/if}
   {#if failures > 0}
-    <div class="lookup-failed" role="status">
-      Couldn't check {failures === 1 ? "1 title" : `${failures} titles`} against this server, so {failures === 1 ? "it isn't" : "they aren't"} dimmed.
-      <button class="btn sm" onclick={() => check(guids)}>Retry</button>
-    </div>
+    <Alert.Root class="mb-4" role="status">
+      <TriangleAlert />
+      <Alert.Description>
+        Couldn't check {failures === 1 ? "1 title" : `${failures} titles`} against this server, so {failures === 1 ? "it isn't" : "they aren't"} dimmed.
+      </Alert.Description>
+      <Alert.Action><Button variant="outline" size="xs" onclick={() => check(guids)}>Retry</Button></Alert.Action>
+    </Alert.Root>
   {/if}
   {#if list.data === undefined}
     <Status loading={!list.error} error={list.error} retry={() => list.reload()} />
   {:else if list.data.length === 0}
     <Status title="Your watchlist is empty" text="Add movies and shows from their detail page." />
   {:else}
-    <div class="grid">
+    <div class="poster-grid">
       {#each list.data as m (m.ratingKey)}
         {@const missing = m.guid != null && local[m.guid] === null}
-        <div class="entry" class:missing role="button" tabindex="0" onclick={() => open(m)} onkeydown={(e) => e.key === "Enter" && open(m)}>
-          <div class="art">
-            <Img src={img(m.thumb, 300, 450)} />
-            <button
-              class="remove"
+        <div class="entry group/entry min-w-0 cursor-pointer outline-none" class:missing role="button" tabindex="0" onclick={() => open(m)} onkeydown={(e) => e.key === "Enter" && open(m)}>
+          <div
+            class={cn(
+              "relative aspect-[2/3] overflow-hidden rounded-lg bg-card ring-1 ring-foreground/10 transition-shadow group-hover/entry:ring-foreground/25 group-focus-visible/entry:ring-2 group-focus-visible/entry:ring-tint",
+              missing && "opacity-40",
+            )}
+          >
+            <Img src={img(m.thumb, 300, 450)} class="size-full object-cover" />
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              class="absolute top-2 right-2 bg-background/80 opacity-0 backdrop-blur-sm group-hover/entry:opacity-100 hover:bg-background focus-visible:opacity-100"
               title="Remove from watchlist"
               onclick={(e) => {
                 e.stopPropagation();
                 act(api.setWatchlisted(m.ratingKey ?? "", false), "Removed from watchlist", true);
-              }}><X size={14} /></button
+              }}><X /></Button
             >
           </div>
-          <div class="title ellipsis">{plex.title(m)}</div>
-          <div class="sub ellipsis">{missing ? "Not on this server" : plex.subtitle(m)}</div>
+          <div class="mt-2 truncate text-sm leading-5 font-medium">{plex.title(m)}</div>
+          <div class="truncate text-xs leading-4 text-muted-foreground">{missing ? "Not on this server" : plex.subtitle(m)}</div>
         </div>
       {/each}
     </div>
   {/if}
 </div>
-
-<style>
-  .lookup-failed {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 16px;
-    color: var(--text-2);
-  }
-  .entry {
-    min-width: 0;
-    cursor: pointer;
-  }
-  .entry.missing .art {
-    opacity: 0.4;
-  }
-  .art {
-    position: relative;
-    aspect-ratio: 2 / 3;
-    border-radius: var(--r);
-    overflow: hidden;
-    background: var(--surface);
-  }
-  .art :global(img) {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-  .remove {
-    position: absolute;
-    top: 6px;
-    right: 6px;
-    display: grid;
-    place-items: center;
-    width: 24px;
-    height: 24px;
-    padding: 0;
-    border: 0;
-    border-radius: 3px;
-    background: rgba(12, 12, 12, 0.82);
-    color: var(--text);
-    opacity: 0;
-    cursor: pointer;
-  }
-  .entry:hover .remove {
-    opacity: 1;
-  }
-  .title {
-    margin-top: 8px;
-    font-weight: 500;
-  }
-  .sub {
-    font-size: 12px;
-    color: var(--text-3);
-  }
-</style>

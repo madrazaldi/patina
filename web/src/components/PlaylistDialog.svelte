@@ -1,6 +1,12 @@
 <script lang="ts">
   // "Add to playlist" dialog, shown while `app.playlistTarget` is set.
   import { Plus } from "@lucide/svelte";
+  import * as Alert from "$lib/components/ui/alert";
+  import { Button } from "$lib/components/ui/button";
+  import * as Empty from "$lib/components/ui/empty";
+  import { Input } from "$lib/components/ui/input";
+  import * as Item from "$lib/components/ui/item";
+  import { Spinner } from "$lib/components/ui/spinner";
   import Img from "./Img.svelte";
   import { modal } from "../lib/dialog";
   import { api } from "../lib/api";
@@ -51,55 +57,46 @@
     <p class="desc">{app.playlistItems.length ? `${app.playlistItems.length} selected titles` : plex.fullTitle(item)}</p>
 
     {#if error}
-      <div class="error-box">{error}</div>
+      <Alert.Root variant="destructive"><Alert.Description>{error}</Alert.Description></Alert.Root>
     {:else if lists === null}
-      <div class="spinner"></div>
+      <div class="flex justify-center py-6"><Spinner class="text-muted-foreground" /></div>
     {:else if lists.length === 0}
-      <p class="faint">No playlists of this kind yet.</p>
+      <Empty.Root class="border border-dashed p-6">
+        <Empty.Header>
+          <Empty.Title>No playlists yet</Empty.Title>
+          <Empty.Description>No playlists of this kind yet.</Empty.Description>
+        </Empty.Header>
+      </Empty.Root>
     {:else}
-      <div class="rows lists">
+      <Item.Group class="max-h-[300px] gap-1 overflow-auto">
         {#each lists as p (p.ratingKey)}
-          <button class="list-row clickable" onclick={() => add({ playlist: p.ratingKey }, `Added to “${p.title}”`)}>
-            <div class="thumb square"><Img src={img(p.composite ?? p.thumb, 96, 96)} /></div>
-            <div class="grow">
-              <div class="t">{p.title}</div>
-              <div class="s">{plex.subtitle(p)}</div>
-            </div>
-            <div class="end"><Plus /></div>
-          </button>
+          <Item.Root size="sm" class="hover:bg-muted focus-visible:bg-muted cursor-pointer text-left">
+            {#snippet child({ props })}
+              <button type="button" {...props} onclick={() => add({ playlist: p.ratingKey }, `Added to “${p.title}”`)}>
+                <Item.Media variant="image">
+                  <Img src={img(p.composite ?? p.thumb, 96, 96)} />
+                </Item.Media>
+                <Item.Content>
+                  <Item.Title>{p.title}</Item.Title>
+                  <Item.Description>{plex.subtitle(p)}</Item.Description>
+                </Item.Content>
+                <Item.Actions><Plus class="text-muted-foreground size-4" /></Item.Actions>
+              </button>
+            {/snippet}
+          </Item.Root>
         {/each}
-      </div>
+      </Item.Group>
     {/if}
 
-    <div class="new">
-      <input
-        class="input grow"
+    <div class="mt-4 flex gap-2">
+      <Input
+        class="flex-1"
         placeholder="New playlist"
         bind:value={name}
         onkeydown={(e) => e.key === "Enter" && create()}
       />
-      <button class="btn" disabled={!name.trim()} onclick={create}>Create</button>
+      <Button variant="outline" disabled={!name.trim()} onclick={create}>Create</Button>
     </div>
-    <div class="foot"><button class="btn quiet" onclick={close}>Cancel</button></div>
+    <div class="foot"><Button variant="outline" onclick={close}>Cancel</Button></div>
   </dialog>
 {/if}
-
-<style>
-  .lists {
-    max-height: 300px;
-    overflow: auto;
-  }
-  .lists button {
-    width: 100%;
-    border-left: 0;
-    border-right: 0;
-    border-bottom: 0;
-    background: none;
-    text-align: left;
-  }
-  .new {
-    display: flex;
-    gap: 8px;
-    margin-top: 18px;
-  }
-</style>

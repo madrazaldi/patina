@@ -1,14 +1,20 @@
 <script lang="ts">
   // Metadata editor, shown while `app.editTarget` is set. Only changed fields are sent.
+  import * as Alert from "$lib/components/ui/alert";
+  import { Button } from "$lib/components/ui/button";
+  import { Field, FieldGroup, FieldLabel } from "$lib/components/ui/field";
+  import { Input } from "$lib/components/ui/input";
+  import { Spinner } from "$lib/components/ui/spinner";
+  import { Textarea } from "$lib/components/ui/textarea";
   import { modal } from "../lib/dialog";
   import { api, type TagEdit } from "../lib/api";
   import * as plex from "../lib/plex";
   import { act, app, captureScope, message } from "../lib/state.svelte";
   import type { Metadata, Tag } from "../lib/types";
 
-  type Field = "title" | "titleSort" | "originalTitle" | "editionTitle" | "year" | "originallyAvailableAt" | "contentRating" | "studio" | "tagline" | "summary";
+  type FieldKey = "title" | "titleSort" | "originalTitle" | "editionTitle" | "year" | "originallyAvailableAt" | "contentRating" | "studio" | "tagline" | "summary";
 
-  const LABELS: Record<Field, string> = {
+  const LABELS: Record<FieldKey, string> = {
     title: "Title",
     titleSort: "Sort title",
     originalTitle: "Original title",
@@ -21,7 +27,7 @@
     summary: "Summary",
   };
 
-  const FIELDS: Record<string, Field[]> = {
+  const FIELDS: Record<string, FieldKey[]> = {
     movie: ["title", "titleSort", "originalTitle", "editionTitle", "year", "originallyAvailableAt", "contentRating", "studio", "tagline", "summary"],
     show: ["title", "titleSort", "originalTitle", "year", "originallyAvailableAt", "contentRating", "studio", "tagline", "summary"],
     season: ["title", "summary"],
@@ -51,7 +57,7 @@
   let tags = $derived(TAGS[kind] ?? []);
   let short = $derived(fields.filter((f) => f !== "summary"));
 
-  const label = (f: Field) =>
+  const label = (f: FieldKey) =>
     kind === "album" && f === "studio" ? "Record label" : kind === "track" && f === "originalTitle" ? "Track artist" : LABELS[f];
 
   const tagList = (list: Tag[]) => list.map((t) => t.tag ?? "").filter(Boolean);
@@ -59,7 +65,7 @@
 
   function valuesOf(m: Metadata): Record<string, string> {
     const v: Record<string, string> = {};
-    for (const f of Object.keys(LABELS) as Field[]) {
+    for (const f of Object.keys(LABELS) as FieldKey[]) {
       const x = m[f];
       v[f] = x == null ? "" : String(x);
     }
@@ -146,92 +152,58 @@
     <p class="desc">{plex.fullTitle(full ?? item)}</p>
 
     {#if error}
-      <div class="error-box">{error}</div>
+      <Alert.Root variant="destructive"><Alert.Description>{error}</Alert.Description></Alert.Root>
     {:else if !full}
-      <div class="spinner"></div>
+      <div class="flex justify-center py-6"><Spinner class="text-muted-foreground" /></div>
     {:else}
       <form
-        class="fields"
         onsubmit={(e) => {
           e.preventDefault();
           save();
         }}
       >
-        {#each short as f (f)}
-          <label class={{ wide: f === "title" || f === "tagline" }}>
-            <span>{label(f)}</span>
-            {#if f === "originallyAvailableAt"}
-              <input class="input" type="date" disabled={busy} bind:value={form[f]} />
-            {:else}
-              <input
-                class="input"
-                data-initial-focus={f === "title" ? "" : undefined}
-                inputmode={f === "year" ? "numeric" : undefined}
-                placeholder={f === "titleSort" ? (form.title ?? "") : ""}
-                disabled={busy}
-                bind:value={form[f]}
-              />
-            {/if}
-          </label>
-        {/each}
-        {#each tags as t (t)}
-          <label>
-            <span>{t === "genre" ? "Genres" : "Labels"}</span>
-            <input class="input" placeholder="Comma-separated" disabled={busy} bind:value={form[t]} />
-          </label>
-        {/each}
-        {#if fields.includes("summary")}
-          <label class="wide">
-            <span>Summary</span>
-            <textarea class="input area" rows="6" disabled={busy} bind:value={form.summary}></textarea>
-          </label>
-        {/if}
+        <FieldGroup class="grid grid-cols-2 gap-x-3.5 gap-y-4">
+          {#each short as f (f)}
+            <Field class={f === "title" || f === "tagline" ? "col-span-2" : "min-w-0"}>
+              <FieldLabel for="edit-field-{f}">{label(f)}</FieldLabel>
+              {#if f === "originallyAvailableAt"}
+                <Input id="edit-field-{f}" type="date" disabled={busy} bind:value={form[f]} />
+              {:else}
+                <Input
+                  id="edit-field-{f}"
+                  data-initial-focus={f === "title" ? "" : undefined}
+                  inputmode={f === "year" ? "numeric" : undefined}
+                  placeholder={f === "titleSort" ? (form.title ?? "") : ""}
+                  disabled={busy}
+                  bind:value={form[f]}
+                />
+              {/if}
+            </Field>
+          {/each}
+          {#each tags as t (t)}
+            <Field class="min-w-0">
+              <FieldLabel for="edit-field-{t}">{t === "genre" ? "Genres" : "Labels"}</FieldLabel>
+              <Input id="edit-field-{t}" placeholder="Comma-separated" disabled={busy} bind:value={form[t]} />
+            </Field>
+          {/each}
+          {#if fields.includes("summary")}
+            <Field class="col-span-2">
+              <FieldLabel for="edit-field-summary">Summary</FieldLabel>
+              <Textarea id="edit-field-summary" rows={6} class="resize-y leading-relaxed" disabled={busy} bind:value={form.summary} />
+            </Field>
+          {/if}
+        </FieldGroup>
         <button type="submit" hidden aria-hidden="true"></button>
       </form>
     {/if}
 
-    <div class="foot">
-      <span class={["hint", invalid ? "bad" : "faint"]}>{invalid ?? "Edited fields are locked, so refreshing metadata won't overwrite them."}</span>
-      <button class="btn quiet" disabled={busy} onclick={close}>Cancel</button>
-      <button class="btn primary" disabled={!dirty || !!invalid || busy} onclick={save}>{busy ? "Saving…" : "Save"}</button>
+    <div class="foot items-center">
+      <span class={["mr-auto text-xs", invalid ? "text-destructive" : "text-muted-foreground"]}>{invalid ?? "Edited fields are locked, so refreshing metadata won't overwrite them."}</span>
+      <Button variant="outline" disabled={busy} onclick={close}>Cancel</Button>
+      <Button disabled={!dirty || !!invalid || busy} onclick={save}>
+        {#if busy}<Spinner />{/if}
+        {busy ? "Saving…" : "Save"}
+      </Button>
     </div>
   </dialog>
 {/if}
-
-<style>
-  .fields {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 14px 14px;
-  }
-  label {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-    min-width: 0;
-  }
-  label.wide {
-    grid-column: 1 / -1;
-  }
-  label span {
-    font-size: 10.5px;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--text-3);
-  }
-  .area {
-    height: auto;
-    padding: 8px 10px;
-    line-height: 1.55;
-    resize: vertical;
-  }
-  .foot .hint {
-    flex: 1;
-    align-self: center;
-    font-size: 12px;
-  }
-  .foot .bad {
-    color: var(--danger);
-  }
-</style>

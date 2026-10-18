@@ -2,6 +2,9 @@
   // Automatic audio, subtitle and version preferences for one show. Fields left
   // unset inherit the profile's rules (Settings). Applied whenever the show
   // plays, including episodes added later.
+  import * as Alert from "$lib/components/ui/alert";
+  import { Button } from "$lib/components/ui/button";
+  import { Spinner } from "$lib/components/ui/spinner";
   import { modal } from "../lib/dialog";
   import { api } from "../lib/api";
   import * as plex from "../lib/plex";
@@ -72,24 +75,16 @@
     </p>
 
     {#if error}
-      <div class="error-box">{error}</div>
+      <Alert.Root variant="destructive"><Alert.Description>{error}</Alert.Description></Alert.Root>
     {:else if !prefs || !own}
-      <div class="loading"><div class="spinner"></div></div>
+      <div class="flex justify-center py-10"><Spinner class="text-muted-foreground size-5" /></div>
     {:else}
       <PlaybackRulesForm rules={own} unset="Same as profile" onsave={save} />
     {/if}
 
     <div class="foot">
-      <button class="btn quiet" disabled={empty} onclick={() => save({})}>Clear for this show</button>
-      <button class="btn primary" onclick={close}>Done</button>
+      <Button variant="outline" disabled={empty} onclick={() => save({})}>Clear for this show</Button>
+      <Button onclick={close}>Done</Button>
     </div>
   </dialog>
 {/if}
-
-<style>
-  .loading {
-    display: grid;
-    place-items: center;
-    padding: 40px 0;
-  }
-</style>

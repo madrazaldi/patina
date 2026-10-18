@@ -12,6 +12,13 @@
   } from "@lucide/svelte";
   import { onDestroy, untrack } from "svelte";
   import { LibraryPages, libraryMemory, rememberLibrary } from "../lib/library.svelte";
+  import { Badge } from "$lib/components/ui/badge";
+  import { Button } from "$lib/components/ui/button";
+  import { ButtonGroup } from "$lib/components/ui/button-group";
+  import { Input } from "$lib/components/ui/input";
+  import * as NativeSelect from "$lib/components/ui/native-select";
+  import { Separator } from "$lib/components/ui/separator";
+  import { Spinner } from "$lib/components/ui/spinner";
   import VirtualGrid from "../components/VirtualGrid.svelte";
   import BulkActions from "../components/BulkActions.svelte";
   import Card from "../components/Card.svelte";
@@ -207,8 +214,6 @@
     return tab === "folders" ? api.sectionFolders(id, trail.at(-1)?.key) : Promise.resolve(null);
   });
 </script>
-{#if folders.error && folders.data}<Status error={folders.error} retry={() => folders.reload()} stale />{/if}
-
 <svelte:window onkeydown={(e) => e.key === "Escape" && (picker = null)} />
 
 {#if !section}
@@ -216,15 +221,15 @@
 {:else}
   <div class="page">
     <div class="page-head">
-      <div class="title">
+      <div class="flex min-w-0 items-center gap-3.5">
         <h1>{section.title}</h1>
         {#if scan}
-          <span class="scanning faint num" title={scan.title}>
-            <span class="spinner"></span>Scanning… {Math.round(scan.progress)}%
-          </span>
+          <Badge variant="outline" class="gap-1.5 text-muted-foreground tabular-nums" title={scan.title}>
+            <Spinner class="size-3" />Scanning… {Math.round(scan.progress)}%
+          </Badge>
         {/if}
       </div>
-      <div class="row-flex">
+      <div class="flex items-center gap-2">
         <div class="tabs">
           <button class={["tab", { active: tab === "browse" }]} onclick={() => (tab = "browse")}>Library</button>
           <button class={["tab", { active: tab === "recommended" }]} onclick={() => (tab = "recommended")}>Recommended</button>
@@ -232,77 +237,93 @@
           <button class={["tab", { active: tab === "folders" }]} onclick={() => (tab = "folders")}>Folders</button>
         </div>
         {#if app.owned}
-          <button
-            class="icon-btn"
+          <Button
+            variant="outline"
+            size="icon"
             title="Scan library files"
-            onclick={() => act(api.sectionAction(id, "scan"), "Scanning library…")}><RefreshCw /></button
+            onclick={() => act(api.sectionAction(id, "scan"), "Scanning library…")}><RefreshCw /></Button
           >
         {/if}
       </div>
     </div>
 
     {#if tab === "browse"}
-      <div class="toolbar">
-        {#if types.length > 1}
-          <div class="tabs">
-            {#each types as [t, label] (t)}
-              <button class={["tab", { active: mediaType === t }]} onclick={() => setType(t)}>{label}</button>
-            {/each}
-          </div>
-          <span class="sep"></span>
-        {/if}
-        <select class="select" bind:value={sort}>
-          {#if sorts.data?.length}
-            {#each sorts.data as s (s.key)}<option value={s.key}>{s.title}</option>{/each}
-          {:else}
-            <option value="titleSort">Title</option>
-            <option value="addedAt">Date added</option>
-            <option value="originallyAvailableAt">Release date</option>
-            <option value="rating">Rating</option>
+      <div class="mb-6 space-y-3 border-b pb-4">
+        <div class="flex flex-wrap items-center gap-2">
+          {#if types.length > 1}
+            <div class="tabs">
+              {#each types as [t, label] (t)}
+                <button class={["tab", { active: mediaType === t }]} onclick={() => setType(t)}>{label}</button>
+              {/each}
+            </div>
+            <Separator orientation="vertical" class="mx-1 data-[orientation=vertical]:h-5" />
           {/if}
-        </select>
-        <button class="icon-btn" title={desc ? "Descending" : "Ascending"} onclick={() => (desc = !desc)}>
-          {#if desc}<ArrowDownWideNarrow />{:else}<ArrowUpNarrowWide />{/if}
-        </button>
-        {#if valueFilters.length}
-          <button class="btn quiet sm" onclick={openPicker}><ListFilter size={14} />Filter</button>
-        {/if}
-        {#if watchable || booleans.length}<span class="sep"></span>{/if}
-        {#if watchable}
-          <button class={["chip", { active: unwatched }]} onclick={() => (unwatched = !unwatched)}>Unwatched</button>
-        {/if}
-        {#each booleans as f (f.filter)}
-          <button class={["chip", { active: toggles.includes(f.filter) }]} onclick={() => toggle(f)}>{f.title}</button>
-        {/each}
-        <button class="btn sm" aria-pressed={selecting} onclick={() => { selecting = !selecting; if (!selecting) selection = []; }}>Select titles</button>
-        <span class="grow"></span>
-        {#if total != null}<span class="faint num">{plural(total, noun)}</span>{/if}
+          <NativeSelect.Root bind:value={sort} size="sm" class="min-w-36">
+            {#if sorts.data?.length}
+              {#each sorts.data as s (s.key)}<NativeSelect.Option value={s.key}>{s.title}</NativeSelect.Option>{/each}
+            {:else}
+              <NativeSelect.Option value="titleSort">Title</NativeSelect.Option>
+              <NativeSelect.Option value="addedAt">Date added</NativeSelect.Option>
+              <NativeSelect.Option value="originallyAvailableAt">Release date</NativeSelect.Option>
+              <NativeSelect.Option value="rating">Rating</NativeSelect.Option>
+            {/if}
+          </NativeSelect.Root>
+          <Button variant="outline" size="icon-sm" title={desc ? "Descending" : "Ascending"} onclick={() => (desc = !desc)}>
+            {#if desc}<ArrowDownWideNarrow />{:else}<ArrowUpNarrowWide />{/if}
+          </Button>
+          {#if valueFilters.length}
+            <Button variant="outline" size="sm" class="border-dashed" onclick={openPicker}><ListFilter />Filter</Button>
+          {/if}
+          {#if watchable || booleans.length}<Separator orientation="vertical" class="mx-1 data-[orientation=vertical]:h-5" />{/if}
+          {#if watchable}
+            <Button
+              variant={unwatched ? "default" : "outline"}
+              size="sm"
+              class={["rounded-full", { active: unwatched, "border-dashed": !unwatched }]}
+              onclick={() => (unwatched = !unwatched)}>Unwatched</Button
+            >
+          {/if}
+          {#each booleans as f (f.filter)}
+            {@const on = toggles.includes(f.filter)}
+            <Button
+              variant={on ? "default" : "outline"}
+              size="sm"
+              class={["rounded-full", { active: on, "border-dashed": !on }]}
+              onclick={() => toggle(f)}>{f.title}</Button
+            >
+          {/each}
+          <Button variant="outline" size="sm" aria-pressed={selecting} class="aria-pressed:border-tint/50 aria-pressed:bg-tint/10 aria-pressed:text-tint" onclick={() => { selecting = !selecting; if (!selecting) selection = []; }}>Select titles</Button>
+          <span class="flex-1"></span>
+          {#if total != null}<span class="text-sm text-muted-foreground tabular-nums">{plural(total, noun)}</span>{/if}
+        </div>
 
         {#if picked.length}
-          <div class="active">
+          <div class="flex flex-wrap items-center gap-2">
             {#each picked as p, i (`${p.filter}=${p.value}`)}
-              <button
-                class="chip"
+              <Button
+                variant="secondary"
+                size="sm"
+                class="rounded-full"
                 title="Remove filter"
                 onclick={() => (picked = picked.filter((_, j) => j !== i))}
               >
-                <span class="faint">{p.title}:</span>{p.label}<X size={12} />
-              </button>
+                <span class="text-muted-foreground">{p.title}:</span>{p.label}<X class="text-muted-foreground" />
+              </Button>
             {/each}
-            <button class="link clear" onclick={() => (picked = [])}>Clear</button>
+            <Button variant="ghost" size="sm" onclick={() => (picked = [])}>Clear</Button>
           </div>
         {/if}
-      </div>
 
-      <div class="saved-views">
-        <input class="input" aria-label="Saved view name" placeholder="Name this view" bind:value={viewName} onkeydown={(e) => e.key === "Enter" && saveView()} />
-        <button class="btn sm" disabled={!viewName.trim()} onclick={saveView}>Save view</button>
-        {#each savedViews as view (view.id)}
-          <span class="row-flex">
-            <button class="chip" onclick={() => useView(view)}>{view.name}</button>
-            <button class="icon-btn" title={`Remove saved view ${view.name}`} onclick={() => app.updateUi({ saved_views: app.settings!.ui.saved_views.filter((v) => v.id !== view.id) })}><X size={12} /></button>
-          </span>
-        {/each}
+        <div class="flex flex-wrap items-center gap-2">
+          <Input class="h-7 w-52" aria-label="Saved view name" placeholder="Name this view" bind:value={viewName} onkeydown={(e) => e.key === "Enter" && saveView()} />
+          <Button variant="outline" size="sm" disabled={!viewName.trim()} onclick={saveView}>Save view</Button>
+          {#each savedViews as view (view.id)}
+            <ButtonGroup>
+              <Button variant="secondary" size="sm" onclick={() => useView(view)}>{view.name}</Button>
+              <Button variant="secondary" size="icon-sm" title={`Remove saved view ${view.name}`} onclick={() => app.updateUi({ saved_views: app.settings!.ui.saved_views.filter((v) => v.id !== view.id) })}><X /></Button>
+            </ButtonGroup>
+          {/each}
+        </div>
       </div>
       {#if selecting}<BulkActions items={selection} clear={() => (selection = [])} />{/if}
       {#if error}<Status {error} retry={() => pages.refresh()} stale={total !== null && total > 0} />{/if}
@@ -311,13 +332,17 @@
       {:else if total === null}
         {#if !error}<Status loading />{/if}
       {:else}
-        <div class={["browse", { railed: railOn }]} aria-busy={loading}>
+        <div class={["browse", railOn && "grid grid-cols-[1fr_auto] gap-3.5"]} aria-busy={loading}>
           <VirtualGrid bind:this={grid} total={total ?? 0} at={(index) => pages.at(index)} load={(start, end) => pages.ensure(start, end)} {shape} {selecting} {selected} toggle={toggleItem} onfocus={(index) => (focused = index)} restoreFocus={saved?.focus} />
           {#if railOn && chars.data?.length}
-            <nav class="rail" aria-label="Jump to letter">
+            <nav class="sticky top-4 -mr-6 flex flex-col self-start" aria-label="Jump to letter">
               {#each LETTERS as l (l)}
                 {@const at = starts.get(l)}
-                <button disabled={at === undefined} onclick={() => at !== undefined && jump(at)}>{l}</button>
+                <button
+                  class="h-[17px] w-[18px] cursor-pointer text-center font-mono text-[10.5px] leading-[17px] text-muted-foreground hover:text-foreground disabled:cursor-default disabled:opacity-30 disabled:hover:text-muted-foreground"
+                  disabled={at === undefined}
+                  onclick={() => at !== undefined && jump(at)}>{l}</button
+                >
               {/each}
             </nav>
           {/if}
@@ -341,17 +366,18 @@
       {:else if collections.data.length === 0}
         <Status title="No collections" text="Collections you create in Plex show up here." />
       {:else}
-        <div class="grid">
+        <div class="poster-grid">
           {#each collections.data as item (item.ratingKey)}<Card {item} />{/each}
         </div>
       {/if}
     {:else}
-      <nav class="crumbs" aria-label="Folder path">
-        <button class={{ current: trail.length === 0 }} onclick={() => (trail = [])}>{section.title}</button>
+      {#if folders.error && folders.data}<Status error={folders.error} retry={() => folders.reload()} stale />{/if}
+      <nav class="-ml-2.5 mb-5 flex flex-wrap items-center gap-1" aria-label="Folder path">
+        <Button variant="ghost" size="sm" class={trail.length === 0 ? "text-foreground" : "text-muted-foreground"} onclick={() => (trail = [])}>{section.title}</Button>
         {#each trail as step, i (i)}
-          <ChevronRight size={12} />
-          <button class={{ current: i === trail.length - 1 }} onclick={() => (trail = trail.slice(0, i + 1))}
-            >{step.title}</button
+          <ChevronRight size={12} class="text-muted-foreground" />
+          <Button variant="ghost" size="sm" class={i === trail.length - 1 ? "text-foreground" : "text-muted-foreground"} onclick={() => (trail = trail.slice(0, i + 1))}
+            >{step.title}</Button
           >
         {/each}
       </nav>
@@ -361,13 +387,13 @@
         <Status title="Empty folder" />
       {:else}
         {#if folders.data.directories.length}
-          <div class="rows folders">
+          <div class="rows mb-8">
             {#each folders.data.directories as d, i (`${d.key}:${i}`)}
               <button
-                class="list-row clickable"
+                class="list-row clickable w-full text-left"
                 onclick={() => (trail = [...trail, { key: d.key, title: d.title ?? "Folder" }])}
               >
-                <Folder size={15} />
+                <Folder size={15} class="text-muted-foreground" />
                 <span class="t">{d.title}</span>
                 <span class="end"><ChevronRight size={14} /></span>
               </button>
@@ -375,7 +401,7 @@
           </div>
         {/if}
         {#if folders.data.items.length}
-          <div class="grid">
+          <div class="poster-grid">
             {#each folders.data.items as item, i (`${item.ratingKey}:${i}`)}<Card {item} />{/each}
           </div>
         {/if}
@@ -391,7 +417,7 @@
       {#each valueFilters as f (f.filter)}
         <button onclick={() => choose(f)}>
           <span class="grow">{f.title}</span>
-          {#if picked.some((p) => p.filter === f.filter)}<span class="dot"></span>{/if}
+          {#if picked.some((p) => p.filter === f.filter)}<span class="size-1.5 rounded-full bg-tint"></span>{/if}
           <ChevronRight size={14} />
         </button>
       {/each}
@@ -401,15 +427,15 @@
       <hr />
       {#if (values.data?.length ?? 0) > 12}
         <!-- svelte-ignore a11y_autofocus -->
-        <input class="input search" placeholder="Search {f.title.toLowerCase()}" autofocus bind:value={query} />
+        <Input class="mx-1 mt-0.5 mb-1.5 h-7 w-[calc(100%-8px)]" placeholder="Search {f.title.toLowerCase()}" autofocus bind:value={query} />
       {/if}
-      <div class="values">
+      <div class="max-h-80 overflow-y-auto">
         {#if values.loading}
-          <div class="pad"><div class="spinner"></div></div>
+          <div class="grid place-items-center px-2 py-3"><Spinner class="text-muted-foreground" /></div>
         {:else if values.error}
-          <div class="pad faint">{values.error}</div>
+          <div class="grid place-items-center px-2 py-3 text-xs text-muted-foreground">{values.error}</div>
         {:else if shown.length === 0}
-          <div class="pad faint">Nothing to choose</div>
+          <div class="grid place-items-center px-2 py-3 text-xs text-muted-foreground">Nothing to choose</div>
         {:else}
           {#each shown as v, i (`${v.key}:${i}`)}
             {@const on = picked.some((p) => p.filter === f.filter && p.value === v.key)}
@@ -425,167 +451,11 @@
 {/if}
 
 <style>
-  .saved-views { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 18px; }
-  .title {
-    display: flex;
-    align-items: baseline;
-    gap: 14px;
-    min-width: 0;
-  }
-  .scanning {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    font-size: 12px;
-    white-space: nowrap;
-  }
-  .scanning .spinner {
-    width: 11px;
-    height: 11px;
-    border-width: 1px;
-  }
-  .toolbar {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 10px;
-    margin: -8px 0 26px;
-    padding-bottom: 14px;
-    border-bottom: 1px solid var(--line);
-  }
-  .toolbar .tabs .tab {
-    padding: 4px 0;
-  }
-  .sep {
-    width: 1px;
-    height: 18px;
-    margin: 0 6px;
-    background: var(--line-2);
-  }
-  .active {
-    display: flex;
-    flex-basis: 100%;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px;
-  }
-  .active .chip {
-    color: var(--text);
-    gap: 5px;
-  }
-  .active .chip :global(svg) {
-    color: var(--text-3);
-  }
-  .clear {
-    margin-left: 4px;
-    font-size: 12px;
-  }
-
-  .browse.railed {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 14px;
-  }
-  .browse :global(.grid > *) {
-    scroll-margin-top: 24px;
-  }
-  .rail {
-    position: sticky;
-    top: 16px;
-    align-self: start;
-    display: flex;
-    flex-direction: column;
-    margin-right: -24px;
-  }
-  .rail button {
-    width: 18px;
-    height: 17px;
-    padding: 0;
-    border: 0;
-    background: none;
-    color: var(--text-3);
-    font: 10.5px/17px var(--mono);
-    text-align: center;
-    cursor: pointer;
-  }
-  .rail button:hover:not(:disabled) {
-    color: var(--text);
-  }
-  .rail button:disabled {
-    opacity: 0.3;
-    cursor: default;
-  }
-
-  .crumbs {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin: -8px 0 20px;
-    padding-bottom: 14px;
-    border-bottom: 1px solid var(--line);
-    color: var(--text-3);
-  }
-  .crumbs button {
-    padding: 0;
-    border: 0;
-    background: none;
-    color: var(--text-2);
-    cursor: pointer;
-  }
-  .crumbs button:hover {
-    color: var(--text);
-  }
-  .crumbs button.current {
-    color: var(--text);
-    cursor: default;
-  }
-  .folders {
-    margin: -20px 0 32px;
-  }
-  .folders > :first-child {
-    border-top: 0;
-  }
-  .folders button {
-    width: 100%;
-    min-height: 40px;
-    border-left: 0;
-    border-right: 0;
-    border-bottom: 0;
-    background: none;
-    color: var(--text);
-    text-align: left;
-  }
-  .folders button :global(svg) {
-    color: var(--text-3);
-  }
-
   .picker {
     width: 260px;
   }
   .picker .back {
     color: var(--text-2);
     gap: 4px;
-  }
-  .picker .search {
-    width: calc(100% - 8px);
-    height: 28px;
-    margin: 2px 4px 5px;
-  }
-  .values {
-    max-height: 320px;
-    overflow-y: auto;
-  }
-  .pad {
-    display: grid;
-    place-items: center;
-    padding: 12px 9px;
-    font-size: 12px;
-  }
-  .dot {
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
-    background: var(--accent);
   }
 </style>

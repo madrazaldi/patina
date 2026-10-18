@@ -1,5 +1,10 @@
 <script lang="ts">
   import { Ellipsis, GripVertical, ListStart, Play, Shuffle, X } from "@lucide/svelte";
+  import { Badge } from "$lib/components/ui/badge";
+  import { Button } from "$lib/components/ui/button";
+  import { Input } from "$lib/components/ui/input";
+  import { Label } from "$lib/components/ui/label";
+  import { Textarea } from "$lib/components/ui/textarea";
   import Img from "../components/Img.svelte";
   import Status from "../components/Status.svelte";
   import { enqueue, openMenu, play } from "../lib/actions.svelte";
@@ -96,33 +101,37 @@
   {@const total = items.reduce((n, m) => n + (m.duration ?? 0), 0)}
   {@const cutOff = data.data.total > items.length}
   <div class="page">
-    <header class="head">
-      <div class="cover"><Img src={img(playlist.composite ?? playlist.thumb, 480, 480)} /></div>
-      <div>
-        <div class="kicker">{playlist.smart ? "Smart playlist" : "Playlist"}</div>
-        <h1 class="serif">{playlist.title}</h1>
-        <div class="muted">
+    <header class="mb-9 flex items-end gap-8">
+      <div class="bg-muted ring-border aspect-square w-[200px] shrink-0 overflow-hidden rounded-xl shadow-xl ring-1 [&_img]:size-full [&_img]:object-cover">
+        <Img src={img(playlist.composite ?? playlist.thumb, 480, 480)} />
+      </div>
+      <div class="min-w-0 flex-1">
+        <Badge variant="secondary">{playlist.smart ? "Smart playlist" : "Playlist"}</Badge>
+        <h1 class="mt-3 mb-2 text-4xl leading-[1.08] font-semibold tracking-tight text-balance">{playlist.title}</h1>
+        <div class="text-muted-foreground text-sm">
           {cutOff ? `Showing the first ${items.length.toLocaleString()} of ${data.data.total.toLocaleString()} items` : `${items.length} items`} · {duration(total)}
         </div>
-        {#if playlist.summary}<p class="summary">{playlist.summary}</p>{/if}
-        <div class="actions">
-          <button class="btn primary lg" disabled={!items.length} onclick={() => play(playlist)}>
-            <Play size={14} fill="currentColor" />Play
-          </button>
-          <button class="btn lg" disabled={!items.length} onclick={() => play(playlist, { shuffle: true })}>
-            <Shuffle size={14} />Shuffle
-          </button>
-          <button
-            class="btn quiet lg"
-            onclick={() => (editing = { title: playlist.title ?? "", summary: playlist.summary ?? "" })}>Edit</button
+        {#if playlist.summary}<p class="text-muted-foreground mt-2.5 max-w-[70ch]">{playlist.summary}</p>{/if}
+        <div class="mt-5 flex flex-wrap items-center gap-2">
+          <Button size="lg" class="h-10 gap-2 px-5" disabled={!items.length} onclick={() => play(playlist)}>
+            <Play fill="currentColor" />Play
+          </Button>
+          <Button variant="outline" size="lg" class="h-10 px-4" disabled={!items.length} onclick={() => play(playlist, { shuffle: true })}>
+            <Shuffle />Shuffle
+          </Button>
+          <Button
+            variant="ghost"
+            size="lg"
+            class="h-10 px-4"
+            onclick={() => (editing = { title: playlist.title ?? "", summary: playlist.summary ?? "" })}>Edit</Button
           >
           {#if items.length}
-            <button class="btn quiet lg" onclick={() => (app.keepTarget = playlist)}>Keep downloaded</button>
+            <Button variant="ghost" size="lg" class="h-10 px-4" onclick={() => (app.keepTarget = playlist)}>Keep downloaded</Button>
           {/if}
           {#if !playlist.smart && items.length}
-            <button class="btn quiet lg" onclick={clear}>Clear</button>
+            <Button variant="ghost" size="lg" class="h-10 px-4" onclick={clear}>Clear</Button>
           {/if}
-          <button class="btn quiet lg danger" onclick={remove}>Delete</button>
+          <Button variant="destructive" size="lg" class="h-10 px-4" onclick={remove}>Delete</Button>
         </div>
       </div>
     </header>
@@ -158,7 +167,7 @@
             onkeydown={(e) => e.key === "Enter" && nav.push(routeFor(item))}
             oncontextmenu={(e) => openMenu(item, e)}
           >
-            <span class={["n faint num", { grip: reorderable }]}>
+            <span class={["n text-muted-foreground num", { grip: reorderable }]}>
               <span class="i">{i + 1}</span>
               {#if reorderable}<GripVertical size={13} />{/if}
             </span>
@@ -168,35 +177,41 @@
               <div class="s">{plex.subtitle(item)}</div>
             </div>
             <div class="end">
-              {#if item.duration}<span class="dur">{duration(item.duration)}</span>{/if}
-              <button
-                class="icon-btn"
+              {#if item.duration}<span class="mr-2 text-xs">{duration(item.duration)}</span>{/if}
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                class="text-muted-foreground"
                 title="Play"
                 onclick={(e) => {
                   e.stopPropagation();
                   play(item);
-                }}><Play size={14} /></button
+                }}><Play /></Button
               >
-              <button
-                class="icon-btn"
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                class="text-muted-foreground"
                 title="Play next"
                 onclick={(e) => {
                   e.stopPropagation();
                   enqueue(item, true);
-                }}><ListStart size={15} /></button
+                }}><ListStart /></Button
               >
               {#if !playlist.smart && item.playlistItemID != null}
                 {@const itemId = item.playlistItemID}
-                <button
-                  class="icon-btn"
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  class="text-muted-foreground"
                   title="Remove from playlist"
                   onclick={(e) => {
                     e.stopPropagation();
                     act(api.removeFromPlaylist(id, itemId), undefined, true);
-                  }}><X /></button
+                  }}><X /></Button
                 >
               {/if}
-              <button class="icon-btn" title="More" onclick={(e) => openMenu(item, e)}><Ellipsis /></button>
+              <Button variant="ghost" size="icon-sm" class="text-muted-foreground" title="More" onclick={(e) => openMenu(item, e)}><Ellipsis /></Button>
             </div>
           </div>
         {/each}
@@ -208,63 +223,22 @@
 {#if editing}
   <dialog class="modal" use:modal={() => (editing = null)} aria-labelledby="playlist-edit-title">
     <h2 id="playlist-edit-title">Edit playlist</h2>
-    <label class="field">
-      <span>Title</span>
-      <input class="input" data-initial-focus bind:value={editing.title} onkeydown={(e) => e.key === "Enter" && save()} />
-    </label>
-    <label class="field">
-      <span>Description</span>
-      <textarea class="input" rows="4" bind:value={editing.summary}></textarea>
-    </label>
+    <div class="mt-4 grid gap-2">
+      <Label class="text-muted-foreground text-xs" for="playlist-edit-name">Title</Label>
+      <Input id="playlist-edit-name" data-initial-focus bind:value={editing.title} onkeydown={(e) => e.key === "Enter" && save()} />
+    </div>
+    <div class="mt-4 grid gap-2">
+      <Label class="text-muted-foreground text-xs" for="playlist-edit-summary">Description</Label>
+      <Textarea id="playlist-edit-summary" rows={4} bind:value={editing.summary} />
+    </div>
     <div class="foot">
-      <button class="btn quiet" onclick={() => (editing = null)}>Cancel</button>
-      <button class="btn primary" disabled={!editing.title.trim()} onclick={save}>Save</button>
+      <Button variant="ghost" onclick={() => (editing = null)}>Cancel</Button>
+      <Button disabled={!editing.title.trim()} onclick={save}>Save</Button>
     </div>
   </dialog>
 {/if}
 
 <style>
-  .head {
-    display: grid;
-    grid-template-columns: 200px 1fr;
-    gap: 32px;
-    align-items: end;
-    margin-bottom: 36px;
-  }
-  .cover {
-    aspect-ratio: 1;
-    border-radius: var(--r);
-    overflow: hidden;
-    background: var(--surface);
-  }
-  .cover :global(img) {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-  .kicker {
-    font-size: 10.5px;
-    font-weight: 600;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--text-3);
-  }
-  h1 {
-    margin: 8px 0 8px;
-    font-size: 40px;
-    font-weight: 400;
-    line-height: 1.05;
-  }
-  .summary {
-    margin-top: 10px;
-    max-width: 70ch;
-    color: var(--text-2);
-  }
-  .actions {
-    display: flex;
-    gap: 8px;
-    margin-top: 20px;
-  }
   .entry {
     grid-template-columns: 28px 32px 1fr auto;
   }
@@ -287,32 +261,9 @@
     opacity: 0.4;
   }
   .entry.drop-before {
-    box-shadow: inset 0 1px 0 var(--accent);
+    box-shadow: inset 0 1px 0 var(--tint);
   }
   .entry.drop-after {
-    box-shadow: inset 0 -1px 0 var(--accent);
-  }
-  .dur {
-    margin-right: 8px;
-    font-size: 12px;
-  }
-
-  .field {
-    display: grid;
-    gap: 6px;
-    margin-top: 16px;
-  }
-  .field span {
-    font-size: 10.5px;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--text-3);
-  }
-  textarea.input {
-    height: auto;
-    padding: 7px 10px;
-    resize: vertical;
-    line-height: 1.45;
+    box-shadow: inset 0 -1px 0 var(--tint);
   }
 </style>
