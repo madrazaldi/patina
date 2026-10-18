@@ -45,7 +45,7 @@
   const label = "text-muted-foreground w-12 flex-none text-[10.5px] font-semibold tracking-wider uppercase";
   const heading = "text-muted-foreground text-[10.5px] font-semibold tracking-wider uppercase";
   const chip = "text-muted-foreground hover:text-foreground rounded-full px-2.5";
-  const on = "border-tint/55 text-tint hover:text-tint";
+  const on = "border-tint/55 dark:border-tint/55 text-tint hover:text-tint";
 
   // Open with the playing chapter in view.
   let chapters: HTMLDivElement | undefined = $state();

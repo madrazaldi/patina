@@ -19,7 +19,7 @@
   }
 </script>
 
-<div class="grid grid-cols-[minmax(0,1fr)_minmax(180px,320px)] items-center gap-6 px-4 py-3.5">
+<div class="grid grid-cols-[minmax(0,1fr)_minmax(160px,260px)] items-center gap-6 px-4 py-3.5">
   <div class="min-w-0">
     <div class="text-sm font-medium">
       {pref.label}

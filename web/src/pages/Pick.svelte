@@ -126,7 +126,7 @@
     </div>
   </div>
 
-  <div class="grid items-start gap-9 min-[861px]:grid-cols-[280px_minmax(0,1fr)]">
+  <div class="grid items-start gap-6 min-[861px]:grid-cols-[280px_minmax(0,1fr)]">
     <form class="flex flex-col gap-4 rounded-xl border bg-card p-4" onsubmit={(e) => e.preventDefault()} aria-label="What to watch">
       <Field.Field>
         <Field.Label for="pick-kind">Looking for</Field.Label>

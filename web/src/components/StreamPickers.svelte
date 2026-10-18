@@ -39,7 +39,7 @@
 {#if part}
   <div class="mt-6 flex flex-wrap items-end gap-4">
     {#if item.Media.length > 1}
-      <div class="flex w-56 flex-col gap-1.5">
+      <div class="flex min-w-50 max-w-[340px] flex-col gap-1.5">
         <Label class="text-muted-foreground text-xs" for="pick-version">Version</Label>
         <NativeSelect.Root id="pick-version" class="w-full" value={String(mediaIndex)} onchange={(e) => (mediaIndex = Number(e.currentTarget.value))}>
           {#each item.Media as m, i (i)}<NativeSelect.Option value={String(i)}>{plex.mediaLabel(m) || `Version ${i + 1}`}</NativeSelect.Option>{/each}
@@ -47,7 +47,7 @@
       </div>
     {/if}
     {#if audio.length}
-      <div class="flex w-56 flex-col gap-1.5">
+      <div class="flex min-w-50 max-w-[340px] flex-col gap-1.5">
         <Label class="text-muted-foreground text-xs" for="pick-audio">Audio</Label>
         <NativeSelect.Root id="pick-audio" class="w-full" value={String(selectedAudio)} onchange={(e) => select(Number(e.currentTarget.value))}>
           {#each audio as s (s.id)}<NativeSelect.Option value={String(s.id)}>{plex.streamLabel(s)}</NativeSelect.Option>{/each}
@@ -55,7 +55,7 @@
       </div>
     {/if}
     {#if plex.kind(item) !== "track"}
-      <div class="flex w-56 flex-col gap-1.5">
+      <div class="flex min-w-50 max-w-[340px] flex-col gap-1.5">
         <div class="flex items-center justify-between gap-3">
           <Label class="text-muted-foreground text-xs" for="pick-subtitles">Subtitles</Label>
           {#if owner && ["movie", "episode"].includes(plex.kind(item))}

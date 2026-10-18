@@ -133,7 +133,7 @@
       <Icon />
       <span>{label}</span>
     </Sidebar.MenuButton>
-    {#if badge}<Sidebar.MenuBadge>{@render badge()}</Sidebar.MenuBadge>{/if}
+    {#if badge}<Sidebar.MenuBadge class="text-tint peer-hover/menu-button:text-tint peer-data-active/menu-button:text-tint">{@render badge()}</Sidebar.MenuBadge>{/if}
   </Sidebar.MenuItem>
 {/snippet}
 

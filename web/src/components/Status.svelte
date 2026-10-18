@@ -33,7 +33,7 @@
     <Empty.Root class={["border", fill ? "min-h-[60vh]" : "min-h-44"]}>
       <Empty.Header>
         <Empty.Media variant="icon"><CircleAlert /></Empty.Media>
-        <Empty.Title>Could not load this page</Empty.Title>
+        <Empty.Title role="heading" aria-level={3}>Could not load this page</Empty.Title>
       </Empty.Header>
       <Empty.Content class="max-w-xl">
         <Alert.Root variant="destructive" role="none"><Alert.Description class="whitespace-pre-wrap select-text">{error}</Alert.Description></Alert.Root>
@@ -43,7 +43,7 @@
   {:else}
     <Empty.Root class={["border", fill ? "min-h-[60vh]" : "min-h-44"]}>
       <Empty.Header>
-        {#if title}<Empty.Title class="text-base">{title}</Empty.Title>{/if}
+        {#if title}<Empty.Title role="heading" aria-level={3} class="text-base">{title}</Empty.Title>{/if}
         {#if text}<Empty.Description>{text}</Empty.Description>{/if}
       </Empty.Header>
     </Empty.Root>

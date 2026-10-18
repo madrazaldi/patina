@@ -155,7 +155,8 @@
   <Status title="Server tools need owner access" text="This server is shared with you." fill />
 {:else}
   <div class="page">
-    <div class="page-head">
+    <!-- Wraps so the tabs go under a long server name instead of squeezing it. -->
+    <div class="page-head flex-wrap">
       <div>
         <h1>{app.session?.serverName}</h1>
         <div class="sub">Manage your Plex Media Server.</div>
@@ -454,7 +455,7 @@
             </Empty.Header>
           </Empty.Root>
         {:else}
-          <div class="grid grid-cols-[200px_minmax(0,1fr)] items-start gap-8">
+          <div class="grid grid-cols-[180px_minmax(0,1fr)] items-start gap-8">
             <nav class="groups sticky top-0 flex flex-col gap-1">
               {#each groups as g (g.id)}
                 {@const active = !searching && g.id === current?.id}

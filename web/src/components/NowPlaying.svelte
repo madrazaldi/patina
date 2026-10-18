@@ -128,7 +128,7 @@
   {@const position = scrub != null ? scrub * np.durationMs : np.positionMs}
   {@const pct = np.durationMs > 0 ? (position / np.durationMs) * 100 : 0}
   {@const status = np.live ? "Live" : np.local ? "Offline" : np.transcoding ? "Transcode" : "Direct play"}
-  <footer class="now-playing bg-background relative grid h-[60px] grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-6 border-t px-4" bind:this={footer}>
+  <footer class="now-playing bg-background relative grid h-[60px] grid-cols-[minmax(0,1fr)_auto_minmax(0,1.5fr)] items-center gap-6 border-t px-4" bind:this={footer}>
     {#if !np.live && np.durationMs > 0}
       <div
         class={["seek", { scrubbing: scrub != null }]}

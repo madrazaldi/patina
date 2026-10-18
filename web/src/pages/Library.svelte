@@ -292,7 +292,7 @@
               onclick={() => toggle(f)}>{f.title}</Button
             >
           {/each}
-          <Button variant="outline" size="sm" aria-pressed={selecting} class="aria-pressed:border-tint/50 aria-pressed:bg-tint/10 aria-pressed:text-tint" onclick={() => { selecting = !selecting; if (!selecting) selection = []; }}>Select titles</Button>
+          <Button variant="outline" size="sm" aria-pressed={selecting} class="aria-pressed:text-tint dark:aria-pressed:border-tint/50 dark:aria-pressed:bg-tint/10" onclick={() => { selecting = !selecting; if (!selecting) selection = []; }}>Select titles</Button>
           <span class="flex-1"></span>
           {#if total != null}<span class="text-sm text-muted-foreground tabular-nums">{plural(total, noun)}</span>{/if}
         </div>

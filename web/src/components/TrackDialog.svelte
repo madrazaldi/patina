@@ -215,7 +215,7 @@
       <Separator class="mt-5" />
       <div class="mt-4 flex flex-col gap-2.5 text-sm">
         {#if progress}
-          <Progress value={progress[0]} max={Math.max(1, progress[1])} />
+          <Progress value={progress[0]} max={Math.max(1, progress[1])} class="[&_[data-slot=progress-indicator]]:bg-tint" />
           <span class="tabular-nums">Updating {progress[0]} of {progress[1]}…</span>
         {:else if view.nothingChosen}
           <span class="text-muted-foreground">
