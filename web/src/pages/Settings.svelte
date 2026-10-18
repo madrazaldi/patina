@@ -1,6 +1,16 @@
 <script lang="ts">
   import { ExternalLink } from "@lucide/svelte";
   import Img from "../components/Img.svelte";
+  import * as Alert from "$lib/components/ui/alert";
+  import * as Avatar from "$lib/components/ui/avatar";
+  import { Button } from "$lib/components/ui/button";
+  import * as Card from "$lib/components/ui/card";
+  import * as Field from "$lib/components/ui/field";
+  import { Input } from "$lib/components/ui/input";
+  import * as NativeSelect from "$lib/components/ui/native-select";
+  import { Slider } from "$lib/components/ui/slider";
+  import { Switch } from "$lib/components/ui/switch";
+  import * as ToggleGroup from "$lib/components/ui/toggle-group";
   import { modal } from "../lib/dialog";
   import { api } from "../lib/api";
   import { initials } from "../lib/format";
@@ -89,10 +99,24 @@
     nav.reset();
     await api.switchUser(u.uuid, code).catch((e) => app.error(e));
   }
+
+  // Shared layout of the cards and their label / control rows.
+  const CARD = "gap-0 pb-0";
+  const HEAD = "border-b";
+  const BODY = "divide-y px-0";
+  const ROW = "flex items-center justify-between gap-6 px-4 py-3.5";
+  const CTRL = "flex flex-none items-center gap-2";
 </script>
 
+{#snippet label(title: string, desc?: string, cls = "")}
+  <Field.Content>
+    <Field.Title>{title}</Field.Title>
+    {#if desc}<Field.Description class={["text-[13px]", cls]}>{desc}</Field.Description>{/if}
+  </Field.Content>
+{/snippet}
+
 {#if p && ui && info}
-  <div class="page narrow">
+  <div class="page max-w-[960px]">
     <div class="page-head">
       <div>
         <h1>Settings</h1>
@@ -100,247 +124,251 @@
       </div>
     </div>
 
-    <section>
-      <div class="section-head"><h2>Player</h2></div>
-      <p class="muted intro">Everything plays in mpv, with your normal mpv configuration, scripts and key bindings.</p>
-      <div class="rows">
-        <div class="setting">
-          <div class="label">
-            <b>mpv executable</b>
-            {#if !probe}<span>Checking…</span>
-            {:else}<span class={probe.ok ? "ok" : "bad"}>{probe.text}</span>{/if}
-          </div>
-          <div class="control">
-            <input class="input" style="width: 240px" placeholder="Auto-detect" value={p.mpv_path} oninput={(e) => app.updatePlayer({ mpv_path: e.currentTarget.value })} />
-            <button class="btn sm" onclick={() => setTimeout(test, 300)}>Test</button>
-          </div>
-        </div>
-        <div class="setting">
-          <div class="label">
-            <b>mpv configuration</b>
-            <span class="selectable">{info.mpvConfigDir}{info.mpvConfExists ? " (mpv.conf found)" : ""}</span>
-          </div>
-          <div class="control"><button class="btn sm" onclick={() => api.openMpvConfig().catch((e) => app.error(e))}>Open folder</button></div>
-        </div>
-        <div class="setting">
-          <div class="label"><b>Extra mpv arguments</b><span>Appended to the command line, e.g. --fs --profile=hq. Your mpv.conf is always loaded.</span></div>
-          <div class="control">
-            <input class="input" style="width: 300px" placeholder="--fs" value={p.extra_args} oninput={(e) => app.updatePlayer({ extra_args: e.currentTarget.value })} />
-          </div>
-        </div>
-        <div class="setting">
-          <div class="label"><b>Streaming quality</b><span>Original plays the file directly. Lower qualities ask the server to transcode, which helps on slow connections.</span></div>
-          <div class="control">
-            <select class="select" style="width: 220px" value={p.quality} onchange={(e) => app.updatePlayer({ quality: e.currentTarget.value })}>
-              {#each info.qualities as q (q.id)}<option value={q.id}>{q.label}</option>{/each}
-            </select>
-          </div>
-        </div>
-        {#each [
-          ["continuous", "Autoplay next episode", "Queue the following episodes when you play one."],
-          ["sync_streams", "Sync audio & subtitle tracks", "Start with the tracks selected in Plex, and remember tracks you switch to in mpv."],
-          ["auto_skip_intro", "Skip intros automatically", "Uses Plex intro markers. Otherwise press the skip key when prompted."],
-          ["auto_skip_credits", "Skip credits automatically", "Jumps past credits, or straight to the next episode."],
-        ] as const as [key, label, desc] (key)}
-          <div class="setting">
-            <div class="label"><b>{label}</b><span>{desc}</span></div>
-            <div class="control">
-              <button class={["toggle", { on: p[key] }]} aria-label={label} onclick={() => app.updatePlayer({ [key]: !p[key] })}></button>
+    <div class="flex flex-col gap-6">
+      <Card.Root class={CARD}>
+        <Card.Header class={HEAD}>
+          <h2 class="text-base leading-snug font-semibold tracking-tight">Player</h2>
+          <Card.Description>Everything plays in mpv, with your normal mpv configuration, scripts and key bindings.</Card.Description>
+        </Card.Header>
+        <Card.Content class={BODY}>
+          <div class={ROW}>
+            {#if !probe}{@render label("mpv executable", "Checking…")}
+            {:else}{@render label("mpv executable", probe.text, probe.ok ? "" : "text-destructive")}{/if}
+            <div class={CTRL}>
+              <Input class="w-60" placeholder="Auto-detect" value={p.mpv_path} oninput={(e) => app.updatePlayer({ mpv_path: e.currentTarget.value })} />
+              <Button variant="outline" size="sm" onclick={() => setTimeout(test, 300)}>Test</Button>
             </div>
           </div>
-        {/each}
-        <div class="setting">
-          <div class="label"><b>Skip key</b><span>mpv key name that skips an intro or credits. It is bound only while Patina controls mpv.</span></div>
-          <div class="control">
-            <input class="input" style="width: 120px" value={p.skip_key} oninput={(e) => app.updatePlayer({ skip_key: e.currentTarget.value })} />
+          <div class={ROW}>
+            {@render label("mpv configuration", `${info.mpvConfigDir ?? ""}${info.mpvConfExists ? " (mpv.conf found)" : ""}`, "selectable")}
+            <div class={CTRL}><Button variant="outline" size="sm" onclick={() => api.openMpvConfig().catch((e) => app.error(e))}>Open folder</Button></div>
           </div>
-        </div>
-        <div class="setting">
-          <div class="label"><b>Mark as watched after</b><span>How much of an item must play before it counts as watched.</span></div>
-          <div class="control">
-            <select
-              class="select"
-              style="width: 120px"
-              value={String(p.watched_threshold)}
-              onchange={(e) => app.updatePlayer({ watched_threshold: Number(e.currentTarget.value) })}
-            >
-              {#each [0.8, 0.85, 0.9, 0.95] as t (t)}<option value={String(t)}>{Math.round(t * 100)}%</option>{/each}
-            </select>
-          </div>
-        </div>
-        <div class="setting">
-          <div class="label"><b>System media controls</b><span>Show what's playing in the OS media controls and respond to media keys.</span></div>
-          <div class="control">
-            <button
-              class={["toggle", { on: p.media_controls }]}
-              aria-label="System media controls"
-              onclick={() => app.updatePlayer({ media_controls: !p.media_controls })}
-            ></button>
-          </div>
-        </div>
-        <div class="setting">
-          <div class="label"><b>Discord Rich Presence</b><span>Show what you're watching or listening to on your Discord profile.</span></div>
-          <div class="control">
-            <button class={["toggle", { on: p.discord }]} aria-label="Discord Rich Presence" onclick={() => app.updatePlayer({ discord: !p.discord })}></button>
-          </div>
-        </div>
-        {#if p.discord}
-          <div class="setting">
-            <div class="label">
-              <b>Discord application ID</b>
-              <span>Create an application at discord.com/developers and paste its ID here. Its name is what Discord shows, e.g. “Patina”.</span>
+          <div class={ROW}>
+            {@render label("Extra mpv arguments", "Appended to the command line, e.g. --fs --profile=hq. Your mpv.conf is always loaded.")}
+            <div class={CTRL}>
+              <Input class="w-72" placeholder="--fs" value={p.extra_args} oninput={(e) => app.updatePlayer({ extra_args: e.currentTarget.value })} />
             </div>
-            <div class="control">
-              <input
-                class="input num"
-                style="width: 200px"
-                placeholder="Application ID"
-                value={p.discord_app_id}
-                oninput={(e) => app.updatePlayer({ discord_app_id: e.currentTarget.value.trim() })}
+          </div>
+          <div class={ROW}>
+            {@render label("Streaming quality", "Original plays the file directly. Lower qualities ask the server to transcode, which helps on slow connections.")}
+            <div class={CTRL}>
+              <NativeSelect.Root class="w-56" value={p.quality} onchange={(e) => app.updatePlayer({ quality: e.currentTarget.value })}>
+                {#each info.qualities as q (q.id)}<NativeSelect.Option value={q.id}>{q.label}</NativeSelect.Option>{/each}
+              </NativeSelect.Root>
+            </div>
+          </div>
+          {#each [
+            ["continuous", "Autoplay next episode", "Queue the following episodes when you play one."],
+            ["sync_streams", "Sync audio & subtitle tracks", "Start with the tracks selected in Plex, and remember tracks you switch to in mpv."],
+            ["auto_skip_intro", "Skip intros automatically", "Uses Plex intro markers. Otherwise press the skip key when prompted."],
+            ["auto_skip_credits", "Skip credits automatically", "Jumps past credits, or straight to the next episode."],
+          ] as const as [key, title, desc] (key)}
+            <div class={ROW}>
+              {@render label(title, desc)}
+              <div class={CTRL}>
+                <Switch aria-label={title} checked={p[key]} onCheckedChange={(on) => app.updatePlayer({ [key]: on })} />
+              </div>
+            </div>
+          {/each}
+          <div class={ROW}>
+            {@render label("Skip key", "mpv key name that skips an intro or credits. It is bound only while Patina controls mpv.")}
+            <div class={CTRL}>
+              <Input class="w-32" value={p.skip_key} oninput={(e) => app.updatePlayer({ skip_key: e.currentTarget.value })} />
+            </div>
+          </div>
+          <div class={ROW}>
+            {@render label("Mark as watched after", "How much of an item must play before it counts as watched.")}
+            <div class={CTRL}>
+              <NativeSelect.Root class="w-28" value={String(p.watched_threshold)} onchange={(e) => app.updatePlayer({ watched_threshold: Number(e.currentTarget.value) })}>
+                {#each [0.8, 0.85, 0.9, 0.95] as t (t)}<NativeSelect.Option value={String(t)}>{Math.round(t * 100)}%</NativeSelect.Option>{/each}
+              </NativeSelect.Root>
+            </div>
+          </div>
+          <div class={ROW}>
+            {@render label("System media controls", "Show what's playing in the OS media controls and respond to media keys.")}
+            <div class={CTRL}>
+              <Switch aria-label="System media controls" checked={p.media_controls} onCheckedChange={(on) => app.updatePlayer({ media_controls: on })} />
+            </div>
+          </div>
+          <div class={ROW}>
+            {@render label("Discord Rich Presence", "Show what you're watching or listening to on your Discord profile.")}
+            <div class={CTRL}>
+              <Switch aria-label="Discord Rich Presence" checked={p.discord} onCheckedChange={(on) => app.updatePlayer({ discord: on })} />
+            </div>
+          </div>
+          {#if p.discord}
+            <div class={ROW}>
+              {@render label("Discord application ID", "Create an application at discord.com/developers and paste its ID here. Its name is what Discord shows, e.g. “Patina”.")}
+              <div class={CTRL}>
+                <Input
+                  class="w-52 tabular-nums"
+                  placeholder="Application ID"
+                  value={p.discord_app_id}
+                  oninput={(e) => app.updatePlayer({ discord_app_id: e.currentTarget.value.trim() })}
+                />
+                <Button variant="outline" size="sm" onclick={() => api.openUrl("https://discord.com/developers/applications").catch((e) => app.error(e))}>
+                  <ExternalLink />Developer portal
+                </Button>
+              </div>
+            </div>
+          {/if}
+          <div class={ROW}>
+            {@render label("Downloads folder", "Where movies, episodes and music you download for offline viewing are saved.")}
+            <div class={CTRL}>
+              <Input
+                class="w-60"
+                placeholder="Default (Movies/Patina)"
+                value={p.downloads_dir}
+                oninput={(e) => app.updatePlayer({ downloads_dir: e.currentTarget.value })}
               />
-              <button class="btn sm" onclick={() => api.openUrl("https://discord.com/developers/applications").catch((e) => app.error(e))}>
-                <ExternalLink size={14} />Developer portal
-              </button>
+              <Button variant="outline" size="sm" onclick={() => api.openDownloadsFolder().catch((e) => app.error(e))}>Open</Button>
             </div>
           </div>
-        {/if}
-        <div class="setting">
-          <div class="label"><b>Downloads folder</b><span>Where movies, episodes and music you download for offline viewing are saved.</span></div>
-          <div class="control">
-            <input
-              class="input"
-              style="width: 240px"
-              placeholder="Default (Movies/Patina)"
-              value={p.downloads_dir}
-              oninput={(e) => app.updatePlayer({ downloads_dir: e.currentTarget.value })}
-            />
-            <button class="btn sm" onclick={() => api.openDownloadsFolder().catch((e) => app.error(e))}>Open</button>
-          </div>
-        </div>
-      </div>
-    </section>
+        </Card.Content>
+      </Card.Root>
 
-    <section>
-      <div class="section-head">
-        <h2>Automatic playback</h2>
-        {#if rulesSet}<button class="more" onclick={() => saveProfile({})}>Clear all</button>{/if}
-      </div>
-      <p class="muted intro">
-        Audio, subtitle and version choices made for you when something starts playing, for the signed-in profile on
-        this server. Shows can override these from their page. Applies to new episodes too.
-      </p>
-      {#if prefsError}
-        <div class="error-box">{prefsError}</div>
-      {:else if prefs}
-        <PlaybackRulesForm rules={prefs.profile} onsave={saveProfile} />
-        {#if shows.length}
-          <h3 class="sub-head">Shows with their own preferences</h3>
-          <div class="rows">
-            {#each shows as s (s.ratingKey)}
-              <div class="setting">
-                <div class="label">
-                  <b>{s.title}</b>
-                  <span>{summary(s.rules)}</span>
-                </div>
-                <div class="control">
-                  <button class="btn sm" onclick={() => nav.push({ name: "item", ratingKey: s.ratingKey })}>Open</button>
-                  <button class="btn sm danger" onclick={() => clearShow(s)}>Clear</button>
-                </div>
-              </div>
-            {/each}
-          </div>
-        {/if}
-      {/if}
-    </section>
-
-    <section>
-      <div class="section-head"><h2>Appearance</h2></div>
-      <div class="rows">
-        <div class="setting">
-          <div class="label"><b>Accent</b><span>Used sparingly: progress, watched marks and focus.</span></div>
-          <div class="control swatches">
-            {#each info.accents as a (a.id)}
-              <button
-                class={["swatch", { on: ui.accent === a.id }]}
-                title={a.label}
-                aria-label={a.label}
-                style:--c={a.color}
-                onclick={() => app.updateUi({ accent: a.id })}
-              ></button>
-            {/each}
-          </div>
-        </div>
-        <div class="setting">
-          <div class="label"><b>Poster size</b><span class="num">{ui.poster_size}px</span></div>
-          <div class="control">
-            <input
-              type="range"
-              min="120"
-              max="240"
-              step="4"
-              value={ui.poster_size}
-              oninput={(e) => app.updateUi({ poster_size: Number(e.currentTarget.value) })}
-            />
-          </div>
-        </div>
-        <div class="setting">
-          <div class="label"><b>Hide spoilers</b><span>Blur thumbnails and summaries of episodes you haven't watched. Hover a summary to reveal it.</span></div>
-          <div class="control">
-            <button class={["toggle", { on: ui.hide_spoilers }]} aria-label="Hide spoilers" onclick={() => app.updateUi({ hide_spoilers: !ui.hide_spoilers })}></button>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section>
-      <div class="section-head"><h2>Account</h2></div>
-      <div class="rows">
-        {#if user}
-          <div class="setting">
-            <div class="label row-flex">
-              <span class="avatar big">{#if user.thumb}<Img src={img(user.thumb, 96, 96)} />{:else}{initials(user.name)}{/if}</span>
-              <div>
-                <b>{user.name}</b>
-                <span>{user.email ?? ""}{user.plexPass ? " · Plex Pass" : ""}</span>
-              </div>
+      <Card.Root class={CARD}>
+        <Card.Header class={HEAD}>
+          <h2 class="text-base leading-snug font-semibold tracking-tight">Automatic playback</h2>
+          <Card.Description>
+            Audio, subtitle and version choices made for you when something starts playing, for the signed-in profile on
+            this server. Shows can override these from their page. Applies to new episodes too.
+          </Card.Description>
+          {#if rulesSet}
+            <Card.Action><Button variant="ghost" size="sm" onclick={() => saveProfile({})}>Clear all</Button></Card.Action>
+          {/if}
+        </Card.Header>
+        <Card.Content class={BODY}>
+          {#if prefsError}
+            <div class="p-4">
+              <Alert.Root variant="destructive"><Alert.Description class="whitespace-pre-wrap select-text">{prefsError}</Alert.Description></Alert.Root>
             </div>
-            <div class="control"><button class="btn sm danger" onclick={() => api.signOut()}>Sign out</button></div>
-          </div>
-        {:else}
-          <div class="setting">
-            <div class="label"><b>Direct server connection</b><span>Not signed in to plex.tv.</span></div>
-            <div class="control"><button class="btn sm" onclick={() => api.signOut()}>Sign in with Plex</button></div>
-          </div>
-        {/if}
-        {#if (home.data?.length ?? 0) > 1}
-          <div class="setting column">
-            <div class="label"><b>Plex Home</b><span>Switch to another member of your Plex Home.</span></div>
-            <div class="users">
-              {#each home.data ?? [] as u (u.uuid)}
-                {@const active = !!u.uuid && u.uuid === user?.uuid}
-                {@const name = u.title ?? u.username ?? "User"}
-                <button
-                  class={["chip", { active }]}
-                  onclick={() => {
-                    if (active) return;
-                    if (u.protected) {
-                      pin = "";
-                      pinFor = u;
-                    } else switchTo(u);
-                  }}
-                >
-                  <span class="avatar tiny">{#if u.thumb}<Img src={img(u.thumb, 40, 40)} />{:else}{initials(name)}{/if}</span>
-                  {name}{u.protected ? " · PIN" : ""}
-                </button>
+          {:else if prefs}
+            <PlaybackRulesForm class="rounded-none border-0 bg-transparent" rules={prefs.profile} onsave={saveProfile} />
+            {#if shows.length}
+              <h3 class="bg-muted/30 text-muted-foreground px-4 py-2 text-xs font-medium tracking-wider uppercase">Shows with their own preferences</h3>
+              {#each shows as s (s.ratingKey)}
+                <div class={ROW}>
+                  {@render label(s.title, summary(s.rules))}
+                  <div class={CTRL}>
+                    <Button variant="outline" size="sm" onclick={() => nav.push({ name: "item", ratingKey: s.ratingKey })}>Open</Button>
+                    <Button variant="destructive" size="sm" onclick={() => clearShow(s)}>Clear</Button>
+                  </div>
+                </div>
               {/each}
+            {/if}
+          {/if}
+        </Card.Content>
+      </Card.Root>
+
+      <Card.Root class={CARD}>
+        <Card.Header class={HEAD}>
+          <h2 class="text-base leading-snug font-semibold tracking-tight">Appearance</h2>
+        </Card.Header>
+        <Card.Content class={BODY}>
+          <div class={ROW}>
+            {@render label("Accent", "Used sparingly: progress, watched marks and focus.")}
+            <div class={CTRL}>
+              <ToggleGroup.Root
+                type="single"
+                spacing={2}
+                bind:value={() => ui.accent, (id) => id && app.updateUi({ accent: id })}
+                aria-label="Accent"
+              >
+                {#each info.accents as a (a.id)}
+                  <ToggleGroup.Item
+                    value={a.id}
+                    title={a.label}
+                    aria-label={a.label}
+                    style="background: {a.color}"
+                    class="ring-offset-card data-[state=on]:ring-foreground size-5 min-w-5 rounded-full p-0 ring-offset-2 data-[state=on]:ring-2"
+                  />
+                {/each}
+              </ToggleGroup.Root>
             </div>
           </div>
-        {/if}
-        <div class="setting">
-          <div class="label"><b>Version</b><span class="num">Patina {info.version}</span></div>
-        </div>
-      </div>
-    </section>
+          <div class={ROW}>
+            {@render label("Poster size", `${ui.poster_size}px`, "tabular-nums")}
+            <div class={CTRL}>
+              <Slider
+                type="single"
+                class="w-56"
+                min={120}
+                max={240}
+                step={4}
+                value={ui.poster_size}
+                onValueChange={(v) => app.updateUi({ poster_size: v })}
+                aria-label="Poster size"
+              />
+            </div>
+          </div>
+          <div class={ROW}>
+            {@render label("Hide spoilers", "Blur thumbnails and summaries of episodes you haven't watched. Hover a summary to reveal it.")}
+            <div class={CTRL}>
+              <Switch aria-label="Hide spoilers" checked={ui.hide_spoilers} onCheckedChange={(on) => app.updateUi({ hide_spoilers: on })} />
+            </div>
+          </div>
+        </Card.Content>
+      </Card.Root>
+
+      <Card.Root class={CARD}>
+        <Card.Header class={HEAD}>
+          <h2 class="text-base leading-snug font-semibold tracking-tight">Account</h2>
+        </Card.Header>
+        <Card.Content class={BODY}>
+          {#if user}
+            <div class={ROW}>
+              <div class="flex min-w-0 items-center gap-3">
+                <Avatar.Root size="lg" class="overflow-hidden">
+                  {#if user.thumb}<Img class="size-full object-cover" src={img(user.thumb, 96, 96)} />{:else}<Avatar.Fallback>{initials(user.name)}</Avatar.Fallback>{/if}
+                </Avatar.Root>
+                <Field.Content>
+                  <Field.Title>{user.name}</Field.Title>
+                  <Field.Description>{user.email ?? ""}{user.plexPass ? " · Plex Pass" : ""}</Field.Description>
+                </Field.Content>
+              </div>
+              <div class={CTRL}><Button variant="destructive" size="sm" onclick={() => api.signOut()}>Sign out</Button></div>
+            </div>
+          {:else}
+            <div class={ROW}>
+              {@render label("Direct server connection", "Not signed in to plex.tv.")}
+              <div class={CTRL}><Button variant="outline" size="sm" onclick={() => api.signOut()}>Sign in with Plex</Button></div>
+            </div>
+          {/if}
+          {#if (home.data?.length ?? 0) > 1}
+            <div class="flex flex-col gap-3 px-4 py-3.5">
+              {@render label("Plex Home", "Switch to another member of your Plex Home.")}
+              <div class="flex flex-wrap gap-2">
+                {#each home.data ?? [] as u (u.uuid)}
+                  {@const active = !!u.uuid && u.uuid === user?.uuid}
+                  {@const name = u.title ?? u.username ?? "User"}
+                  <Button
+                    variant={active ? "default" : "outline"}
+                    size="sm"
+                    class="rounded-full pl-1"
+                    onclick={() => {
+                      if (active) return;
+                      if (u.protected) {
+                        pin = "";
+                        pinFor = u;
+                      } else switchTo(u);
+                    }}
+                  >
+                    <Avatar.Root class="size-5 overflow-hidden">
+                      {#if u.thumb}<Img class="size-full object-cover" src={img(u.thumb, 40, 40)} />{:else}<Avatar.Fallback class="text-[8px]">{initials(name)}</Avatar.Fallback>{/if}
+                    </Avatar.Root>
+                    {name}{u.protected ? " · PIN" : ""}
+                  </Button>
+                {/each}
+              </div>
+            </div>
+          {/if}
+          <div class={ROW}>
+            {@render label("Version", `Patina ${info.version}`, "tabular-nums")}
+          </div>
+        </Card.Content>
+      </Card.Root>
+    </div>
   </div>
 
   {#if pinFor}
@@ -348,90 +376,19 @@
     <dialog class="modal" use:modal={() => (pinFor = null)} aria-labelledby="pin-title">
       <h2 id="pin-title">Enter PIN</h2>
       <p class="desc">{u.title ?? u.username}'s profile is protected.</p>
-      <input
-        class="input pin"
+      <Input
+        class="h-11 text-center font-mono text-xl tracking-[0.4em] md:text-xl"
         type="password"
-        maxlength="4"
+        maxlength={4}
         aria-label="PIN"
         data-initial-focus
         bind:value={pin}
         onkeydown={(e) => e.key === "Enter" && switchTo(u, pin)}
       />
       <div class="foot">
-        <button class="btn quiet" onclick={() => (pinFor = null)}>Cancel</button>
-        <button class="btn primary" onclick={() => switchTo(u, pin)}>Switch</button>
+        <Button variant="ghost" onclick={() => (pinFor = null)}>Cancel</Button>
+        <Button onclick={() => switchTo(u, pin)}>Switch</Button>
       </div>
     </dialog>
   {/if}
 {/if}
-
-<style>
-  .narrow {
-    max-width: 960px;
-  }
-  .intro {
-    margin-bottom: 8px;
-  }
-  .sub-head {
-    margin: 22px 0 6px;
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--text-3);
-  }
-  .ok {
-    color: var(--text-2) !important;
-  }
-  .bad {
-    color: var(--danger) !important;
-  }
-  .swatches {
-    gap: 10px;
-  }
-  .swatch {
-    width: 20px;
-    height: 20px;
-    padding: 0;
-    border: 0;
-    border-radius: 50%;
-    background: var(--c);
-    cursor: pointer;
-  }
-  .swatch.on {
-    box-shadow:
-      0 0 0 2px var(--bg),
-      0 0 0 3px var(--text);
-  }
-  input[type="range"] {
-    width: 220px;
-    accent-color: var(--accent);
-  }
-  .avatar.big {
-    width: 40px;
-    height: 40px;
-    margin-right: 6px;
-  }
-  .avatar.tiny {
-    width: 18px;
-    height: 18px;
-    font-size: 8px;
-  }
-  .setting.column {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 12px;
-  }
-  .users {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-  .pin {
-    width: 100%;
-    font: 20px var(--mono);
-    letter-spacing: 0.4em;
-    text-align: center;
-    height: 44px;
-  }
-</style>

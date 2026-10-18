@@ -1,6 +1,12 @@
 <script lang="ts">
   // "Keep the next N unwatched episodes downloaded" for a show, season or
   // playlist. The policy is evaluated in crates/core/src/smart.rs.
+  import { Button } from "$lib/components/ui/button";
+  import { Checkbox } from "$lib/components/ui/checkbox";
+  import { Field, FieldContent, FieldDescription, FieldLabel } from "$lib/components/ui/field";
+  import { Input } from "$lib/components/ui/input";
+  import { Label } from "$lib/components/ui/label";
+  import { Switch } from "$lib/components/ui/switch";
   import { modal } from "../lib/dialog";
   import { api } from "../lib/api";
   import { bytes } from "../lib/format";
@@ -75,47 +81,40 @@
     </p>
 
     <div class="rows">
-      <div class="setting">
-        <div class="label"><b>Keep next</b><span>Unwatched {noun} to keep on this computer.</span></div>
-        <div class="control">
-          <input class="input num" data-initial-focus type="number" min="1" max="50" style="width: 80px" bind:value={keep} disabled={busy} />
-        </div>
-      </div>
-      <div class="setting">
-        <div class="label"><b>Remove after watching</b><span>Delete these downloads once they are watched.</span></div>
-        <div class="control">
-          <button class={["toggle", { on: deleteWatched }]} aria-label="Remove after watching" onclick={() => (deleteWatched = !deleteWatched)}></button>
-        </div>
-      </div>
+      <Field orientation="horizontal" class="justify-between gap-6 px-4 py-3.5">
+        <FieldContent>
+          <FieldLabel for="keep-count">Keep next</FieldLabel>
+          <FieldDescription>Unwatched {noun} to keep on this computer.</FieldDescription>
+        </FieldContent>
+        <Input id="keep-count" class="w-20 tabular-nums" data-initial-focus type="number" min="1" max="50" bind:value={keep} disabled={busy} />
+      </Field>
+      <Field orientation="horizontal" class="justify-between gap-6 px-4 py-3.5">
+        <FieldContent>
+          <FieldLabel for="keep-delete-watched">Remove after watching</FieldLabel>
+          <FieldDescription>Delete these downloads once they are watched.</FieldDescription>
+        </FieldContent>
+        <Switch id="keep-delete-watched" aria-label="Remove after watching" bind:checked={deleteWatched} disabled={busy} />
+      </Field>
       {#if existing}
-        <div class="setting">
-          <div class="label">
-            <b>Currently</b>
-            <span>{existing.downloads} downloaded{existing.bytes ? `, ${bytes(existing.bytes)}` : ""}{existing.enabled ? "" : " (paused)"}</span>
+        <Field orientation="horizontal" class="justify-between gap-6 px-4 py-3.5">
+          <FieldContent>
+            <FieldLabel>Currently</FieldLabel>
+            <FieldDescription>{existing.downloads} downloaded{existing.bytes ? `, ${bytes(existing.bytes)}` : ""}{existing.enabled ? "" : " (paused)"}</FieldDescription>
+          </FieldContent>
+          <div class="flex items-center gap-2">
+            <Checkbox id="keep-also-delete" bind:checked={alsoDelete} disabled={busy} />
+            <Label for="keep-also-delete" class="text-muted-foreground text-xs font-normal">Also delete them</Label>
           </div>
-          <div class="control">
-            <label class="inline"><input type="checkbox" bind:checked={alsoDelete} />Also delete them</label>
-          </div>
-        </div>
+        </Field>
       {/if}
     </div>
 
     <div class="foot">
       {#if existing}
-        <button class="btn quiet danger" disabled={busy} onclick={remove}>Stop keeping</button>
+        <Button variant="destructive" class="mr-auto" disabled={busy} onclick={remove}>Stop keeping</Button>
       {/if}
-      <button class="btn quiet" disabled={busy} onclick={close}>Cancel</button>
-      <button class="btn primary" disabled={busy || !(keep >= 1 && keep <= 50)} onclick={save}>{existing ? "Save" : "Keep downloaded"}</button>
+      <Button variant="outline" disabled={busy} onclick={close}>Cancel</Button>
+      <Button disabled={busy || !(keep >= 1 && keep <= 50)} onclick={save}>{existing ? "Save" : "Keep downloaded"}</Button>
     </div>
   </dialog>
 {/if}
-
-<style>
-  .inline {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 12px;
-    color: var(--text-2);
-  }
-</style>

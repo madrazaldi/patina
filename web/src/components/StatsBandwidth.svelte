@@ -2,6 +2,7 @@
   // Data sent per time bucket as stacked columns: remote (accent) on the
   // baseline, local network (neutral) above it. Hover a column for its values;
   // the same numbers are available as a table.
+  import { Button } from "$lib/components/ui/button";
   import { bytes } from "../lib/format";
   import type { ServerStats } from "../lib/types";
 
@@ -108,16 +109,20 @@
   let tip = $derived(hover == null || hover >= slots.length ? null : { slot: slots[hover], x: LEFT + (hover + 0.5) * band, right: hover > slots.length / 2 });
 </script>
 
-<div class="legend">
-  <span><i class="key wan"></i>Remote <b class="num">{bytes(totals.wan)}</b></span>
-  <span><i class="key lan"></i>Local network <b class="num">{bytes(totals.lan)}</b></span>
-  <button class="link view" onclick={() => (table = !table)}>{table ? "Show chart" : "Show as table"}</button>
+<div class="text-muted-foreground mb-4 flex items-center gap-5 text-xs">
+  <span class="inline-flex items-center gap-2"><i class="key wan"></i>Remote <b class="text-foreground font-medium tabular-nums">{bytes(totals.wan)}</b></span>
+  <span class="inline-flex items-center gap-2"><i class="key lan"></i>Local network <b class="text-foreground font-medium tabular-nums">{bytes(totals.lan)}</b></span>
+  <Button variant="ghost" size="xs" class="text-muted-foreground ml-auto" onclick={() => (table = !table)}>{table ? "Show chart" : "Show as table"}</Button>
 </div>
 
 {#if table}
-  <div class="table">
-    <table class="num">
-      <thead><tr><th>{hourly ? "Hour" : "Day"}</th><th>Remote</th><th>Local network</th><th>Total</th></tr></thead>
+  <div class="max-h-65 overflow-auto rounded-lg border">
+    <table class="w-full border-collapse text-sm tabular-nums">
+      <thead>
+        <tr>
+          <th>{hourly ? "Hour" : "Day"}</th><th>Remote</th><th>Local network</th><th>Total</th>
+        </tr>
+      </thead>
       <tbody>
         {#each slots.filter((s) => s.lan + s.wan > 0).reverse() as s (s.at)}
           <tr><td>{fullFmt.format(at(s.at))}</td><td>{bytes(s.wan)}</td><td>{bytes(s.lan)}</td><td>{bytes(s.lan + s.wan)}</td></tr>
@@ -126,11 +131,11 @@
     </table>
   </div>
 {:else}
-  <div class="chart" bind:clientWidth={width}>
+  <div class="relative" bind:clientWidth={width}>
     {#if width}
       <svg {width} height={TOP + H + AXIS} role="img" aria-label="Data sent over time" onpointermove={move} onpointerleave={() => (hover = null)}>
         {#each scale.ticks as t (t.value)}
-          <line class="grid" x1={LEFT} x2={width - RIGHT} y1={y(t.value)} y2={y(t.value)} />
+          <line class="grid-line" x1={LEFT} x2={width - RIGHT} y1={y(t.value)} y2={y(t.value)} />
           <text class="tick" x={LEFT - 10} y={y(t.value)} text-anchor="end" dominant-baseline="middle">{t.label}</text>
         {/each}
         {#each columns as c, i (slots[i].at)}
@@ -144,13 +149,19 @@
         {/each}
       </svg>
       {#if tip}
-        <div class={["tip", { right: tip.right }]} style:left="{tip.x}px">
-          <div class="when">{fullFmt.format(at(tip.slot.at))}</div>
+        <div
+          class={[
+            "bg-popover text-popover-foreground ring-foreground/10 pointer-events-none absolute top-0 min-w-[150px] rounded-lg px-2.5 py-2 text-xs whitespace-nowrap shadow-md ring-1",
+            tip.right ? "-translate-x-[calc(100%+14px)]" : "translate-x-3.5",
+          ]}
+          style:left="{tip.x}px"
+        >
+          <div class="text-muted-foreground mb-1">{fullFmt.format(at(tip.slot.at))}</div>
           {#if tip.slot.lan + tip.slot.wan === 0}
-            <div class="faint">Nothing streamed</div>
+            <div class="text-muted-foreground">Nothing streamed</div>
           {:else}
-            <div><i class="line wan"></i><b class="num">{bytes(tip.slot.wan)}</b> remote</div>
-            <div><i class="line lan"></i><b class="num">{bytes(tip.slot.lan)}</b> local network</div>
+            <div class="flex items-center gap-2"><i class="key wan"></i><b class="font-medium tabular-nums">{bytes(tip.slot.wan)}</b> remote</div>
+            <div class="flex items-center gap-2"><i class="key lan"></i><b class="font-medium tabular-nums">{bytes(tip.slot.lan)}</b> local network</div>
           {/if}
         </div>
       {/if}
@@ -159,60 +170,37 @@
 {/if}
 
 <style>
-  .legend {
-    display: flex;
-    align-items: baseline;
-    gap: 20px;
-    margin-bottom: 14px;
-    font-size: 12px;
-    color: var(--text-2);
-  }
-  .legend b {
-    margin-left: 4px;
-    font-weight: 500;
-    color: var(--text);
-  }
-  .view {
-    margin-left: auto;
-    font-size: 12px;
-  }
+  /* Series colours: remote takes the accent tint, local network the neutral chart tone. */
   .key {
     display: inline-block;
     width: 8px;
     height: 8px;
-    margin-right: 7px;
     border-radius: 2px;
   }
   .key.wan,
-  .line.wan {
-    background: var(--accent);
+  path.wan {
+    background: var(--tint);
+    fill: var(--tint);
   }
   .key.lan,
-  .line.lan {
-    background: var(--text-3);
-  }
-  .chart {
-    position: relative;
+  path.lan {
+    background: var(--chart-2);
+    fill: var(--chart-2);
   }
   svg {
     display: block;
     overflow: visible;
   }
-  .grid {
-    stroke: var(--line);
+  .grid-line {
+    stroke: var(--border);
+    stroke-dasharray: 3 3;
     stroke-width: 1;
     shape-rendering: crispEdges;
   }
   .tick {
-    fill: var(--text-3);
+    fill: var(--muted-foreground);
     font-size: 10.5px;
     font-variant-numeric: tabular-nums;
-  }
-  path.wan {
-    fill: var(--accent);
-  }
-  path.lan {
-    fill: var(--text-3);
   }
   g {
     transition: opacity 0.12s var(--ease);
@@ -220,70 +208,28 @@
   g.dim {
     opacity: 0.45;
   }
-  .tip {
-    position: absolute;
-    top: 0;
-    transform: translateX(14px);
-    min-width: 150px;
-    padding: 8px 10px;
-    border: 1px solid var(--line-2);
-    border-radius: var(--r);
-    background: #181818;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-    font-size: 12px;
-    color: var(--text-2);
-    white-space: nowrap;
-    pointer-events: none;
-  }
-  .tip.right {
-    transform: translateX(calc(-100% - 14px));
-  }
-  .tip .when {
-    margin-bottom: 4px;
-    color: var(--text-3);
-  }
-  .tip b {
-    font-weight: 500;
-    color: var(--text);
-  }
-  .line {
-    display: inline-block;
-    width: 10px;
-    height: 2px;
-    margin-right: 7px;
-    vertical-align: middle;
-    border-radius: 1px;
-  }
-  .table {
-    max-height: 260px;
-    overflow: auto;
-  }
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 12px;
-  }
   th {
     position: sticky;
     top: 0;
-    background: var(--bg);
-    font-size: 10.5px;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--text-3);
+    background: var(--card);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--muted-foreground);
   }
   th,
   td {
-    padding: 6px 0;
-    border-bottom: 1px solid var(--line);
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
     text-align: right;
   }
   th:first-child,
   td:first-child {
     text-align: left;
   }
+  tr:last-child td {
+    border-bottom: 0;
+  }
   td {
-    color: var(--text-2);
+    color: var(--muted-foreground);
   }
 </style>

@@ -2,6 +2,9 @@
   // Version / audio / subtitle choosers. Changes are saved to Plex at once,
   // and playback follows them.
   import { Trash } from "@lucide/svelte";
+  import { Button } from "$lib/components/ui/button";
+  import { Label } from "$lib/components/ui/label";
+  import * as NativeSelect from "$lib/components/ui/native-select";
   import { api } from "../lib/api";
   import * as plex from "../lib/plex";
   import { act, app } from "../lib/state.svelte";
@@ -34,97 +37,51 @@
 </script>
 
 {#if part}
-  <div class="pickers">
+  <div class="mt-6 flex flex-wrap items-end gap-4">
     {#if item.Media.length > 1}
-      <label>
-        <span>Version</span>
-        <select class="select" value={String(mediaIndex)} onchange={(e) => (mediaIndex = Number(e.currentTarget.value))}>
-          {#each item.Media as m, i (i)}<option value={String(i)}>{plex.mediaLabel(m) || `Version ${i + 1}`}</option>{/each}
-        </select>
-      </label>
+      <div class="flex min-w-50 max-w-[340px] flex-col gap-1.5">
+        <Label class="text-muted-foreground text-xs" for="pick-version">Version</Label>
+        <NativeSelect.Root id="pick-version" class="w-full" value={String(mediaIndex)} onchange={(e) => (mediaIndex = Number(e.currentTarget.value))}>
+          {#each item.Media as m, i (i)}<NativeSelect.Option value={String(i)}>{plex.mediaLabel(m) || `Version ${i + 1}`}</NativeSelect.Option>{/each}
+        </NativeSelect.Root>
+      </div>
     {/if}
     {#if audio.length}
-      <label>
-        <span>Audio</span>
-        <select class="select" value={String(selectedAudio)} onchange={(e) => select(Number(e.currentTarget.value))}>
-          {#each audio as s (s.id)}<option value={String(s.id)}>{plex.streamLabel(s)}</option>{/each}
-        </select>
-      </label>
+      <div class="flex min-w-50 max-w-[340px] flex-col gap-1.5">
+        <Label class="text-muted-foreground text-xs" for="pick-audio">Audio</Label>
+        <NativeSelect.Root id="pick-audio" class="w-full" value={String(selectedAudio)} onchange={(e) => select(Number(e.currentTarget.value))}>
+          {#each audio as s (s.id)}<NativeSelect.Option value={String(s.id)}>{plex.streamLabel(s)}</NativeSelect.Option>{/each}
+        </NativeSelect.Root>
+      </div>
     {/if}
     {#if plex.kind(item) !== "track"}
-      <div class="field">
-        <div class="head">
-          <span>Subtitles</span>
+      <div class="flex min-w-50 max-w-[340px] flex-col gap-1.5">
+        <div class="flex items-center justify-between gap-3">
+          <Label class="text-muted-foreground text-xs" for="pick-subtitles">Subtitles</Label>
           {#if owner && ["movie", "episode"].includes(plex.kind(item))}
-            <button class="link" onclick={() => (app.subtitleTarget = item)}>Search…</button>
+            <Button variant="link" size="xs" class="text-muted-foreground hover:text-foreground h-auto p-0 text-xs" onclick={() => (app.subtitleTarget = item)}>Search…</Button>
           {/if}
         </div>
-        <div class="control">
-          <select
-            class="select"
+        <div class="flex items-center gap-1">
+          <NativeSelect.Root
+            id="pick-subtitles"
+            class="min-w-0 flex-1"
             aria-label="Subtitles"
             value={String(selectedSub)}
             onchange={(e) => select(undefined, Number(e.currentTarget.value))}
           >
-            <option value="0">None</option>
+            <NativeSelect.Option value="0">None</NativeSelect.Option>
             {#each subs as s (s.id)}
-              <option value={String(s.id)}>{plex.streamLabel(s)}{plex.isExternal(s) ? " · external" : ""}</option>
+              <NativeSelect.Option value={String(s.id)}>{plex.streamLabel(s)}{plex.isExternal(s) ? " · external" : ""}</NativeSelect.Option>
             {/each}
-          </select>
+          </NativeSelect.Root>
           {#if owner && external?.id != null}
             {@const id = external.id}
             {@const label = plex.streamLabel(external)}
-            <button class="icon-btn" title="Delete this subtitle file" onclick={() => removeSub(id, label)}><Trash size={15} /></button>
+            <Button variant="ghost" size="icon" class="text-muted-foreground" title="Delete this subtitle file" onclick={() => removeSub(id, label)}><Trash /></Button>
           {/if}
         </div>
       </div>
     {/if}
   </div>
 {/if}
-
-<style>
-  .pickers {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 14px;
-    margin-top: 26px;
-  }
-  label,
-  .field {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-    min-width: 200px;
-    max-width: 340px;
-  }
-  .head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 12px;
-  }
-  .head .link {
-    font-size: 11.5px;
-    text-decoration: none;
-  }
-  .head .link:hover {
-    text-decoration: underline;
-  }
-  .control {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-  }
-  .control .select {
-    flex: 1;
-    min-width: 0;
-  }
-  label span,
-  .head span {
-    font-size: 10.5px;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--text-3);
-  }
-</style>

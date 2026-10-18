@@ -2,6 +2,12 @@
   // Online subtitle search for a movie or episode, shown while `app.subtitleTarget` is set.
   import { untrack } from "svelte";
   import { Download } from "@lucide/svelte";
+  import * as Alert from "$lib/components/ui/alert";
+  import { Badge } from "$lib/components/ui/badge";
+  import { Button } from "$lib/components/ui/button";
+  import * as Empty from "$lib/components/ui/empty";
+  import * as NativeSelect from "$lib/components/ui/native-select";
+  import { Spinner } from "$lib/components/ui/spinner";
   import { modal } from "../lib/dialog";
   import { api } from "../lib/api";
   import * as plex from "../lib/plex";
@@ -119,17 +125,18 @@
     <h2 id="subtitle-title">Search subtitles</h2>
     <p class="desc">{plex.fullTitle(item)}</p>
 
-    <div class="filters">
-      <select
-        class="select"
+    <div class="mb-4 flex items-center gap-2">
+      <NativeSelect.Root
+        class="mr-1 min-w-40"
+        aria-label="Language"
         value={language}
         onchange={(e) => {
           language = e.currentTarget.value;
           search();
         }}
       >
-        {#each LANGUAGES as [code, , name] (code)}<option value={code}>{name}</option>{/each}
-      </select>
+        {#each LANGUAGES as [code, , name] (code)}<NativeSelect.Option value={code}>{name}</NativeSelect.Option>{/each}
+      </NativeSelect.Root>
       <button
         class={["chip", { active: hearingImpaired }]}
         onclick={() => {
@@ -147,35 +154,40 @@
     </div>
 
     {#if error}
-      <div class="error-box">{error}</div>
+      <Alert.Root variant="destructive"><Alert.Description class="whitespace-pre-wrap select-text">{error}</Alert.Description></Alert.Root>
     {:else if results === null}
-      <div class="loading">
-        <div class="spinner"></div>
-        <span class="faint">Searching subtitle providers…</span>
+      <div class="text-muted-foreground flex items-center gap-2.5 py-2 text-sm">
+        <Spinner />
+        <span>Searching subtitle providers…</span>
       </div>
     {:else if results.length === 0}
-      <p class="faint">Nothing found for this language.</p>
+      <Empty.Root class="border border-dashed p-6">
+        <Empty.Header>
+          <Empty.Title>No subtitles</Empty.Title>
+          <Empty.Description>Nothing found for this language.</Empty.Description>
+        </Empty.Header>
+      </Empty.Root>
     {:else}
-      <div class="rows results">
+      <div class="rows max-h-[52vh] overflow-auto">
         {#each results as s, i (s.key ?? i)}
-          <div class="list-row result">
-            <div class="grow">
-              <div class="t" title={s.displayTitle ?? s.title}>{s.displayTitle ?? s.title ?? "Subtitle"}</div>
-              <div class="s">
+          <div class="flex items-center gap-3 px-3 py-2">
+            <div class="min-w-0 flex-1">
+              <div class="truncate text-sm font-medium" title={s.displayTitle ?? s.title}>{s.displayTitle ?? s.title ?? "Subtitle"}</div>
+              <div class="text-muted-foreground truncate text-xs">
                 {[s.providerTitle, s.title && s.title !== s.displayTitle ? s.title : null].filter(Boolean).join(" · ")}
               </div>
             </div>
-            <div class="end">
-              {#if s.perfectMatch}<span class="tag accent">Perfect match</span>{/if}
-              {#if s.hearingImpaired}<span class="tag">SDH</span>{/if}
-              {#if s.forced}<span class="tag">Forced</span>{/if}
-              {#if s.score != null}<span class="score">{s.score}</span>{/if}
+            <div class="flex shrink-0 items-center gap-2">
+              {#if s.perfectMatch}<Badge variant="outline" class="text-tint border-tint/40 bg-tint/10">Perfect match</Badge>{/if}
+              {#if s.hearingImpaired}<Badge variant="outline">SDH</Badge>{/if}
+              {#if s.forced}<Badge variant="outline">Forced</Badge>{/if}
+              {#if s.score != null}<span class="text-muted-foreground min-w-[26px] text-right text-xs tabular-nums">{s.score}</span>{/if}
               {#if s.downloaded}
-                <span class="faint done">Downloaded</span>
+                <span class="text-muted-foreground text-xs">Downloaded</span>
               {:else}
-                <button class="btn sm" disabled={!s.key || !!busy} onclick={() => fetchSub(s)}>
-                  {#if busy && busy === s.key}<span class="spinner small"></span>{:else}<Download size={13} />{/if}Download
-                </button>
+                <Button variant="outline" size="sm" disabled={!s.key || !!busy} onclick={() => fetchSub(s)}>
+                  {#if busy && busy === s.key}<Spinner />{:else}<Download />{/if}Download
+                </Button>
               {/if}
             </div>
           </div>
@@ -183,46 +195,6 @@
       </div>
     {/if}
 
-    <div class="foot"><button class="btn quiet" disabled={!!busy} onclick={close}>Close</button></div>
+    <div class="foot"><Button variant="outline" disabled={!!busy} onclick={close}>Close</Button></div>
   </dialog>
 {/if}
-
-<style>
-  .filters {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 16px;
-  }
-  .filters .select {
-    min-width: 160px;
-    margin-right: 4px;
-  }
-  .loading {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-  .results {
-    max-height: 52vh;
-    overflow: auto;
-  }
-  .result {
-    grid-template-columns: 1fr auto;
-  }
-  .result .end {
-    gap: 8px;
-  }
-  .score {
-    min-width: 26px;
-    text-align: right;
-    font-size: 12px;
-  }
-  .done {
-    font-size: 12px;
-  }
-  .spinner.small {
-    width: 12px;
-    height: 12px;
-  }
-</style>

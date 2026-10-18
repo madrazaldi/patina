@@ -16,6 +16,13 @@
     SlidersHorizontal,
     Trash,
   } from "@lucide/svelte";
+  import { Badge } from "$lib/components/ui/badge";
+  import { Button } from "$lib/components/ui/button";
+  import * as ButtonGroup from "$lib/components/ui/button-group";
+  import * as Card from "$lib/components/ui/card";
+  import { Label } from "$lib/components/ui/label";
+  import * as NativeSelect from "$lib/components/ui/native-select";
+  import { Separator } from "$lib/components/ui/separator";
   import Children from "../components/Children.svelte";
   import HubRow from "../components/HubRow.svelte";
   import Img from "../components/Img.svelte";
@@ -200,7 +207,7 @@
 </script>
 
 {#if data.error && data.data !== undefined}<Status error={data.error} retry={() => data.reload()} stale />{/if}
-  {#if data.data === undefined}
+{#if data.data === undefined}
   <Status loading={!data.error} error={data.error} retry={() => data.reload()} fill />
 {:else if data.data === null}
   <Status title="Not found" text="This item no longer exists on the server." fill />
@@ -223,108 +230,124 @@
   {@const info = facts(item)}
   {@const watched = plex.isWatched(item)}
   {@const saved = downloaded(item)}
+  {@const metaBits = [...ratings(item).map((r) => r.label), ...metaLine(item)]}
 
-  <div class="detail">
-    <div class="backdrop"><Img src={img(plex.backdrop(item), 1920, 1080, server)} /></div>
+  <div class="relative">
+    <div class="backdrop pointer-events-none absolute inset-x-0 top-0 h-[520px] overflow-hidden opacity-50">
+      <Img src={img(plex.backdrop(item), 1920, 1080, server)} />
+      <div class="to-background absolute inset-0 bg-linear-to-b from-background/10 via-background/60"></div>
+    </div>
 
-    <div class="page inner">
-      <header class={["head", `is-${shape}`]}>
-        <div class="poster">
-          {#if poster}<Img src={poster} class={spoiler ? "spoiler" : ""} />{/if}
+    <div class="page relative pt-32">
+      <header class="flex items-end gap-9">
+        <div
+          class={[
+            "bg-muted ring-border relative shrink-0 overflow-hidden rounded-xl shadow-2xl ring-1 [&_img]:size-full [&_img]:object-cover",
+            shape === "landscape" ? "aspect-video w-[380px]" : shape === "square" ? "aspect-square w-60" : "aspect-[2/3] w-[210px]",
+          ]}
+        >
+          {#if poster}<Img src={poster} class={spoiler ? "blur-lg brightness-75" : ""} />{/if}
         </div>
-        <div class="info">
+        <div class="min-w-0 flex-1 pb-1">
           {#if crumbs(item).length}
-            <div class="crumbs">
+            <div class="text-muted-foreground mb-3 flex items-center gap-2 text-sm">
               {#each crumbs(item) as [label, rk], i (rk)}
-                {#if i > 0}<span class="faint">/</span>{/if}
-                <button class="link" onclick={() => nav.push({ name: "item", ratingKey: rk, server })}>{label}</button>
+                {#if i > 0}<span class="text-muted-foreground/50">/</span>{/if}
+                <button class="link no-underline hover:underline" onclick={() => nav.push({ name: "item", ratingKey: rk, server })}>{label}</button>
               {/each}
             </div>
           {/if}
-          <h1 class="serif">{plex.title(item)}</h1>
+          <h1 class="text-4xl leading-[1.08] font-semibold tracking-tight text-balance">{plex.title(item)}</h1>
           {#if item.originalTitle && item.originalTitle !== item.title}
-            <div class="original serif">{item.originalTitle}</div>
+            <div class="text-muted-foreground mt-1.5 text-lg">{item.originalTitle}</div>
           {/if}
-          <div class="meta">
-            {#each [...ratings(item).map((r) => r.label), ...metaLine(item)] as m, i (i)}
-              {#if i > 0}<span class="dot">·</span>{/if}<span>{m}</span>
+          <div class="text-muted-foreground mt-3.5 flex flex-wrap items-center gap-x-2 gap-y-2 text-sm">
+            {#each metaBits as m, i (i)}
+              {#if i > 0}<span class="text-muted-foreground/50">·</span>{/if}<span>{m}</span>
             {/each}
-            {#if item.contentRating}<span class="tag">{item.contentRating}</span>{/if}
-            {#if mediaLabel}<span class="tag">{mediaLabel}</span>{/if}
-            {#if server}<span class="tag" title="This copy is on another server of your account">On {serverName}</span>{/if}
+            {#if item.contentRating}<Badge variant="outline" class="ml-1">{item.contentRating}</Badge>{/if}
+            {#if mediaLabel}<Badge variant="secondary">{mediaLabel}</Badge>{/if}
+            {#if server}<Badge variant="outline" title="This copy is on another server of your account">On {serverName}</Badge>{/if}
           </div>
 
-          <div class="actions">
+          <div class="mt-6 flex flex-wrap items-center gap-2">
             {#if plex.canPlay(item)}
-              <button class="btn primary lg" onclick={() => play(item, { mediaIndex })}>
-                <Play size={14} fill="currentColor" />{progress != null ? "Resume" : "Play"}
-                {#if left}<span class="left">{left}</span>{/if}
-              </button>
+              <Button size="lg" class="h-10 gap-2 px-5" onclick={() => play(item, { mediaIndex })}>
+                <Play fill="currentColor" />{progress != null ? "Resume" : "Play"}
+                {#if left}<span class="font-normal opacity-60">{left}</span>{/if}
+              </Button>
               {#if progress != null}
-                <button class="btn lg" onclick={() => play(item, { resume: false, mediaIndex })}><RotateCcw size={14} />From start</button>
+                <Button variant="outline" size="lg" class="h-10 px-4" onclick={() => play(item, { resume: false, mediaIndex })}><RotateCcw />From start</Button>
               {/if}
               {#if plex.isContainer(item)}
-                <button class="btn lg" onclick={() => play(item, { shuffle: true })}><Shuffle size={14} />Shuffle</button>
+                <Button variant="outline" size="lg" class="h-10 px-4" onclick={() => play(item, { shuffle: true })}><Shuffle />Shuffle</Button>
               {/if}
               {#if kind === "artist" || kind === "album"}
-                <button class="btn lg" onclick={() => play(item, { radio: true })}><Radio size={14} />Radio</button>
+                <Button variant="outline" size="lg" class="h-10 px-4" onclick={() => play(item, { radio: true })}><Radio />Radio</Button>
               {/if}
             {/if}
-            <span class="spacer"></span>
-            {#if plex.hasWatchState(item)}
-              <button
-                class={["icon-btn outlined", { on: watched }]}
-                title={watched ? "Mark as unwatched" : "Mark as watched"}
-                onclick={() => setWatched(item, !watched)}><Check /></button
-              >
-            {/if}
-            {#if discover}
-              {@const id = discover}
-              <button
-                class={["icon-btn outlined", { on: watchlisted }]}
-                title={watchlisted ? "Remove from watchlist" : "Add to watchlist"}
-                onclick={() => toggleWatchlist(id)}
-              >
-                {#if watchlisted}<BookmarkCheck />{:else}<Bookmark />{/if}
-              </button>
-            {/if}
-            {#if plex.supportsTracks(item) && !server}
-              <button class="icon-btn outlined" title="Audio & subtitles for many episodes" onclick={() => (app.tracksTarget = item)}>
-                <Captions />
-              </button>
-              <button class="icon-btn outlined" title="Playback preferences for this show" onclick={() => (app.prefsTarget = item)}>
-                <SlidersHorizontal />
-              </button>
-            {/if}
-            {#if plex.canPlay(item) && kind !== "photo" && kind !== "photoalbum"}
-              <button class="icon-btn outlined" title="Play next" onclick={() => enqueue(item, true)}><ListStart /></button>
-            {/if}
-            {#if kind !== "collection" && kind !== "playlist" && !server}
-              <button class="icon-btn outlined" title="Add to playlist" onclick={() => (app.playlistTarget = item)}><ListPlus /></button>
-            {/if}
-            {#if ["movie", "episode", "track", "show", "season", "album", "artist"].includes(kind) && !server}
-              {@const busy = saved?.state === "queued" || saved?.state === "downloading"}
-              <button
-                class={["icon-btn outlined", { on: saved?.state === "done", busy }]}
-                title={downloadLabel(saved)}
-                disabled={busy}
-                onclick={() => onDownload(item, saved)}
-              >
-                {#if saved?.state === "done"}
-                  <Check />
-                {:else if busy}
-                  <span class="pct num">{saved && saved.size > 0 ? `${Math.floor((saved.received / saved.size) * 100)}%` : "…"}</span>
-                {:else}
-                  <Download />
-                {/if}
-              </button>
-            {/if}
-            {#if ["show", "season", "playlist"].includes(kind) && !server}
-              <button class="icon-btn outlined" title="Keep next unwatched downloaded" onclick={() => (app.keepTarget = item)}>
-                <CloudDownload />
-              </button>
-            {/if}
-            <button class="icon-btn outlined" title="More" onclick={(e) => openMenu(item, e)}><Ellipsis /></button>
+            <ButtonGroup.Root class="ml-1">
+              {#if plex.hasWatchState(item)}
+                <Button
+                  variant="outline"
+                  size="icon-lg"
+                  class={["size-10", { on: watched }, watched && "text-tint"]}
+                  title={watched ? "Mark as unwatched" : "Mark as watched"}
+                  onclick={() => setWatched(item, !watched)}><Check /></Button
+                >
+              {/if}
+              {#if discover}
+                {@const id = discover}
+                <Button
+                  variant="outline"
+                  size="icon-lg"
+                  class={["size-10", { on: watchlisted }, watchlisted && "text-tint"]}
+                  title={watchlisted ? "Remove from watchlist" : "Add to watchlist"}
+                  onclick={() => toggleWatchlist(id)}
+                >
+                  {#if watchlisted}<BookmarkCheck />{:else}<Bookmark />{/if}
+                </Button>
+              {/if}
+              {#if plex.supportsTracks(item) && !server}
+                <Button variant="outline" size="icon-lg" class="size-10" title="Audio & subtitles for many episodes" onclick={() => (app.tracksTarget = item)}>
+                  <Captions />
+                </Button>
+                <Button variant="outline" size="icon-lg" class="size-10" title="Playback preferences for this show" onclick={() => (app.prefsTarget = item)}>
+                  <SlidersHorizontal />
+                </Button>
+              {/if}
+              {#if plex.canPlay(item) && kind !== "photo" && kind !== "photoalbum"}
+                <Button variant="outline" size="icon-lg" class="size-10" title="Play next" onclick={() => enqueue(item, true)}><ListStart /></Button>
+              {/if}
+              {#if kind !== "collection" && kind !== "playlist" && !server}
+                <Button variant="outline" size="icon-lg" class="size-10" title="Add to playlist" onclick={() => (app.playlistTarget = item)}><ListPlus /></Button>
+              {/if}
+              {#if ["movie", "episode", "track", "show", "season", "album", "artist"].includes(kind) && !server}
+                {@const busy = saved?.state === "queued" || saved?.state === "downloading"}
+                <Button
+                  variant="outline"
+                  size="icon-lg"
+                  class={["size-10", { on: saved?.state === "done", busy }, saved?.state === "done" && "text-tint", busy && "disabled:opacity-100"]}
+                  title={downloadLabel(saved)}
+                  disabled={busy}
+                  onclick={() => onDownload(item, saved)}
+                >
+                  {#if saved?.state === "done"}
+                    <Check />
+                  {:else if busy}
+                    <span class="text-muted-foreground text-[10.5px] font-semibold tabular-nums">{saved && saved.size > 0 ? `${Math.floor((saved.received / saved.size) * 100)}%` : "…"}</span>
+                  {:else}
+                    <Download />
+                  {/if}
+                </Button>
+              {/if}
+              {#if ["show", "season", "playlist"].includes(kind) && !server}
+                <Button variant="outline" size="icon-lg" class="size-10" title="Keep next unwatched downloaded" onclick={() => (app.keepTarget = item)}>
+                  <CloudDownload />
+                </Button>
+              {/if}
+              <Button variant="outline" size="icon-lg" class="size-10" title="More" onclick={(e) => openMenu(item, e)}><Ellipsis /></Button>
+            </ButtonGroup.Root>
             {#if ["movie", "show", "episode", "season", "album", "track", "artist"].includes(kind) && !server}
               <StarRating
                 value={item.userRating ?? 0}
@@ -335,79 +358,90 @@
         </div>
       </header>
 
-      <div class="body">
-        {#if item.tagline}<div class="tagline serif">{item.tagline}</div>{/if}
-        {#if summary}
-          <button
-            class={["summary", { clamp: summary.length > 420 && !expanded, spoiler }]}
-            onclick={() => (expanded = !expanded)}>{summary}</button
-          >
-        {/if}
+      <div class={["mt-10 grid items-start gap-10", info.tags.length || info.plain.length ? "lg:grid-cols-[minmax(0,1fr)_360px]" : ""]}>
+        <div class="min-w-0 max-w-[72ch]">
+          {#if item.tagline}<div class="text-muted-foreground mb-3 text-lg italic">{item.tagline}</div>{/if}
+          {#if summary}
+            <button
+              class={[
+                "cursor-text border-0 bg-transparent p-0 text-left text-[15px] leading-relaxed transition-[filter] select-text",
+                summary.length > 420 && !expanded ? "line-clamp-5 cursor-pointer" : "block",
+                spoiler && "blur-[5px] hover:blur-none",
+              ]}
+              onclick={() => (expanded = !expanded)}>{summary}</button
+            >
+          {/if}
 
-        {#if ["movie", "episode", "clip", "track"].includes(kind) && item.Media.length}
-          <StreamPickers {item} bind:mediaIndex />
-        {/if}
+          {#if ["movie", "episode", "clip", "track"].includes(kind) && item.Media.length}
+            <StreamPickers {item} bind:mediaIndex />
+          {/if}
+        </div>
 
         {#if info.tags.length || info.plain.length}
-          <dl class="kv facts">
-            {#each info.tags as [label, list] (label)}
-              <dt>{label}</dt>
-              <dd>
-                {#each list.slice(0, 8) as t, i (i)}
-                  {@const r = tagRoute(item, t)}
-                  {#if i > 0}{", "}{/if}{#if r}<button class="link plain" onclick={() => nav.push(r)}>{t.tag}</button>{:else}{t.tag}{/if}
+          <Card.Root size="sm" class="bg-card/60">
+            <Card.Content>
+              <dl class="kv grid-cols-[92px_minmax(0,1fr)] text-sm">
+                {#each info.tags as [label, list] (label)}
+                  <dt>{label}</dt>
+                  <dd>
+                    {#each list.slice(0, 8) as t, i (i)}
+                      {@const r = tagRoute(item, t)}
+                      {#if i > 0}{", "}{/if}{#if r}<button class="link text-foreground no-underline hover:underline" onclick={() => nav.push(r)}>{t.tag}</button>{:else}{t.tag}{/if}
+                    {/each}
+                  </dd>
                 {/each}
-              </dd>
-            {/each}
-            {#each info.plain as [label, value] (label)}
-              <dt>{label}</dt>
-              <dd class="selectable">{value}</dd>
-            {/each}
-          </dl>
+                {#each info.plain as [label, value] (label)}
+                  <dt>{label}</dt>
+                  <dd class="selectable">{value}</dd>
+                {/each}
+              </dl>
+            </Card.Content>
+          </Card.Root>
         {/if}
       </div>
 
       {#if kind === "collection" && app.owned && !server}
         {@const mode = item.collectionMode ?? -1}
         {@const order = Number(item.collectionSort ?? 0)}
-        <div class="collection-tools">
-          <label>
-            <span>Show in library</span>
-            <select class="select" value={String(mode)} onchange={(e) => setCollection(item, { mode: Number(e.currentTarget.value) })}>
-              <option value="-1">Library default</option>
-              <option value="0">Hide collection</option>
-              <option value="1">Hide items</option>
-              <option value="2">Show both</option>
-            </select>
-          </label>
-          <label>
-            <span>Sort</span>
-            <select class="select" value={String(order)} onchange={(e) => setCollection(item, { sort: Number(e.currentTarget.value) })}>
-              <option value="0">Release date</option>
-              <option value="1">Title</option>
-              <option value="2">Custom</option>
-            </select>
-          </label>
-          <span class="grow"></span>
-          <button class="btn quiet danger" onclick={() => deleteCollection(item)}><Trash size={14} />Delete collection</button>
+        <div class="mt-8 flex flex-wrap items-end gap-4">
+          <div class="flex w-48 flex-col gap-1.5">
+            <Label class="text-muted-foreground text-xs" for="collection-mode">Show in library</Label>
+            <NativeSelect.Root id="collection-mode" class="w-full" value={String(mode)} onchange={(e) => setCollection(item, { mode: Number(e.currentTarget.value) })}>
+              <NativeSelect.Option value="-1">Library default</NativeSelect.Option>
+              <NativeSelect.Option value="0">Hide collection</NativeSelect.Option>
+              <NativeSelect.Option value="1">Hide items</NativeSelect.Option>
+              <NativeSelect.Option value="2">Show both</NativeSelect.Option>
+            </NativeSelect.Root>
+          </div>
+          <div class="flex w-48 flex-col gap-1.5">
+            <Label class="text-muted-foreground text-xs" for="collection-sort">Sort</Label>
+            <NativeSelect.Root id="collection-sort" class="w-full" value={String(order)} onchange={(e) => setCollection(item, { sort: Number(e.currentTarget.value) })}>
+              <NativeSelect.Option value="0">Release date</NativeSelect.Option>
+              <NativeSelect.Option value="1">Title</NativeSelect.Option>
+              <NativeSelect.Option value="2">Custom</NativeSelect.Option>
+            </NativeSelect.Root>
+          </div>
+          <div class="flex-1"></div>
+          <Button variant="destructive" onclick={() => deleteCollection(item)}><Trash />Delete collection</Button>
         </div>
       {/if}
 
       {#if ["show", "season", "artist", "album", "collection", "photoalbum"].includes(kind)}
+        <Separator class="mt-10" />
         <Children {item} sort={item.collectionSort} />
       {/if}
 
       {#if item.Role.length}
         <div class="section-head"><h2>{kind === "album" || kind === "artist" ? "Featuring" : "Cast"}</h2></div>
-        <div class="cast">
+        <div class="-mx-(--gutter) flex gap-4 overflow-x-auto px-(--gutter) pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {#each item.Role.slice(0, 40) as role, i (i)}
             {@const r = tagRoute(item, role)}
-            <button class="person" disabled={!r} onclick={() => r && nav.push(r)}>
-              <span class="face">
+            <button class="group flex w-24 flex-none cursor-pointer flex-col items-center border-0 bg-transparent p-0 text-center disabled:cursor-default" disabled={!r} onclick={() => r && nav.push(r)}>
+              <span class="bg-muted text-muted-foreground ring-border mb-2.5 grid size-[76px] place-items-center overflow-hidden rounded-full text-sm font-semibold ring-1 transition-shadow group-enabled:group-hover:ring-2 group-enabled:group-hover:ring-tint/60 [&_img]:size-full [&_img]:object-cover">
                 {#if role.thumb}<Img src={img(role.thumb, 160, 160, server)} />{:else}{initials(role.tag ?? "")}{/if}
               </span>
-              <span class="name ellipsis">{role.tag}</span>
-              {#if role.role}<span class="role ellipsis">{role.role}</span>{/if}
+              <span class="ellipsis w-full text-xs font-medium">{role.tag}</span>
+              {#if role.role}<span class="text-muted-foreground ellipsis w-full text-xs">{role.role}</span>{/if}
             </button>
           {/each}
         </div>
@@ -427,248 +461,10 @@
 {/if}
 
 <style>
-  .detail {
-    position: relative;
-  }
-  .backdrop {
-    position: absolute;
-    inset: 0 0 auto;
-    height: 460px;
-    overflow: hidden;
-    opacity: 0.4;
-  }
   .backdrop :global(img) {
     width: 100%;
     height: 100%;
     object-fit: cover;
     object-position: center 25%;
-  }
-  .backdrop::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(180deg, rgba(12, 12, 12, 0.2) 0%, var(--bg) 100%);
-  }
-  .inner {
-    position: relative;
-    padding-top: 150px;
-  }
-  .head {
-    display: grid;
-    grid-template-columns: 210px minmax(0, 1fr);
-    gap: 36px;
-    align-items: end;
-  }
-  .head.is-landscape {
-    grid-template-columns: 380px minmax(0, 1fr);
-  }
-  .head.is-square {
-    grid-template-columns: 240px minmax(0, 1fr);
-  }
-  .poster {
-    aspect-ratio: 2 / 3;
-    border-radius: var(--r);
-    overflow: hidden;
-    background: var(--surface);
-    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06);
-  }
-  .is-landscape .poster {
-    aspect-ratio: 16 / 9;
-  }
-  .is-square .poster {
-    aspect-ratio: 1;
-  }
-  .poster :global(img) {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-  .poster :global(img.spoiler) {
-    filter: blur(16px) brightness(0.7);
-  }
-  .crumbs {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 10px;
-    font-size: 12.5px;
-  }
-  .crumbs .link {
-    text-decoration: none;
-  }
-  .crumbs .link:hover {
-    text-decoration: underline;
-  }
-  h1 {
-    font-size: 46px;
-    font-weight: 400;
-    line-height: 1.04;
-    letter-spacing: -0.015em;
-  }
-  .original {
-    margin-top: 6px;
-    font-size: 18px;
-    color: var(--text-2);
-  }
-  .meta {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px;
-    margin-top: 14px;
-    color: var(--text-2);
-  }
-  .dot {
-    color: var(--text-3);
-  }
-  .meta .tag {
-    margin-left: 4px;
-  }
-  .actions {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 24px;
-  }
-  .left {
-    margin-left: 4px;
-    font-weight: 400;
-    opacity: 0.6;
-  }
-  .spacer {
-    width: 8px;
-  }
-  .pct {
-    font-size: 10.5px;
-    font-weight: 600;
-    color: var(--text-2);
-  }
-  .icon-btn.busy:disabled {
-    opacity: 1;
-  }
-  .collection-tools {
-    display: flex;
-    align-items: flex-end;
-    gap: 14px;
-    margin-top: 32px;
-  }
-  .collection-tools label {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-    min-width: 170px;
-  }
-  .collection-tools label span {
-    font-size: 10.5px;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--text-3);
-  }
-  .body {
-    max-width: 880px;
-    margin-top: 32px;
-  }
-  .tagline {
-    margin-bottom: 12px;
-    font-size: 18px;
-    font-style: italic;
-    color: var(--text-2);
-  }
-  .summary {
-    display: block;
-    max-width: 72ch;
-    padding: 0;
-    border: 0;
-    background: none;
-    color: var(--text);
-    font-size: 14.5px;
-    line-height: 1.65;
-    text-align: left;
-    cursor: text;
-    user-select: text;
-    -webkit-user-select: text;
-    transition: filter 0.2s;
-  }
-  .summary.clamp {
-    display: -webkit-box;
-    -webkit-line-clamp: 5;
-    line-clamp: 5;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-    cursor: pointer;
-  }
-  .summary.spoiler {
-    filter: blur(5px);
-  }
-  .summary.spoiler:hover {
-    filter: none;
-  }
-  .facts {
-    margin-top: 30px;
-    padding-top: 20px;
-    border-top: 1px solid var(--line);
-  }
-  .link.plain {
-    text-decoration: none;
-  }
-  .link.plain:hover {
-    text-decoration: underline;
-  }
-  .cast {
-    display: flex;
-    gap: 16px;
-    overflow-x: auto;
-    margin: 0 calc(var(--gutter) * -1);
-    padding: 0 var(--gutter) 4px;
-    scrollbar-width: none;
-  }
-  .cast::-webkit-scrollbar {
-    display: none;
-  }
-  .person {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    flex: none;
-    width: 92px;
-    padding: 0;
-    border: 0;
-    background: none;
-    text-align: center;
-    cursor: pointer;
-  }
-  .person:disabled {
-    cursor: default;
-  }
-  .face {
-    display: grid;
-    place-items: center;
-    width: 72px;
-    height: 72px;
-    margin-bottom: 8px;
-    border-radius: 50%;
-    overflow: hidden;
-    background: var(--surface);
-    color: var(--text-3);
-    font-weight: 600;
-  }
-  .face :global(img) {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-  .name {
-    width: 100%;
-    font-size: 12px;
-  }
-  .role {
-    width: 100%;
-    font-size: 11.5px;
-    color: var(--text-3);
-  }
-  .person:not(:disabled):hover .name {
-    text-decoration: underline;
-    text-underline-offset: 3px;
   }
 </style>

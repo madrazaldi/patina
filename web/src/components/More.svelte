@@ -1,5 +1,7 @@
 <script lang="ts">
   // Infinite-scroll sentinel: calls `onmore` when it scrolls near the viewport.
+  import { Spinner } from "$lib/components/ui/spinner";
+
   let { onmore, loading = false }: { onmore: () => void; loading?: boolean } = $props();
   let el: HTMLDivElement | undefined = $state();
 
@@ -14,14 +16,6 @@
   });
 </script>
 
-<div bind:this={el} class="more">
-  {#if loading}<div class="spinner"></div>{/if}
+<div bind:this={el} class="grid min-h-15 place-items-center">
+  {#if loading}<Spinner class="text-muted-foreground" />{/if}
 </div>
-
-<style>
-  .more {
-    display: grid;
-    place-items: center;
-    min-height: 60px;
-  }
-</style>

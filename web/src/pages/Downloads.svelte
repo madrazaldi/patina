@@ -2,9 +2,18 @@
   // Downloaded items for offline playback, grouped by show / artist. Works
   // without a server session (the Gate renders it when the server is down),
   // so it only ever talks to the download commands.
-  import { FolderOpen, Pause, Play, RotateCw, Trash } from "@lucide/svelte";
+  import { Download as DownloadIcon, FolderOpen, Pause, Play, RotateCw, Trash } from "@lucide/svelte";
   import Img from "../components/Img.svelte";
-  import Status from "../components/Status.svelte";
+  import { Badge } from "$lib/components/ui/badge";
+  import { Button } from "$lib/components/ui/button";
+  import * as Card from "$lib/components/ui/card";
+  import { Checkbox } from "$lib/components/ui/checkbox";
+  import * as Empty from "$lib/components/ui/empty";
+  import * as Field from "$lib/components/ui/field";
+  import { Input } from "$lib/components/ui/input";
+  import * as Item from "$lib/components/ui/item";
+  import { Label } from "$lib/components/ui/label";
+  import { Progress } from "$lib/components/ui/progress";
   import { api } from "../lib/api";
   import { bytes, plural } from "../lib/format";
   import { downloadImg } from "../lib/images";
@@ -173,210 +182,163 @@
       <h1>Downloads</h1>
       <div class="sub num">
         {#if app.downloads.length}
-          {plural(app.downloads.length, "item")} · {bytes(onDisk)} on disk{#if active} · {active} in progress{/if}
+          {plural(app.downloads.length, "item")} · {bytes(onDisk)} on disk{#if active}{" · "}{active} in progress{/if}
         {:else}
           Saved on this computer for offline playback.
         {/if}
       </div>
     </div>
-    <button class="btn" onclick={() => act(api.openDownloadsFolder())}><FolderOpen size={14} />Open folder</button>
+    <Button variant="outline" onclick={() => act(api.openDownloadsFolder())}><FolderOpen />Open folder</Button>
   </div>
 
   {#if smart}
-    <div class="section-head">
-      <h2>Smart downloads</h2>
-      <div class="row-flex">
-        <span class="faint small">Keep the next unwatched episodes downloaded</span>
+    <Card.Root class="mb-2 gap-0 pb-0">
+      <Card.Header class="border-b">
+        <h2 class="text-base leading-snug font-semibold tracking-tight">Smart downloads</h2>
+        <Card.Description>Keep the next unwatched episodes downloaded</Card.Description>
         {#if smart.policies.some((p) => p.active)}
-          <button class="more" disabled={smartBusy} onclick={runNow}>Run now</button>
+          <Card.Action><Button variant="outline" size="sm" disabled={smartBusy} onclick={runNow}>Run now</Button></Card.Action>
         {/if}
-      </div>
-    </div>
-    <div class="rows">
-      {#each smart.policies as p (p.id)}
-        <div class={["setting", "policy", { dim: !p.enabled || !p.active }]}>
-          <div class="label">
-            <b>{p.title}</b>
-            <span class="num">
-              {p.target} · {p.serverName}{p.active ? "" : " (another account or server)"} · {plural(p.downloads, "download")}{p.bytes ? `, ${bytes(p.bytes)}` : ""}{p.enabled ? "" : " · paused"}
-            </span>
-          </div>
-          <div class="control">
-            <label class="inline" title="Unwatched items to keep">
-              Keep
-              <input
-                class="input num"
-                type="number"
-                min="1"
-                max="50"
-                style="width: 64px"
-                value={p.keep}
-                onchange={(e) => {
-                  const n = Math.floor(Number(e.currentTarget.value));
-                  if (n >= 1 && n <= 50) patch(p, { keep: n });
-                  else e.currentTarget.value = String(p.keep);
-                }}
-              />
-            </label>
-            <label class="inline" title="Delete downloads once they are watched">
-              <input type="checkbox" checked={p.deleteWatched} onchange={(e) => patch(p, { deleteWatched: e.currentTarget.checked })} />
-              Remove watched
-            </label>
-            <button class="icon-btn" title={p.enabled ? "Pause" : "Resume"} onclick={() => patch(p, { enabled: !p.enabled })}>
-              {#if p.enabled}<Pause />{:else}<Play />{/if}
-            </button>
-            <button class="icon-btn" title="Stop keeping downloaded" onclick={() => dropPolicy(p)}><Trash size={14} /></button>
-          </div>
-        </div>
-      {/each}
-      <div class="setting">
-        <div class="label">
-          <b>Storage budget</b>
-          <span class="num">
-            {bytes(smart.used)} used by downloads{smart.budget != null ? ` of ${bytes(smart.budget)}` : ""}. Smart downloads stop adding when the budget is full.
-          </span>
-        </div>
-        <div class="control">
-          <input
-            class="input num"
-            type="number"
-            min="0"
-            step="1"
-            style="width: 90px"
-            placeholder="No limit"
-            value={smart.budget != null ? Math.round((smart.budget / GIB) * 10) / 10 : ""}
-            onchange={(e) => setBudget(e.currentTarget.value)}
-          />
-          GB
-        </div>
-      </div>
-      {#if smart.policies.length === 0}
-        <div class="setting">
-          <div class="label"><span>Open a show, season or playlist and choose “Keep next unwatched downloaded”.</span></div>
-        </div>
-      {/if}
-    </div>
-  {/if}
-
-  {#if app.downloads.length === 0}
-    <Status
-      title="Nothing downloaded"
-      text="Choose “Download” from any movie, episode, season or album menu to keep a copy on this computer and play it without a connection."
-    />
-  {:else}
-    {#each groups as g (g.key)}
-      {@const done = g.items.filter((d) => d.state === "done").map((d) => d.id)}
-      <div class="section-head">
-        <h2>{g.title}</h2>
-        <div class="row-flex">
-          <span class="faint small num">{groupSub(g)}</span>
-          {#if (g.kind === "episode" || g.kind === "track") && done.length}
-            <button class="more" onclick={() => playIds(done)}>Play all</button>
-          {/if}
-        </div>
-      </div>
-      <div class="rows">
-        {#each g.items as d (d.id)}
-          {@const m = d.item}
-          {@const rk = m.ratingKey}
-          <div class={["list-row", "download", d.state]}>
-            <div class={["thumb", { square: plex.kind(m) === "track" }]}>
-              {#if d.poster}<Img src={downloadImg(d.id)} />{/if}
-            </div>
-            <div class="grow">
-              {#if linkable(d) && rk}
-                <button class="t title-link" onclick={() => nav.push({ name: "item", ratingKey: rk })}>{rowTitle(m)}</button>
-              {:else}
-                <div class="t">{rowTitle(m)}</div>
-              {/if}
-              {#if d.state === "failed"}
-                <div class="s err" title={d.error}>{d.error ?? "Download failed"}</div>
-              {:else}
-                <div class="s num">{rowSub(d)}</div>
-              {/if}
-              {#if d.state === "downloading"}
-                <div class="bar"><i style:width="{pct(d)}%"></i></div>
-              {/if}
-            </div>
-            <div class="end">
-              {#if d.state === "queued" || d.state === "downloading"}
-                <button class="icon-btn" title="Pause download" onclick={() => act(api.pauseDownload(d.id))}><Pause /></button>
-              {:else if d.state === "paused"}
-                <span class="faint">Paused</span>
-                <button class="icon-btn" title="Resume download" onclick={() => act(api.retryDownload(d.id))}><Play /></button>
-              {/if}
-              {#if d.state === "downloading"}
-                <span class="state num">{pct(d)}%</span>
-              {:else if d.state === "queued"}
-                <span class="state">Waiting</span>
-              {:else if d.state === "failed"}
-                <button class="btn sm quiet" onclick={() => act(api.retryDownload(d.id))}><RotateCw size={13} />Retry</button>
-              {:else if d.state === "done"}
-                <button class="icon-btn" title="Play" onclick={() => playIds([d.id])}><Play size={15} /></button>
-              {/if}
-              <button class="icon-btn" title={d.state === "done" ? "Delete download" : "Remove"} onclick={() => remove(d)}>
-                <Trash size={14} />
-              </button>
+      </Card.Header>
+      <Card.Content class="divide-y px-0">
+        {#each smart.policies as p (p.id)}
+          <div class="flex items-center justify-between gap-6 px-4 py-3.5">
+            <Field.Content>
+              <Field.Title class={!p.enabled || !p.active ? "text-muted-foreground" : ""}>{p.title}</Field.Title>
+              <Field.Description class="text-[13px] tabular-nums">
+                {p.target} · {p.serverName}{p.active ? "" : " (another account or server)"} · {plural(p.downloads, "download")}{p.bytes ? `, ${bytes(p.bytes)}` : ""}{p.enabled ? "" : " · paused"}
+              </Field.Description>
+            </Field.Content>
+            <div class="flex flex-none items-center gap-4">
+              <Label class="text-muted-foreground text-xs font-normal" title="Unwatched items to keep">
+                Keep
+                <Input
+                  class="w-16 tabular-nums"
+                  type="number"
+                  min="1"
+                  max="50"
+                  value={p.keep}
+                  onchange={(e) => {
+                    const n = Math.floor(Number(e.currentTarget.value));
+                    if (n >= 1 && n <= 50) patch(p, { keep: n });
+                    else e.currentTarget.value = String(p.keep);
+                  }}
+                />
+              </Label>
+              <div class="flex items-center gap-2" title="Delete downloads once they are watched">
+                <Checkbox id="remove-watched-{p.id}" checked={p.deleteWatched} onCheckedChange={(on) => patch(p, { deleteWatched: on })} />
+                <Label for="remove-watched-{p.id}" class="text-muted-foreground text-xs font-normal">Remove watched</Label>
+              </div>
+              <div class="flex items-center gap-0.5">
+                <Button variant="ghost" size="icon" title={p.enabled ? "Pause" : "Resume"} onclick={() => patch(p, { enabled: !p.enabled })}>
+                  {#if p.enabled}<Pause />{:else}<Play />{/if}
+                </Button>
+                <Button variant="ghost" size="icon" title="Stop keeping downloaded" onclick={() => dropPolicy(p)}><Trash /></Button>
+              </div>
             </div>
           </div>
         {/each}
+        <div class="flex items-center justify-between gap-6 px-4 py-3.5">
+          <Field.Content>
+            <Field.Title>Storage budget</Field.Title>
+            <Field.Description class="text-[13px] tabular-nums">
+              {bytes(smart.used)} used by downloads{smart.budget != null ? ` of ${bytes(smart.budget)}` : ""}. Smart downloads stop adding when the budget is full.
+            </Field.Description>
+          </Field.Content>
+          <div class="text-muted-foreground flex flex-none items-center gap-2 text-sm">
+            <Input
+              class="w-24 tabular-nums"
+              type="number"
+              min="0"
+              step="1"
+              placeholder="No limit"
+              value={smart.budget != null ? Math.round((smart.budget / GIB) * 10) / 10 : ""}
+              onchange={(e) => setBudget(e.currentTarget.value)}
+            />
+            GB
+          </div>
+        </div>
+        {#if smart.policies.length === 0}
+          <div class="px-4 py-3.5">
+            <Field.Description class="text-[13px]">Open a show, season or playlist and choose “Keep next unwatched downloaded”.</Field.Description>
+          </div>
+        {/if}
+      </Card.Content>
+    </Card.Root>
+  {/if}
+
+  {#if app.downloads.length === 0}
+    <Empty.Root class="mt-8 border">
+      <Empty.Header>
+        <Empty.Media variant="icon"><DownloadIcon /></Empty.Media>
+        <Empty.Title>Nothing downloaded</Empty.Title>
+        <Empty.Description>
+          Choose “Download” from any movie, episode, season or album menu to keep a copy on this computer and play it without a connection.
+        </Empty.Description>
+      </Empty.Header>
+    </Empty.Root>
+  {:else}
+    {#each groups as g (g.key)}
+      {@const done = g.items.filter((d) => d.state === "done").map((d) => d.id)}
+      <div class="mt-9 mb-3 flex items-center justify-between gap-4">
+        <h2 class="text-base leading-snug font-semibold tracking-tight">{g.title}</h2>
+        <div class="flex items-center gap-3">
+          <span class="text-muted-foreground text-xs tabular-nums">{groupSub(g)}</span>
+          {#if (g.kind === "episode" || g.kind === "track") && done.length}
+            <Button variant="outline" size="sm" onclick={() => playIds(done)}>Play all</Button>
+          {/if}
+        </div>
       </div>
+      <Card.Root class="gap-0 py-0">
+        <Card.Content class="divide-y px-0">
+          {#each g.items as d (d.id)}
+            {@const m = d.item}
+            {@const rk = m.ratingKey}
+            <Item.Root class="rounded-none border-0">
+              <Item.Media class={["bg-muted h-12 overflow-hidden rounded-sm", plex.kind(m) === "track" ? "size-12" : "w-8"]}>
+                {#if d.poster}<Img class="size-full object-cover" src={downloadImg(d.id)} />{/if}
+              </Item.Media>
+              <Item.Content class="min-w-0">
+                <Item.Title class={["max-w-full", (d.state === "queued" || d.state === "failed") && "text-muted-foreground"]}>
+                  {#if linkable(d) && rk}
+                    <button class="truncate text-left underline-offset-4 hover:underline" onclick={() => nav.push({ name: "item", ratingKey: rk })}>{rowTitle(m)}</button>
+                  {:else}
+                    <span class="truncate">{rowTitle(m)}</span>
+                  {/if}
+                </Item.Title>
+                {#if d.state === "failed"}
+                  <Item.Description class="text-destructive/80 text-xs" title={d.error}>{d.error ?? "Download failed"}</Item.Description>
+                {:else}
+                  <Item.Description class="text-xs tabular-nums">{rowSub(d)}</Item.Description>
+                {/if}
+                {#if d.state === "downloading"}
+                  <Progress value={pct(d)} class="mt-1.5 max-w-90 **:data-[slot=progress-indicator]:bg-tint" />
+                {/if}
+              </Item.Content>
+              <Item.Actions class="gap-1">
+                {#if d.state === "queued" || d.state === "downloading"}
+                  <Button variant="ghost" size="icon" title="Pause download" onclick={() => act(api.pauseDownload(d.id))}><Pause /></Button>
+                {:else if d.state === "paused"}
+                  <Badge variant="secondary">Paused</Badge>
+                  <Button variant="ghost" size="icon" title="Resume download" onclick={() => act(api.retryDownload(d.id))}><Play /></Button>
+                {/if}
+                {#if d.state === "downloading"}
+                  <span class="text-muted-foreground min-w-12 pr-1 text-right text-xs tabular-nums">{pct(d)}%</span>
+                {:else if d.state === "queued"}
+                  <span class="text-muted-foreground min-w-12 pr-1 text-right text-xs">Waiting</span>
+                {:else if d.state === "failed"}
+                  <Button variant="ghost" size="sm" onclick={() => act(api.retryDownload(d.id))}><RotateCw />Retry</Button>
+                {:else if d.state === "done"}
+                  <Button variant="ghost" size="icon" title="Play" onclick={() => playIds([d.id])}><Play /></Button>
+                {/if}
+                <Button variant="ghost" size="icon" title={d.state === "done" ? "Delete download" : "Remove"} onclick={() => remove(d)}>
+                  <Trash />
+                </Button>
+              </Item.Actions>
+            </Item.Root>
+          {/each}
+        </Card.Content>
+      </Card.Root>
     {/each}
   {/if}
 </div>
-
-<style>
-  .small {
-    font-size: 12px;
-  }
-  .policy.dim b {
-    color: var(--text-2);
-  }
-  .inline {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 12px;
-    color: var(--text-2);
-  }
-  .section-head .row-flex {
-    gap: 14px;
-  }
-  .download .grow {
-    min-width: 0;
-  }
-  .download .t,
-  .download .s {
-    display: block;
-  }
-  .title-link {
-    max-width: 100%;
-    padding: 0;
-    border: 0;
-    background: none;
-    text-align: left;
-    cursor: pointer;
-  }
-  .title-link:hover {
-    text-decoration: underline;
-    text-decoration-color: var(--line-2);
-    text-underline-offset: 3px;
-  }
-  .download.queued .t,
-  .download.failed .t {
-    color: var(--text-2);
-  }
-  .err {
-    color: color-mix(in srgb, var(--danger) 65%, var(--text-3));
-  }
-  .bar {
-    max-width: 360px;
-    margin-top: 6px;
-  }
-  .state {
-    min-width: 52px;
-    padding-right: 4px;
-    font-size: 12px;
-    text-align: right;
-  }
-</style>

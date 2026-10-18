@@ -24,7 +24,7 @@
   {:else if lists.data.length === 0}
     <Status title="No playlists yet" />
   {:else}
-    <div class="grid">
+    <div class="poster-grid">
       {#each lists.data as item (item.ratingKey)}<Card {item} shape="square" />{/each}
     </div>
   {/if}

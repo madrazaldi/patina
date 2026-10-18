@@ -1,4 +1,9 @@
 <script lang="ts">
+  import { Badge } from "$lib/components/ui/badge";
+  import { Button } from "$lib/components/ui/button";
+  import { Label } from "$lib/components/ui/label";
+  import { Switch } from "$lib/components/ui/switch";
+  import { cn } from "$lib/utils";
   import Card from "../components/Card.svelte";
   import CopyDialog from "../components/CopyDialog.svelte";
   import Img from "../components/Img.svelte";
@@ -69,10 +74,10 @@
       <div class="sub">{all ? "Every library on every server of your account." : "Every library on this server."} Press / anywhere to search.</div>
     </div>
     {#if canAll}
-      <label class="scope">
-        <input type="checkbox" checked={app.searchAll} onchange={(e) => (app.searchAll = e.currentTarget.checked)} />
-        Search all servers
-      </label>
+      <div class="flex items-center gap-2.5">
+        <Switch id="search-all-servers" checked={app.searchAll} onCheckedChange={(v) => (app.searchAll = v)} />
+        <Label for="search-all-servers" class="cursor-pointer text-muted-foreground">Search all servers</Label>
+      </div>
     {/if}
   </div>
 
@@ -84,24 +89,24 @@
     {:else}
       {@const found = everywhere.all}
       {#if found}
-        <ul class="servers" aria-label="Servers searched" role="status">
+        <ul class="mb-4 flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-muted-foreground" aria-label="Servers searched" role="status">
           {#each found.servers as s (s.id)}
-            <li class={["srv", s.state]}><b>{s.name}</b> {stateLabel(s)}</li>
+            <li class={["srv", s.state, (s.state === "failed" || s.state === "timedOut") && "text-destructive"]}><b class={["font-medium", s.state !== "failed" && s.state !== "timedOut" && "text-foreground/80"]}>{s.name}</b> {stateLabel(s)}</li>
           {/each}
         </ul>
         {#if found.groups.length}
           <div class="rows">
             {#each found.groups as g (g.key)}
               {@const first = g.copies[0]}
-              <button class="list-row clickable group" onclick={() => openGroup(g)} aria-label={`${g.title}${g.year ? ` (${g.year})` : ""}, on ${g.copies.map(badge).join(", ")}`}>
+              <button class="list-row clickable group w-full text-left" onclick={() => openGroup(g)} aria-label={`${g.title}${g.year ? ` (${g.year})` : ""}, on ${g.copies.map(badge).join(", ")}`}>
                 <div class="thumb"><Img src={img(plex.poster(first.item), 96, 144, first.item.patinaServer)} /></div>
                 <div class="grow">
-                  <div class="t">{g.title}{#if g.year} <span class="faint">({g.year})</span>{/if}</div>
+                  <div class="t">{g.title}{#if g.year}<span class="ml-1 text-muted-foreground">({g.year})</span>{/if}</div>
                   <div class="s">{g.subtitle ?? g.kind}</div>
                 </div>
-                <div class="end copies">
+                <div class="end max-w-1/2 flex-wrap justify-end">
                   {#each g.copies as c (`${c.serverId}:${c.item.ratingKey}`)}
-                    <span class={["tag", { accent: c.current }]} title={c.versions.map((v) => v.label).join("\n")}>{c.serverName}{#if quality(c)} <span class="num">{quality(c)}</span>{/if}</span>
+                    <Badge variant="outline" class={cn(c.current && "border-tint/40 bg-tint/10 text-tint")} title={c.versions.map((v) => v.label).join("\n")}>{c.serverName}{#if quality(c)} <span class="tabular-nums">{quality(c)}</span>{/if}</Badge>
                   {/each}
                 </div>
               </button>
@@ -130,26 +135,26 @@
         <div class="section-head"><h2>{hub.title}</h2></div>
         {#if hub.Metadata.length}
           {@const wide = hub.type === "episode" || hub.type === "clip"}
-          <div class={["grid", { wide }]}>
+          <div class={["poster-grid", { wide }]}>
             {#each hub.Metadata as item, j (`${item.ratingKey}:${j}`)}
               <Card {item} shape={wide ? "landscape" : undefined} />
             {/each}
           </div>
         {/if}
         {#if hub.Directory.length}
-          <div class="tags">
+          <div class="flex flex-wrap gap-x-2.5 gap-y-4">
             {#each hub.Directory as d, j (`${d.key}:${d.tag}:${j}`)}
               {@const name = d.title ?? d.tag ?? ""}
               {#if people.includes(d.type ?? "")}
-                <button class="person" onclick={() => openTag(d)}>
-                  <span class="face">
-                    {#if d.thumb}<Img src={img(d.thumb, 160, 160)} />{:else}{initials(name)}{/if}
+                <button class="group/person flex w-24 cursor-pointer flex-col items-center gap-0.5 text-center text-xs" onclick={() => openTag(d)}>
+                  <span class="mb-1.5 grid size-18 place-items-center overflow-hidden rounded-full bg-muted font-semibold text-muted-foreground ring-1 ring-foreground/10 transition-shadow group-hover/person:ring-foreground/30">
+                    {#if d.thumb}<Img src={img(d.thumb, 160, 160)} class="size-full object-cover" />{:else}{initials(name)}{/if}
                   </span>
-                  <span class="name">{name}</span>
-                  {#if d.count != null}<span class="faint">{d.count} titles</span>{/if}
+                  <span class="font-medium underline-offset-3 group-hover/person:underline">{name}</span>
+                  {#if d.count != null}<span class="text-muted-foreground">{d.count} titles</span>{/if}
                 </button>
               {:else}
-                <button class="chip" onclick={() => openTag(d)}>{name}</button>
+                <Button variant="outline" size="sm" class="rounded-full" onclick={() => openTag(d)}>{name}</Button>
               {/if}
             {/each}
           </div>
@@ -162,85 +167,3 @@
 {#if chosen}
   <CopyDialog group={chosen} onclose={() => (chosen = null)} />
 {/if}
-
-<style>
-  .scope {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-left: auto;
-    font-size: 12.5px;
-    color: var(--text-2);
-  }
-  .servers {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px 16px;
-    margin: 0 0 14px;
-    padding: 0;
-    list-style: none;
-    font-size: 12px;
-    color: var(--text-3);
-  }
-  .srv b {
-    font-weight: 500;
-    color: var(--text-2);
-  }
-  .srv.failed,
-  .srv.timedOut {
-    color: #e0a89f;
-  }
-  .group {
-    width: 100%;
-    border-left: 0;
-    border-right: 0;
-    border-bottom: 0;
-    background: none;
-    color: inherit;
-    text-align: left;
-  }
-  .copies {
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    max-width: 50%;
-  }
-  .tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 18px 10px;
-  }
-  .person {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 3px;
-    width: 96px;
-    padding: 0;
-    border: 0;
-    background: none;
-    font-size: 12px;
-    text-align: center;
-    cursor: pointer;
-  }
-  .face {
-    display: grid;
-    place-items: center;
-    width: 72px;
-    height: 72px;
-    margin-bottom: 5px;
-    border-radius: 50%;
-    overflow: hidden;
-    background: var(--surface);
-    color: var(--text-3);
-    font-weight: 600;
-  }
-  .face :global(img) {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-  .person:hover .name {
-    text-decoration: underline;
-    text-underline-offset: 3px;
-  }
-</style>

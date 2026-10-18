@@ -1,6 +1,7 @@
 <script lang="ts">
   // A titled, horizontally scrolling row of cards.
   import { ChevronLeft, ChevronRight } from "@lucide/svelte";
+  import { Button } from "$lib/components/ui/button";
   import Card from "./Card.svelte";
   import { commonShape, type Shape } from "../lib/plex";
   import { nav, type Route } from "../lib/router.svelte";
@@ -40,17 +41,17 @@
   <section>
     <div class="section-head">
       <h2>{title}</h2>
-      <div class="row-flex controls">
+      <div class="flex items-center gap-1.5">
         {#if more}
-          <button class="more" onclick={() => more && nav.push(more)}>See all</button>
+          <Button variant="ghost" size="sm" class="text-muted-foreground" onclick={() => more && nav.push(more)}>See all</Button>
         {/if}
         {#if !(atStart && atEnd)}
-          <button class="icon-btn" title="Scroll left" disabled={atStart} onclick={() => page(-1)}><ChevronLeft /></button>
-          <button class="icon-btn" title="Scroll right" disabled={atEnd} onclick={() => page(1)}><ChevronRight /></button>
+          <Button variant="outline" size="icon-sm" title="Scroll left" disabled={atStart} onclick={() => page(-1)}><ChevronLeft /></Button>
+          <Button variant="outline" size="icon-sm" title="Scroll right" disabled={atEnd} onclick={() => page(1)}><ChevronRight /></Button>
         {/if}
       </div>
     </div>
-    <div class="row" bind:this={scroller} onscroll={update}>
+    <div class="row mx-[calc(var(--gutter)*-1)] flex gap-5 overflow-x-auto overflow-y-hidden px-(--gutter) pb-1 [scroll-padding:0_var(--gutter)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" bind:this={scroller} onscroll={update}>
       {#each items as item, i (`${item.ratingKey}:${item.key}:${i}`)}
         <Card {item} shape={rowShape} {useArt} fixed />
       {/each}
@@ -59,30 +60,3 @@
 {/if}
 
 <svelte:window onresize={update} />
-
-<style>
-  .controls {
-    gap: 2px;
-    margin: -8px -6px -6px 0;
-  }
-  .controls .more {
-    margin-right: 10px;
-  }
-  .controls .icon-btn {
-    width: 24px;
-    height: 24px;
-  }
-  .row {
-    display: flex;
-    gap: 18px;
-    overflow-x: auto;
-    overflow-y: hidden;
-    margin: 0 calc(var(--gutter) * -1);
-    padding: 0 var(--gutter) 4px;
-    scroll-padding: 0 var(--gutter);
-    scrollbar-width: none;
-  }
-  .row::-webkit-scrollbar {
-    display: none;
-  }
-</style>

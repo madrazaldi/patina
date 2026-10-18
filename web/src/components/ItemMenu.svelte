@@ -222,11 +222,10 @@
 
 <style>
   button:disabled {
-    color: var(--text-3);
+    color: var(--muted-foreground);
     cursor: default;
-  }
-  button:disabled:hover {
-    background: none;
+    opacity: 0.5;
+    pointer-events: none;
   }
   .danger :global(svg) {
     color: inherit;

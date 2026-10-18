@@ -46,7 +46,7 @@
   {#if items.length === 0 && !error}
     <Status loading={loading} title="Nothing here" />
   {:else if items.length > 0}
-    <div class={["grid", { wide }]}>
+    <div class={["poster-grid", { wide }]}>
       {#each items as item, i (`${item.ratingKey}:${item.key}:${i}`)}<Card {item} />{/each}
     </div>
     {#if !done && !error}<More {loading} onmore={load} />{/if}

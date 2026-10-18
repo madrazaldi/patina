@@ -1,5 +1,8 @@
 <script lang="ts">
   // Lyrics for the playing track, in the panel over the now-playing bar. Synced lines follow playback.
+  import * as Alert from "$lib/components/ui/alert";
+  import * as Empty from "$lib/components/ui/empty";
+  import { Spinner } from "$lib/components/ui/spinner";
   import { api } from "../lib/api";
   import { app, message } from "../lib/state.svelte";
   import type { Lyrics, NowPlaying } from "../lib/types";
@@ -68,20 +71,22 @@
   }
 </script>
 
-<header class="head">
-  <span class="label">Lyrics</span>
-  <span class="faint ellipsis">· {np.item.title}</span>
+<header class="flex h-11 min-w-0 items-center gap-1.5 border-b px-4">
+  <span class="text-foreground flex-none text-xs font-semibold tracking-wider uppercase">Lyrics</span>
+  <span class="text-muted-foreground ellipsis min-w-0 text-xs">· {np.item.title}</span>
 </header>
 
 {#if lyrics === undefined && !error}
-  <div class="state"><div class="spinner"></div></div>
+  <div class="grid place-items-center px-4 py-7"><Spinner /></div>
 {:else if error}
-  <div class="state"><div class="error-box">{error}</div></div>
+  <div class="p-4"><Alert.Root variant="destructive"><Alert.Description class="whitespace-pre-wrap select-text">{error}</Alert.Description></Alert.Root></div>
 {:else if !lyrics || lyrics.lines.length === 0}
-  <p class="state faint">No lyrics for this track</p>
+  <Empty.Root class="border-0 p-8">
+    <Empty.Description>No lyrics for this track</Empty.Description>
+  </Empty.Root>
 {:else}
   <div
-    class={["lines serif", { synced }]}
+    class={["lines", { synced }]}
     bind:this={box}
     onwheel={() => (heldUntil = performance.now() + 4000)}
   >
@@ -101,33 +106,6 @@
 {/if}
 
 <style>
-  .head {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    min-width: 0;
-    height: 43px;
-    padding: 0 14px;
-    border-bottom: 1px solid var(--line);
-  }
-  .label {
-    flex: none;
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.09em;
-    text-transform: uppercase;
-    color: var(--text-2);
-  }
-  .head .faint {
-    min-width: 0;
-    font-size: 12px;
-  }
-  .state {
-    display: grid;
-    place-items: center;
-    padding: 28px 16px;
-    text-align: center;
-  }
   .lines {
     position: relative;
     flex: 1;

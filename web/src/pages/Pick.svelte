@@ -21,6 +21,13 @@
   // "Pick something to watch": a few random candidates that fit what you feel like.
   import { Dices } from "@lucide/svelte";
   import { untrack } from "svelte";
+  import { Button } from "$lib/components/ui/button";
+  import { Checkbox } from "$lib/components/ui/checkbox";
+  import * as Field from "$lib/components/ui/field";
+  import { Input } from "$lib/components/ui/input";
+  import { Kbd } from "$lib/components/ui/kbd";
+  import { Label } from "$lib/components/ui/label";
+  import * as NativeSelect from "$lib/components/ui/native-select";
   import Card from "../components/Card.svelte";
   import Status from "../components/Status.svelte";
   import { api } from "../lib/api";
@@ -119,75 +126,78 @@
     </div>
   </div>
 
-  <div class="layout">
-    <form class="form" onsubmit={(e) => e.preventDefault()} aria-label="What to watch">
-      <label class="field">
-        <span>Looking for</span>
-        <select class="select" bind:value={form.kind}>
-          <option value="movie">Movies</option>
-          <option value="show">Shows</option>
-          <option value="any">Movies and shows</option>
-        </select>
-      </label>
-      <label class="field">
-        <span>Library</span>
-        <select class="select" bind:value={form.section}>
-          <option value="">Any library</option>
-          {#each sections as s (s.id)}<option value={s.id}>{s.title}</option>{/each}
-        </select>
-      </label>
-      <label class="check"><input type="checkbox" bind:checked={form.unwatched} /> Only unwatched</label>
-      <label class="field">
-        <span>Runtime</span>
-        <select class="select" value={form.maxMinutes ?? ""} onchange={(e) => (form.maxMinutes = e.currentTarget.value ? Number(e.currentTarget.value) : null)}>
-          <option value="">Any length</option>
-          {#each RUNTIMES as m (m)}<option value={m}>Up to {m} minutes</option>{/each}
-        </select>
-      </label>
-      <label class="field">
-        <span>Audience rating</span>
-        <select class="select" value={form.minRating ?? ""} onchange={(e) => (form.minRating = e.currentTarget.value ? Number(e.currentTarget.value) : null)}>
-          <option value="">Any rating</option>
-          {#each RATINGS as r (r)}<option value={r}>{r}.0 or higher</option>{/each}
-        </select>
-      </label>
-      <div class="years">
-        <label class="field">
-          <span>From year</span>
-          <input class="input" inputmode="numeric" placeholder="Any" bind:value={form.yearMin} />
-        </label>
-        <label class="field">
-          <span>To year</span>
-          <input class="input" inputmode="numeric" placeholder="Any" bind:value={form.yearMax} />
-        </label>
+  <div class="grid items-start gap-6 min-[861px]:grid-cols-[280px_minmax(0,1fr)]">
+    <form class="flex flex-col gap-4 rounded-xl border bg-card p-4" onsubmit={(e) => e.preventDefault()} aria-label="What to watch">
+      <Field.Field>
+        <Field.Label for="pick-kind">Looking for</Field.Label>
+        <NativeSelect.Root id="pick-kind" class="w-full" bind:value={form.kind}>
+          <NativeSelect.Option value="movie">Movies</NativeSelect.Option>
+          <NativeSelect.Option value="show">Shows</NativeSelect.Option>
+          <NativeSelect.Option value="any">Movies and shows</NativeSelect.Option>
+        </NativeSelect.Root>
+      </Field.Field>
+      <Field.Field>
+        <Field.Label for="pick-section">Library</Field.Label>
+        <NativeSelect.Root id="pick-section" class="w-full" bind:value={form.section}>
+          <NativeSelect.Option value="">Any library</NativeSelect.Option>
+          {#each sections as s (s.id)}<NativeSelect.Option value={s.id}>{s.title}</NativeSelect.Option>{/each}
+        </NativeSelect.Root>
+      </Field.Field>
+      <Field.Field orientation="horizontal">
+        <Checkbox id="pick-unwatched" bind:checked={form.unwatched} />
+        <Label for="pick-unwatched" class="cursor-pointer">Only unwatched</Label>
+      </Field.Field>
+      <Field.Field>
+        <Field.Label for="pick-runtime">Runtime</Field.Label>
+        <NativeSelect.Root id="pick-runtime" class="w-full" value={form.maxMinutes ?? ""} onchange={(e) => (form.maxMinutes = e.currentTarget.value ? Number(e.currentTarget.value) : null)}>
+          <NativeSelect.Option value="">Any length</NativeSelect.Option>
+          {#each RUNTIMES as m (m)}<NativeSelect.Option value={m}>Up to {m} minutes</NativeSelect.Option>{/each}
+        </NativeSelect.Root>
+      </Field.Field>
+      <Field.Field>
+        <Field.Label for="pick-rating">Audience rating</Field.Label>
+        <NativeSelect.Root id="pick-rating" class="w-full" value={form.minRating ?? ""} onchange={(e) => (form.minRating = e.currentTarget.value ? Number(e.currentTarget.value) : null)}>
+          <NativeSelect.Option value="">Any rating</NativeSelect.Option>
+          {#each RATINGS as r (r)}<NativeSelect.Option value={r}>{r}.0 or higher</NativeSelect.Option>{/each}
+        </NativeSelect.Root>
+      </Field.Field>
+      <div class="grid grid-cols-2 gap-2.5">
+        <Field.Field>
+          <Field.Label for="pick-year-min">From year</Field.Label>
+          <Input id="pick-year-min" inputmode="numeric" placeholder="Any" bind:value={form.yearMin} />
+        </Field.Field>
+        <Field.Field>
+          <Field.Label for="pick-year-max">To year</Field.Label>
+          <Input id="pick-year-max" inputmode="numeric" placeholder="Any" bind:value={form.yearMax} />
+        </Field.Field>
       </div>
 
       {#if choices.genres.length}
-        <fieldset class="chips">
-          <legend>Genres <span class="faint">any of</span></legend>
-          <div class="wrap">
+        <Field.Set class="min-w-0 gap-1">
+          <Field.Legend variant="label" class="mb-1.5">Genres <span class="font-normal text-muted-foreground">any of</span></Field.Legend>
+          <div class="flex max-h-52 flex-wrap gap-1.5 overflow-y-auto">
             {#each choices.genres as g (g)}
               {@const on = form.genres.includes(g)}
-              <button type="button" class={["chip", { active: on }]} aria-pressed={on} onclick={() => (form.genres = toggle(form.genres, g))}>{g}</button>
+              <Button variant={on ? "default" : "outline"} size="sm" class={["rounded-full", { active: on }]} aria-pressed={on} onclick={() => (form.genres = toggle(form.genres, g))}>{g}</Button>
             {/each}
           </div>
-        </fieldset>
+        </Field.Set>
       {/if}
       {#if choices.contentRatings.length}
-        <fieldset class="chips">
-          <legend>Content rating <span class="faint">any of</span></legend>
-          <div class="wrap">
+        <Field.Set class="min-w-0 gap-1">
+          <Field.Legend variant="label" class="mb-1.5">Content rating <span class="font-normal text-muted-foreground">any of</span></Field.Legend>
+          <div class="flex max-h-52 flex-wrap gap-1.5 overflow-y-auto">
             {#each choices.contentRatings as c (c)}
               {@const on = form.contentRatings.includes(c)}
-              <button type="button" class={["chip", { active: on }]} aria-pressed={on} onclick={() => (form.contentRatings = toggle(form.contentRatings, c))}>{c}</button>
+              <Button variant={on ? "default" : "outline"} size="sm" class={["rounded-full", { active: on }]} aria-pressed={on} onclick={() => (form.contentRatings = toggle(form.contentRatings, c))}>{c}</Button>
             {/each}
           </div>
-        </fieldset>
+        </Field.Set>
       {/if}
-      <button type="button" class="btn quiet sm" onclick={() => (form = fresh())}>Reset</button>
+      <Button variant="ghost" size="sm" class="-ml-2.5 self-start" onclick={() => (form = fresh())}>Reset</Button>
     </form>
 
-    <section class="results" aria-live="polite" aria-busy={busy}>
+    <section class="results min-w-0" aria-live="polite" aria-busy={busy}>
       {#if error}
         <Status {error} retry={() => roll(false)} />
       {:else if !result}
@@ -195,9 +205,9 @@
       {:else if !result.items.length}
         <Status title="Nothing fits" text="Loosen a filter, such as the runtime, rating or years." />
       {:else}
-        <div class="bar-row">
-          <button class="btn primary" disabled={busy} onclick={() => roll(true)}><Dices size={14} />Reroll <kbd>R</kbd></button>
-          <span class="faint">
+        <div class="mb-5 flex items-center gap-3.5 text-sm">
+          <Button disabled={busy} onclick={() => roll(true)}><Dices />Reroll <Kbd class="bg-primary-foreground/15 text-primary-foreground">R</Kbd></Button>
+          <span class="text-muted-foreground">
             {#if result.wrapped}
               That was everything that fits ({result.matches}); starting over.
             {:else}
@@ -206,7 +216,7 @@
             {#if result.libraries.length} · {result.libraries.join(", ")}{/if}
           </span>
         </div>
-        <div class="grid">
+        <div class="poster-grid">
           {#each result.items as item (item.ratingKey)}
             <Card {item} />
           {/each}
@@ -215,70 +225,3 @@
     </section>
   </div>
 </div>
-
-<style>
-  .layout {
-    display: grid;
-    grid-template-columns: 280px minmax(0, 1fr);
-    gap: 36px;
-    align-items: start;
-  }
-  .form {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-  }
-  .field {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-    font-size: 12px;
-    color: var(--text-2);
-  }
-  .check {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .years {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-  }
-  .chips {
-    min-width: 0;
-    margin: 0;
-    padding: 0;
-    border: 0;
-  }
-  .chips legend {
-    padding: 0;
-    margin-bottom: 6px;
-    font-size: 12px;
-    color: var(--text-2);
-  }
-  .wrap {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    max-height: 200px;
-    overflow-y: auto;
-  }
-  .bar-row {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    margin-bottom: 18px;
-    font-size: 12.5px;
-  }
-  kbd {
-    margin-left: 4px;
-    font: 11px var(--mono);
-    opacity: 0.7;
-  }
-  @media (max-width: 860px) {
-    .layout {
-      grid-template-columns: 1fr;
-    }
-  }
-</style>

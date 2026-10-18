@@ -1,4 +1,7 @@
 <script lang="ts">
+  import * as Alert from "$lib/components/ui/alert";
+  import { Button } from "$lib/components/ui/button";
+  import { Spinner } from "$lib/components/ui/spinner";
   import { api } from "../lib/api";
   import { app } from "../lib/state.svelte";
   import { playlistKind } from "../lib/plex";
@@ -40,15 +43,17 @@
     app.playlistTarget = items[0];
   }
 </script>
-<div class="bulk" aria-busy={busy}>
-  <span class="num">{items.length} selected{#if busy} · {done} complete{/if}</span>
-  <button class="btn sm" disabled={busy || !items.length} onclick={() => run("queue")}>Add to queue</button>
-  <button class="btn sm" disabled={busy || !items.length} onclick={() => run("download")}>Download</button>
-  <button class="btn sm" disabled={busy || !items.length} onclick={() => run("watched")}>Mark watched</button>
-  <button class="btn sm" disabled={busy || !items.length} onclick={playlist}>Add to playlist</button>
-  <button class="btn quiet sm" disabled={busy || !items.length} onclick={clear}>Clear selection</button>
+<div class="mb-4 flex flex-wrap items-center gap-2 rounded-lg border bg-card px-3 py-2" aria-busy={busy}>
+  {#if busy}<Spinner class="text-muted-foreground" />{/if}
+  <span class="mr-2 text-sm font-medium tabular-nums">{items.length} selected{#if busy} · {done} complete{/if}</span>
+  <Button variant="outline" size="sm" disabled={busy || !items.length} onclick={() => run("queue")}>Add to queue</Button>
+  <Button variant="outline" size="sm" disabled={busy || !items.length} onclick={() => run("download")}>Download</Button>
+  <Button variant="outline" size="sm" disabled={busy || !items.length} onclick={() => run("watched")}>Mark watched</Button>
+  <Button variant="outline" size="sm" disabled={busy || !items.length} onclick={playlist}>Add to playlist</Button>
+  <Button variant="ghost" size="sm" class="ml-auto" disabled={busy || !items.length} onclick={clear}>Clear selection</Button>
 </div>
-{#if failures.length}<div class="error-box" role="status">{done} completed. {failures.join("\n")}</div>{/if}
-<style>
-  .bulk { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 12px; margin-bottom: 16px; background: var(--surface); border: 1px solid var(--line); }
-</style>
+{#if failures.length}
+  <Alert.Root variant="destructive" role="status" class="mb-4">
+    <Alert.Description class="whitespace-pre-wrap select-text">{done} completed. {failures.join("\n")}</Alert.Description>
+  </Alert.Root>
+{/if}

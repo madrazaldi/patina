@@ -1,5 +1,11 @@
 <script lang="ts">
   // Loading, empty and error placeholders.
+  import { CircleAlert, TriangleAlert } from "@lucide/svelte";
+  import * as Alert from "$lib/components/ui/alert";
+  import { Button } from "$lib/components/ui/button";
+  import * as Empty from "$lib/components/ui/empty";
+  import { Spinner } from "$lib/components/ui/spinner";
+
   let {
     loading = false,
     error,
@@ -9,43 +15,37 @@
   }: { loading?: boolean; error?: string; title?: string; text?: string; fill?: boolean; retry?: () => void; stale?: boolean } = $props();
 </script>
 
-<div class={["status", { fill, stale }]} role="status">
+<div class={["status", stale && error ? "mb-4" : "w-full"]} role="status">
   {#if loading}
-    <div class="spinner"></div>
+    <div class={["flex items-center justify-center", fill ? "min-h-[60vh]" : "min-h-44"]}>
+      <Spinner class="size-5 text-muted-foreground" role="presentation" aria-label="" />
+    </div>
+  {:else if error && stale}
+    <Alert.Root role="none">
+      <TriangleAlert />
+      <Alert.Title>Showing saved results</Alert.Title>
+      <Alert.Description class="whitespace-pre-wrap select-text">{error}</Alert.Description>
+      {#if retry}
+        <Alert.Action><Button variant="outline" size="xs" onclick={retry}>Retry</Button></Alert.Action>
+      {/if}
+    </Alert.Root>
   {:else if error}
-    <h3>{stale ? "Showing saved results" : "Could not load this page"}</h3>
-    <div class="error-box">{error}</div>
-    {#if retry}<button class="btn" onclick={retry}>Retry</button>{/if}
+    <Empty.Root class={["border", fill ? "min-h-[60vh]" : "min-h-44"]}>
+      <Empty.Header>
+        <Empty.Media variant="icon"><CircleAlert /></Empty.Media>
+        <Empty.Title role="heading" aria-level={3}>Could not load this page</Empty.Title>
+      </Empty.Header>
+      <Empty.Content class="max-w-xl">
+        <Alert.Root variant="destructive" role="none"><Alert.Description class="whitespace-pre-wrap select-text">{error}</Alert.Description></Alert.Root>
+        {#if retry}<Button variant="outline" onclick={retry}>Retry</Button>{/if}
+      </Empty.Content>
+    </Empty.Root>
   {:else}
-    {#if title}<h3>{title}</h3>{/if}
-    {#if text}<p>{text}</p>{/if}
+    <Empty.Root class={["border", fill ? "min-h-[60vh]" : "min-h-44"]}>
+      <Empty.Header>
+        {#if title}<Empty.Title role="heading" aria-level={3} class="text-base">{title}</Empty.Title>{/if}
+        {#if text}<Empty.Description>{text}</Empty.Description>{/if}
+      </Empty.Header>
+    </Empty.Root>
   {/if}
 </div>
-
-<style>
-  .status.stale { min-height: 0; padding: 12px; margin-bottom: 16px; border: 1px solid var(--line); }
-  .status {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    min-height: 180px;
-    padding: 40px 20px;
-    text-align: center;
-  }
-  .status.fill {
-    min-height: 60vh;
-  }
-  h3 {
-    font: 400 20px/1.2 var(--serif);
-  }
-  p {
-    max-width: 44ch;
-    color: var(--text-2);
-  }
-  .error-box {
-    max-width: 560px;
-    text-align: left;
-  }
-</style>

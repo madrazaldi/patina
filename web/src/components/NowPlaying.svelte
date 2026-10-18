@@ -1,6 +1,8 @@
 <script lang="ts">
   // Remote for the running mpv: what's playing, transport controls, position, and the queue/lyrics panel.
   import { ListMusic, MicVocal, Pause, Play, RotateCcw, SkipBack, SkipForward, SlidersHorizontal, Square } from "@lucide/svelte";
+  import { Badge } from "$lib/components/ui/badge";
+  import { Button } from "$lib/components/ui/button";
   import Img from "./Img.svelte";
   import Lyrics from "./Lyrics.svelte";
   import PlayerPanel from "./PlayerPanel.svelte";
@@ -64,6 +66,9 @@
   const edit = (c: QueueCommand) => () => api.queue(c).catch((e) => app.error(e));
   const toggle = (p: "queue" | "lyrics" | "player") => () => (app.panel = app.panel === p ? null : p);
 
+  // Floating surfaces anchored to the bar's top-right, styled like a popover.
+  const surface = "bg-popover text-popover-foreground absolute right-3 bottom-[calc(100%+8px)] z-40 rounded-xl shadow-lg ring-1 ring-foreground/10";
+
   let footer: HTMLElement | undefined = $state();
 
   function outside(e: PointerEvent) {
@@ -123,7 +128,7 @@
   {@const position = scrub != null ? scrub * np.durationMs : np.positionMs}
   {@const pct = np.durationMs > 0 ? (position / np.durationMs) * 100 : 0}
   {@const status = np.live ? "Live" : np.local ? "Offline" : np.transcoding ? "Transcode" : "Direct play"}
-  <footer class="now-playing" bind:this={footer}>
+  <footer class="now-playing bg-background relative grid h-[60px] grid-cols-[minmax(0,1fr)_auto_minmax(0,1.5fr)] items-center gap-6 border-t px-4" bind:this={footer}>
     {#if !np.live && np.durationMs > 0}
       <div
         class={["seek", { scrubbing: scrub != null }]}
@@ -154,81 +159,71 @@
       </div>
     {/if}
 
-    <button class="info" onclick={() => app.session && nav.push(routeFor(item))}>
-      <div class="art">
+    <button class="flex min-w-0 cursor-pointer items-center gap-3 border-0 bg-transparent p-0 text-left" onclick={() => app.session && nav.push(routeFor(item))}>
+      <div class="bg-muted size-10 flex-none overflow-hidden rounded-md ring-1 ring-foreground/10 [&_img]:size-full [&_img]:object-cover">
         <Img src={art} />
       </div>
       <div class="grow">
-        <div class="ellipsis t">{title}</div>
-        <div class="ellipsis s">{sub}</div>
+        <div class="ellipsis text-sm font-medium">{title}</div>
+        <div class="ellipsis text-muted-foreground text-xs">{sub}</div>
       </div>
     </button>
-    <div class="controls">
-      <button class="icon-btn" title="Previous" disabled={np.queuePos === 0} onclick={send({ kind: "previous" })}><SkipBack /></button>
-      <button class="icon-btn" title="Back 10 seconds" onclick={send({ kind: "seekRelative", seconds: -10 })}><RotateCcw /></button>
-      <button class="icon-btn toggle-play" title={np.paused ? "Play" : "Pause"} onclick={send({ kind: "togglePause" })}>
-        {#if np.paused}<Play size={16} fill="currentColor" />{:else}<Pause size={16} fill="currentColor" />{/if}
-      </button>
-      <button class="icon-btn" title="Stop" onclick={send({ kind: "stop" })}><Square size={14} /></button>
-      <button class="icon-btn" title="Next" disabled={np.queuePos + 1 >= np.queueLen} onclick={send({ kind: "next" })}><SkipForward /></button>
+    <div class="flex items-center gap-1">
+      <Button variant="ghost" size="icon" class="text-muted-foreground" title="Previous" disabled={np.queuePos === 0} onclick={send({ kind: "previous" })}><SkipBack /></Button>
+      <Button variant="ghost" size="icon" class="text-muted-foreground" title="Back 10 seconds" onclick={send({ kind: "seekRelative", seconds: -10 })}><RotateCcw /></Button>
+      <Button size="icon-lg" class="mx-1 rounded-full" title={np.paused ? "Play" : "Pause"} onclick={send({ kind: "togglePause" })}>
+        {#if np.paused}<Play fill="currentColor" />{:else}<Pause fill="currentColor" />{/if}
+      </Button>
+      <Button variant="ghost" size="icon" class="text-muted-foreground" title="Stop" onclick={send({ kind: "stop" })}><Square /></Button>
+      <Button variant="ghost" size="icon" class="text-muted-foreground" title="Next" disabled={np.queuePos + 1 >= np.queueLen} onclick={send({ kind: "next" })}><SkipForward /></Button>
     </div>
-    <div class="meta num">
+    <!-- When the chips don't fit, the oldest ones fade out under the left edge. -->
+    <div class="num text-muted-foreground flex min-w-0 items-center justify-end gap-2.5 overflow-hidden text-xs whitespace-nowrap [mask-image:linear-gradient(to_right,transparent,black_28px)] *:shrink-0">
       {#if np.stopAfter}
-        <span class="stops">
-          <span class="tag">Stops after this</span>
-          <button class="link" onclick={edit({ kind: "stopAfter", on: false })}>Undo</button>
+        <span class="flex items-center gap-2">
+          <Badge variant="outline">Stops after this</Badge>
+          <button class="link text-xs" onclick={edit({ kind: "stopAfter", on: false })}>Undo</button>
         </span>
       {/if}
-      {#each chips as chip (chip)}<span class="tag">{chip}</span>{/each}
-      <span class={["tag", { accent: np.live }]}>{status}</span>
+      {#each chips as chip (chip)}<Badge variant="outline">{chip}</Badge>{/each}
+      <Badge variant="outline" class={np.live ? "border-tint/40 bg-tint/10 text-tint" : ""}>{status}</Badge>
       {#if np.queueLen > 1}<span>{np.queuePos + 1} of {np.queueLen}</span>{/if}
       <span>{clock(position)}{#if !np.live}&nbsp;/ {clock(np.durationMs)}{/if}</span>
       {#if queue || isTrack || playback}
-        <span class="tools">
+        <span class="-mr-1.5 ml-1 flex gap-0.5">
           {#if playback}
-            <button class={["icon-btn", { on: panel === "player" }]} title="Player controls and diagnostics" onclick={toggle("player")}><SlidersHorizontal /></button>
+            <Button variant="ghost" size="icon" class={["text-muted-foreground", { on: panel === "player" }, panel === "player" && "text-tint"]} title="Player controls and diagnostics" onclick={toggle("player")}><SlidersHorizontal /></Button>
           {/if}
           {#if isTrack}
-            <button class={["icon-btn", { on: panel === "lyrics" }]} title="Lyrics" onclick={toggle("lyrics")}><MicVocal /></button>
+            <Button variant="ghost" size="icon" class={["text-muted-foreground", { on: panel === "lyrics" }, panel === "lyrics" && "text-tint"]} title="Lyrics" onclick={toggle("lyrics")}><MicVocal /></Button>
           {/if}
           {#if queue}
-            <button class={["icon-btn", { on: panel === "queue" }]} title="Queue" onclick={toggle("queue")}><ListMusic /></button>
+            <Button variant="ghost" size="icon" class={["text-muted-foreground", { on: panel === "queue" }, panel === "queue" && "text-tint"]} title="Queue" onclick={toggle("queue")}><ListMusic /></Button>
           {/if}
         </span>
       {/if}
     </div>
 
     {#if panel}
-      <div class={["surface panel fade-in", { tall: panel === "lyrics" }]}>
+      <div class={[surface, "fade-in flex max-h-[60vh] w-[380px] flex-col overflow-hidden", panel === "lyrics" && "h-[60vh]"]}>
         {#if panel === "queue" && queue}<Queue {queue} />{:else if panel === "lyrics"}<Lyrics {np} />{:else if panel === "player" && playback}<PlayerPanel ps={playback} />{/if}
       </div>
     {:else if np.ending && next && !np.stopAfter}
       {@const [nextTitle, nextSub] = plex.playingLines(next)}
-      <div class="surface upnext fade-in">
-        <div class="art small"><Img src={img(plex.poster(next) ?? next.thumb, 96, 96)} /></div>
+      <div class={[surface, "fade-in flex w-[440px] items-center gap-3 py-2.5 pr-2.5 pl-3"]}>
+        <div class="bg-muted size-8 flex-none overflow-hidden rounded-sm [&_img]:size-full [&_img]:object-cover"><Img src={img(plex.poster(next) ?? next.thumb, 96, 96)} /></div>
         <div class="grow">
-          <div class="kicker">Up next</div>
-          <div class="ellipsis">{nextTitle}{#if nextSub}<span class="faint"> · {nextSub}</span>{/if}</div>
+          <div class="text-muted-foreground text-[10.5px] font-semibold tracking-wider uppercase">Up next</div>
+          <div class="ellipsis text-sm">{nextTitle}{#if nextSub}<span class="text-muted-foreground"> · {nextSub}</span>{/if}</div>
         </div>
-        <button class="btn sm" onclick={send({ kind: "next" })}>Play now</button>
-        <button class="btn sm quiet" onclick={edit({ kind: "stopAfter", on: true })}>Stop after this</button>
+        <Button variant="outline" size="sm" onclick={send({ kind: "next" })}>Play now</Button>
+        <Button variant="ghost" size="sm" onclick={edit({ kind: "stopAfter", on: true })}>Stop after this</Button>
       </div>
     {/if}
   </footer>
 {/if}
 
 <style>
-  .now-playing {
-    position: relative;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-    align-items: center;
-    gap: 24px;
-    height: 60px;
-    padding: 0 16px;
-    border-top: 1px solid var(--line);
-    background: var(--bg);
-  }
   /* A few pixels of hit area around the 1px line. */
   .seek {
     position: absolute;
@@ -259,117 +254,10 @@
   .line i {
     display: block;
     height: 100%;
-    background: var(--accent);
+    background: var(--tint);
     transition: width 0.9s linear;
   }
   .seek.scrubbing .line i {
     transition: none;
-  }
-  .info {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    min-width: 0;
-    padding: 0;
-    border: 0;
-    background: none;
-    text-align: left;
-    cursor: pointer;
-  }
-  .art {
-    width: 38px;
-    height: 38px;
-    flex: none;
-    border-radius: 3px;
-    overflow: hidden;
-    background: var(--surface);
-  }
-  .art.small {
-    width: 32px;
-    height: 32px;
-    border-radius: 2px;
-  }
-  .art :global(img) {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-  .t {
-    font-weight: 500;
-  }
-  .s {
-    font-size: 12px;
-    color: var(--text-3);
-  }
-  .controls {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-  }
-  .toggle-play {
-    width: 34px;
-    height: 34px;
-    border-radius: 50%;
-    color: var(--text);
-    border: 1px solid var(--line-2);
-  }
-  .meta {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 14px;
-    min-width: 0;
-    color: var(--text-3);
-    font-size: 12px;
-    white-space: nowrap;
-  }
-  .stops {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .stops .link {
-    font-size: 12px;
-  }
-  .tools {
-    display: flex;
-    gap: 2px;
-    margin-right: -6px;
-  }
-
-  /* Floating surfaces anchored to the bar's top-right. */
-  .surface {
-    position: absolute;
-    right: 12px;
-    bottom: calc(100% + 8px);
-    z-index: 40;
-    border-radius: 6px;
-    border: 1px solid var(--line-2);
-    background: #161616;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
-  }
-  .panel {
-    display: flex;
-    flex-direction: column;
-    width: 380px;
-    max-height: 60vh;
-    overflow: hidden;
-  }
-  .panel.tall {
-    height: 60vh;
-  }
-  .upnext {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    width: 440px;
-    padding: 10px 10px 10px 12px;
-  }
-  .kicker {
-    font-size: 10.5px;
-    font-weight: 600;
-    letter-spacing: 0.09em;
-    text-transform: uppercase;
-    color: var(--text-3);
   }
 </style>

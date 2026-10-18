@@ -1,5 +1,9 @@
 <script lang="ts">
   import { ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Play } from "@lucide/svelte";
+  import { Badge } from "$lib/components/ui/badge";
+  import { Button } from "$lib/components/ui/button";
+  import { Checkbox } from "$lib/components/ui/checkbox";
+  import { Label } from "$lib/components/ui/label";
   import HubRow from "../components/HubRow.svelte";
   import Img from "../components/Img.svelte";
   import Status from "../components/Status.svelte";
@@ -68,28 +72,34 @@
   const pad = (n: number) => String(n).padStart(2, "0");
 </script>
 
-<div class="home-controls">
-  <button class="btn quiet sm" onclick={() => nav.push({ name: "pick" })}>Pick something to watch</button>
-  <button class="btn quiet sm" aria-expanded={customizing} onclick={() => (customizing = !customizing)}>Customize Home</button>
+<div class="flex justify-end gap-2 px-(--gutter) pt-4 pb-1">
+  <Button variant="ghost" size="sm" onclick={() => nav.push({ name: "pick" })}>Pick something to watch</Button>
+  <Button variant="ghost" size="sm" aria-expanded={customizing} onclick={() => (customizing = !customizing)}>Customize Home</Button>
 </div>
 {#if customizing}
-  <div class="customize">
-    <label><input type="checkbox" checked={layout.compact_continue} onchange={(e) => saveLayout({ compact_continue: e.currentTarget.checked })} /> Compact Continue Watching</label>
+  <div class="mx-(--gutter) mt-2 mb-6 overflow-hidden rounded-xl border bg-card">
+    <div class="flex items-center gap-3 px-4 py-3">
+      <Checkbox id="home-compact" checked={layout.compact_continue} onCheckedChange={(v) => saveLayout({ compact_continue: v === true })} />
+      <Label for="home-compact" class="flex-1 cursor-pointer">Compact Continue Watching</Label>
+    </div>
     {#each allRows as hub, index (hubKey(hub))}
-      <div class="row-flex">
-        <label class="grow"><input type="checkbox" checked={!isHidden(hubKey(hub))} onchange={(e) => setShown(hubKey(hub), e.currentTarget.checked)} /> {hub.title}</label>
-        <button class="icon-btn" title={`Move ${hub.title} up`} disabled={index === 0} onclick={() => move(index, -1)}><ChevronUp /></button>
-        <button class="icon-btn" title={`Move ${hub.title} down`} disabled={index === allRows.length - 1} onclick={() => move(index, 1)}><ChevronDown /></button>
+      <div class="flex items-center gap-3 border-t px-4 py-2">
+        <Checkbox id={`home-hub-${index}`} checked={!isHidden(hubKey(hub))} onCheckedChange={(v) => setShown(hubKey(hub), v === true)} />
+        <Label for={`home-hub-${index}`} class="flex-1 cursor-pointer">{hub.title}</Label>
+        <Button variant="ghost" size="icon-sm" title={`Move ${hub.title} up`} disabled={index === 0} onclick={() => move(index, -1)}><ChevronUp /></Button>
+        <Button variant="ghost" size="icon-sm" title={`Move ${hub.title} down`} disabled={index === allRows.length - 1} onclick={() => move(index, 1)}><ChevronDown /></Button>
       </div>
     {/each}
-    <button class="btn quiet sm" onclick={() => saveLayout(EMPTY)}>Reset layout</button>
+    <div class="flex justify-end border-t bg-muted/30 px-4 py-2.5">
+      <Button variant="ghost" size="sm" onclick={() => saveLayout(EMPTY)}>Reset layout</Button>
+    </div>
   </div>
 {/if}
-{#if hubs.error && hubs.data !== undefined}<Status error={hubs.error} retry={() => hubs.reload()} stale />{/if}
+{#if hubs.error && hubs.data !== undefined}<div class="px-(--gutter)"><Status error={hubs.error} retry={() => hubs.reload()} stale /></div>{/if}
 {#if hubs.data === undefined}
-  <Status loading={!hubs.error} error={hubs.error} retry={() => hubs.reload()} fill />
+  <div class="px-(--gutter)"><Status loading={!hubs.error} error={hubs.error} retry={() => hubs.reload()} fill /></div>
 {:else if rows.length === 0}
-  <Status title="Nothing here yet" text={allRows.length ? "Your Home rows are hidden. Use Customize Home to show them." : "Your libraries are empty or still scanning."} fill />
+  <div class="px-(--gutter)"><Status title="Nothing here yet" text={allRows.length ? "Your Home rows are hidden. Use Customize Home to show them." : "Your libraries are empty or still scanning."} fill /></div>
 {:else}
   {#if current}
     {@const [item, label] = current}
@@ -103,29 +113,29 @@
         .map((g) => g.tag)
         .join(", "),
     ].filter(Boolean)}
-    <section class="hero">
+    <section class="hero relative mx-(--gutter) mt-2 h-[min(56vh,520px)] min-h-90 overflow-hidden rounded-xl border bg-card">
       {#key item.ratingKey}
-        <div class="backdrop"><Img src={img(item.art, 1920, 1080)} /></div>
+        <div class="absolute inset-0"><Img src={img(item.art, 1920, 1080)} class="size-full object-cover object-[center_20%]" /></div>
       {/key}
-      <div class="copy">
-        <div class="kicker">{label}</div>
-        <h1 class="serif">{plex.title(item)}</h1>
-        <div class="meta">{meta.join("  ·  ")}</div>
-        {#if item.summary}<p class="summary">{item.summary}</p>{/if}
-        <div class="actions">
-          <button class="btn primary lg" onclick={() => play(item)}>
-            <Play size={14} fill="currentColor" />{plex.progress(item) != null ? "Resume" : "Play"}
-          </button>
-          <button class="btn lg" onclick={() => nav.push(routeFor(item))}>Details</button>
+      <div class="absolute inset-0 bg-linear-to-r from-background/95 via-background/55 to-transparent to-75%"></div>
+      <div class="absolute inset-0 bg-linear-to-t from-background/70 to-transparent to-40%"></div>
+      <div class="absolute bottom-9 left-9 z-10 max-w-xl">
+        <Badge variant="secondary">{label}</Badge>
+        <h1 class="mt-3 text-5xl leading-[1.05] font-semibold tracking-tight">{plex.title(item)}</h1>
+        <div class="mt-3 text-sm text-muted-foreground">{meta.join("  ·  ")}</div>
+        {#if item.summary}<p class="mt-3.5 line-clamp-3 text-sm leading-relaxed text-muted-foreground">{item.summary}</p>{/if}
+        <div class="mt-5 flex gap-2">
+          <Button size="lg" onclick={() => play(item)}>
+            <Play fill="currentColor" />{plex.progress(item) != null ? "Resume" : "Play"}
+          </Button>
+          <Button size="lg" variant="secondary" onclick={() => nav.push(routeFor(item))}>Details</Button>
         </div>
       </div>
       {#if picks.length > 1}
-        <div class="pager num">
-          <button class="icon-btn" title="Previous" onclick={() => (index = (index + picks.length - 1) % picks.length)}
-            ><ChevronLeft /></button
-          >
-          <span>{pad((index % picks.length) + 1)} / {pad(picks.length)}</span>
-          <button class="icon-btn" title="Next" onclick={() => (index = (index + 1) % picks.length)}><ChevronRight /></button>
+        <div class="absolute right-6 bottom-8 z-10 flex items-center gap-1.5 text-xs text-muted-foreground tabular-nums">
+          <Button variant="outline" size="icon-sm" title="Previous" onclick={() => (index = (index + picks.length - 1) % picks.length)}><ChevronLeft /></Button>
+          <span class="px-1">{pad((index % picks.length) + 1)} / {pad(picks.length)}</span>
+          <Button variant="outline" size="icon-sm" title="Next" onclick={() => (index = (index + 1) % picks.length)}><ChevronRight /></Button>
         </div>
       {/if}
     </section>
@@ -138,86 +148,6 @@
 {/if}
 
 <style>
-  .home-controls { display: flex; justify-content: flex-end; gap: 8px; padding: 8px var(--gutter); }
-  .customize { margin: 0 var(--gutter) 16px; padding: 16px; background: var(--surface); border: 1px solid var(--line); }
-  .hero {
-    position: relative;
-    height: min(56vh, 560px);
-    min-height: 360px;
-    overflow: hidden;
-    border-bottom: 1px solid var(--line);
-  }
-  .backdrop {
-    position: absolute;
-    inset: 0;
-  }
-  .backdrop :global(img) {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    object-position: center 20%;
-  }
-  /* Legibility scrim for the copy on the left; not decoration. */
-  .hero::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background:
-      linear-gradient(90deg, rgba(12, 12, 12, 0.92) 0%, rgba(12, 12, 12, 0.55) 45%, rgba(12, 12, 12, 0) 75%),
-      linear-gradient(0deg, rgba(12, 12, 12, 0.7) 0%, rgba(12, 12, 12, 0) 40%);
-  }
-  .copy {
-    position: absolute;
-    z-index: 1;
-    left: var(--gutter);
-    bottom: 40px;
-    max-width: 560px;
-  }
-  .kicker {
-    font-size: 10.5px;
-    font-weight: 600;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--text-2);
-  }
-  h1 {
-    margin-top: 10px;
-    font-size: 48px;
-    font-weight: 400;
-    line-height: 1.05;
-    letter-spacing: -0.015em;
-  }
-  .meta {
-    margin-top: 12px;
-    color: var(--text-2);
-  }
-  .summary {
-    margin-top: 14px;
-    color: var(--text-2);
-    font-size: 14px;
-    line-height: 1.55;
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    line-clamp: 3;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-  .actions {
-    display: flex;
-    gap: 8px;
-    margin-top: 22px;
-  }
-  .pager {
-    position: absolute;
-    z-index: 1;
-    right: calc(var(--gutter) - 8px);
-    bottom: 34px;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 12px;
-    color: var(--text-2);
-  }
   .hubs {
     padding-top: 4px;
   }
