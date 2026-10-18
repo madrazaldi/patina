@@ -68,7 +68,7 @@
         </Empty.Header>
       </Empty.Root>
     {:else}
-      <Item.Group class="max-h-[300px] gap-1 overflow-auto">
+      <Item.Group role="group" aria-label="Playlists" class="max-h-[300px] gap-1 overflow-auto">
         {#each lists as p (p.ratingKey)}
           <Item.Root size="sm" class="hover:bg-muted focus-visible:bg-muted cursor-pointer text-left">
             {#snippet child({ props })}

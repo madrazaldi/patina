@@ -83,13 +83,13 @@
         </Empty.Header>
       </Empty.Root>
     {:else}
-      <Item.Group class="max-h-[300px] gap-1 overflow-auto">
+      <Item.Group role="group" aria-label="Collections" class="max-h-[300px] gap-1 overflow-auto">
         {#each lists as c (c.ratingKey)}
           {@const has = member.includes(c.title ?? "")}
           <Item.Root size="sm" class="hover:bg-muted focus-visible:bg-muted cursor-pointer text-left has-disabled:cursor-default has-disabled:opacity-55 has-disabled:hover:bg-transparent">
             {#snippet child({ props })}
               <button type="button" {...props} disabled={has} onclick={() => add({ collection: c.ratingKey }, `Added to “${c.title}”`)}>
-                <Item.Media variant="image" class="h-12 w-8">
+                <Item.Media variant="image" class="h-12! w-8!">
                   <Img src={img(c.thumb ?? c.composite, 96, 144)} />
                 </Item.Media>
                 <Item.Content>

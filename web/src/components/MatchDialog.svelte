@@ -109,12 +109,12 @@
         </Empty.Header>
       </Empty.Root>
     {:else}
-      <Item.Group class="max-h-[52vh] gap-1 overflow-auto">
+      <Item.Group role="group" aria-label="Matches" class="max-h-[52vh] gap-1 overflow-auto">
         {#each results as r, i (r.guid ?? i)}
           <Item.Root size="sm" class="hover:bg-muted focus-visible:bg-muted cursor-pointer items-start text-left has-disabled:cursor-default has-disabled:opacity-60 has-disabled:hover:bg-transparent">
             {#snippet child({ props })}
               <button type="button" {...props} disabled={busy} onclick={() => apply(r)}>
-                <Item.Media variant="image" class={square ? "" : "h-12 w-8"}>
+                <Item.Media variant="image" class={square ? "" : "h-12! w-8!"}>
                   <Img src={img(r.thumb, 96, square ? 96 : 144)} />
                 </Item.Media>
                 <Item.Content>

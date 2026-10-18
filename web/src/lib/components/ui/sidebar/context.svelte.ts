@@ -42,10 +42,13 @@ class SidebarState {
 
 	// Event handler to apply to the `<svelte:window>`
 	handleShortcutKeydown = (e: KeyboardEvent) => {
-		if (e.key === SIDEBAR_KEYBOARD_SHORTCUT && (e.metaKey || e.ctrlKey)) {
-			e.preventDefault();
-			this.toggle();
-		}
+		if (e.key !== SIDEBAR_KEYBOARD_SHORTCUT || !(e.metaKey || e.ctrlKey)) return;
+		// Leave the key to text fields (Ctrl+B moves the caret on macOS) and to open dialogs.
+		const t = e.target as HTMLElement | null;
+		if (t && (["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName) || t.isContentEditable)) return;
+		if (document.querySelector("dialog[open], [role=dialog][data-state=open], [role=alertdialog][data-state=open]")) return;
+		e.preventDefault();
+		this.toggle();
 	};
 
 	setOpenMobile = (value: boolean) => {
