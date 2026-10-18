@@ -67,8 +67,8 @@
       >
         {#if ps.muted}<VolumeX />{:else}<Volume2 />{/if}
       </Button>
-      <div class="flex flex-1" role="group" aria-label="Volume">
-        <Slider type="single" min={0} max={130} step={1} value={ps.volume} onValueChange={(v) => send({ kind: "volume", value: v })} />
+      <div class="flex flex-1">
+        <Slider type="single" min={0} max={130} step={1} aria-label="Volume" value={ps.volume} onValueChange={(v) => send({ kind: "volume", value: v })} />
       </div>
       <span class="num text-muted-foreground w-10 text-right text-sm">{Math.round(ps.volume)}%</span>
     </div>

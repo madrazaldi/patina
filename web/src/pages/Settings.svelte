@@ -272,8 +272,7 @@
               <ToggleGroup.Root
                 type="single"
                 spacing={2}
-                value={ui.accent}
-                onValueChange={(id) => id && app.updateUi({ accent: id })}
+                bind:value={() => ui.accent, (id) => id && app.updateUi({ accent: id })}
                 aria-label="Accent"
               >
                 {#each info.accents as a (a.id)}
