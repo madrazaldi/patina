@@ -456,7 +456,7 @@
 
   /* DropdownMenuContent / Item / Label / Separator, for menus opened at a point. */
   .menu {
-    @apply bg-popover text-popover-foreground ring-foreground/10 animate-in fade-in-0 zoom-in-95 fixed z-51 max-w-[300px] min-w-[220px] rounded-lg p-1 shadow-md ring-1 duration-100;
+    @apply bg-popover text-popover-foreground ring-foreground/10 animate-in fade-in-0 zoom-in-95 fixed z-51 max-h-[calc(100dvh-16px)] max-w-[300px] min-w-[220px] overflow-y-auto rounded-lg p-1 shadow-md ring-1 duration-100;
   }
   .menu .head {
     @apply -mx-1 mb-1 border-b px-2.5 pt-1.5 pb-2;
