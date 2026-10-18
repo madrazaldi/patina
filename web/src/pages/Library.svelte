@@ -412,7 +412,7 @@
 
 {#if picker}
   <div class="scrim" role="presentation" onclick={() => (picker = null)}></div>
-  <div class="menu picker" style:left="{picker.x}px" style:top="{picker.y}px">
+  <div class="menu picker" style:left="{picker.x}px" style:top="{picker.y}px" style:max-height="calc(100dvh - {picker.y + 8}px)">
     {#if !choosing}
       {#each valueFilters as f (f.filter)}
         <button onclick={() => choose(f)}>

@@ -96,8 +96,9 @@
   </div>
   <ConfirmDialog />
 {:else}
-  <div class="grid h-screen place-items-center p-10" data-tauri-drag-region>
-    <div class="flex w-full max-w-sm flex-col items-center gap-6">
+  <!-- Auto margins rather than place-items-center, so a tall column scrolls instead of clipping its top. -->
+  <div class="flex h-screen overflow-y-auto p-10" data-tauri-drag-region>
+    <div class="m-auto flex w-full max-w-sm flex-col items-center gap-6">
       <div class="text-4xl font-semibold tracking-tight">Patina</div>
 
       <Card.Root class="w-full">
