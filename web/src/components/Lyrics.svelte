@@ -79,7 +79,7 @@
 {#if lyrics === undefined && !error}
   <div class="grid place-items-center px-4 py-7"><Spinner /></div>
 {:else if error}
-  <div class="p-4"><Alert.Root variant="destructive"><Alert.Description class="whitespace-pre-wrap">{error}</Alert.Description></Alert.Root></div>
+  <div class="p-4"><Alert.Root variant="destructive"><Alert.Description class="whitespace-pre-wrap select-text">{error}</Alert.Description></Alert.Root></div>
 {:else if !lyrics || lyrics.lines.length === 0}
   <Empty.Root class="border-0 p-8">
     <Empty.Description>No lyrics for this track</Empty.Description>

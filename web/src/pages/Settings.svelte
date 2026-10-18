@@ -241,7 +241,7 @@
         <Card.Content class={BODY}>
           {#if prefsError}
             <div class="p-4">
-              <Alert.Root variant="destructive"><Alert.Description>{prefsError}</Alert.Description></Alert.Root>
+              <Alert.Root variant="destructive"><Alert.Description class="whitespace-pre-wrap select-text">{prefsError}</Alert.Description></Alert.Root>
             </div>
           {:else if prefs}
             <PlaybackRulesForm class="rounded-none border-0 bg-transparent" rules={prefs.profile} onsave={saveProfile} />
@@ -354,7 +354,7 @@
                       } else switchTo(u);
                     }}
                   >
-                    <Avatar.Root size="sm" class="size-5 overflow-hidden">
+                    <Avatar.Root class="size-5 overflow-hidden">
                       {#if u.thumb}<Img class="size-full object-cover" src={img(u.thumb, 40, 40)} />{:else}<Avatar.Fallback class="text-[8px]">{initials(name)}</Avatar.Fallback>{/if}
                     </Avatar.Root>
                     {name}{u.protected ? " · PIN" : ""}

@@ -154,7 +154,7 @@
     </div>
 
     {#if error}
-      <Alert.Root variant="destructive"><Alert.Description>{error}</Alert.Description></Alert.Root>
+      <Alert.Root variant="destructive"><Alert.Description class="whitespace-pre-wrap select-text">{error}</Alert.Description></Alert.Root>
     {:else if results === null}
       <div class="text-muted-foreground flex items-center gap-2.5 py-2 text-sm">
         <Spinner />

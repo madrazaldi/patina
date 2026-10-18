@@ -28,8 +28,8 @@
 {#if saved && !app.nowPlaying}
   {@const [title, sub] = plex.playingLines(saved.current)}
   <div class="flex-none px-4 pt-3">
-    <Alert.Root role="status" class="flex items-center gap-3 py-2.5 has-data-[slot=alert-action]:pr-2.5">
-      <Play class="size-4 shrink-0 text-tint" fill="currentColor" />
+    <Alert.Root role="status" class="flex items-center gap-3 py-2.5 *:[svg]:text-tint has-data-[slot=alert-action]:pr-2.5">
+      <Play class="size-4 shrink-0" fill="currentColor" />
       <div class="min-w-0 flex-1 truncate">
         Resume <strong class="font-medium">{title}</strong>{#if sub}<span class="text-muted-foreground"> · {sub}</span>{/if}
         {#if saved.positionMs > 0}<span class="text-muted-foreground"> at {clock(saved.positionMs)}</span>{/if}

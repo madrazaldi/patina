@@ -104,7 +104,7 @@
         <Input id="library-language" placeholder="en-US" bind:value={language} />
       </div>
       {#if choicesError}
-        <Alert.Root variant="destructive" class="col-span-2"><Alert.Description>{choicesError}</Alert.Description></Alert.Root>
+        <Alert.Root variant="destructive" class="col-span-2"><Alert.Description class="whitespace-pre-wrap select-text">{choicesError}</Alert.Description></Alert.Root>
       {/if}
     {/if}
   </div>

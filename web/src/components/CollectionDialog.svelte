@@ -72,7 +72,7 @@
     <p class="desc">{plex.fullTitle(item)}</p>
 
     {#if error}
-      <Alert.Root variant="destructive"><Alert.Description>{error}</Alert.Description></Alert.Root>
+      <Alert.Root variant="destructive"><Alert.Description class="whitespace-pre-wrap select-text">{error}</Alert.Description></Alert.Root>
     {:else if lists === null}
       <div class="flex justify-center py-6"><Spinner class="text-muted-foreground" /></div>
     {:else if lists.length === 0}
@@ -83,10 +83,10 @@
         </Empty.Header>
       </Empty.Root>
     {:else}
-      <Item.Group role="group" aria-label="Collections" class="max-h-[300px] gap-1 overflow-auto">
+      <Item.Group role="group" aria-label="Collections" class="max-h-[300px] overflow-auto has-data-[size=sm]:gap-1">
         {#each lists as c (c.ratingKey)}
           {@const has = member.includes(c.title ?? "")}
-          <Item.Root size="sm" class="hover:bg-muted focus-visible:bg-muted cursor-pointer text-left has-disabled:cursor-default has-disabled:opacity-55 has-disabled:hover:bg-transparent">
+          <Item.Root size="sm" class="hover:bg-muted focus-visible:bg-muted cursor-pointer text-left disabled:cursor-default disabled:opacity-55 disabled:hover:bg-transparent">
             {#snippet child({ props })}
               <button type="button" {...props} disabled={has} onclick={() => add({ collection: c.ratingKey }, `Added to “${c.title}”`)}>
                 <Item.Media variant="image" class="h-12! w-8!">

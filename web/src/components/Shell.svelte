@@ -57,8 +57,9 @@
   let { children }: { children: Snippet } = $props();
 
   let searchInput: HTMLInputElement | null = $state(null);
-  // The sidebar remembers whether it was collapsed.
-  let open = $state(!document.cookie.includes("sidebar_state=false"));
+  // The sidebar remembers whether it was collapsed. Not in the provider's cookie: WKWebView
+  // drops cookies on the tauri:// scheme that release builds load from.
+  let open = $state(localStorage.getItem("sidebar-open") !== "false");
   const mac = document.documentElement.classList.contains("mac");
 
   let session = $derived(app.session);
@@ -139,7 +140,7 @@
 {#snippet downloadCount()}{activeDownloads}{/snippet}
 {#snippet scanBadge()}<Spinner class="size-3 text-muted-foreground" />{/snippet}
 
-<Sidebar.Provider bind:open style="--sidebar-width: 15rem" class="h-svh min-h-0 overflow-hidden">
+<Sidebar.Provider bind:open onOpenChange={(v) => localStorage.setItem("sidebar-open", String(v))} style="--sidebar-width: 15rem" class="h-svh min-h-0 overflow-hidden">
   <Sidebar.Root variant="inset" collapsible="icon">
     <nav class="sidebar contents" aria-label="Main">
       <Sidebar.Header class={["gap-0 pb-1", mac ? "pt-9" : "pt-3"]} data-tauri-drag-region>
@@ -214,8 +215,8 @@
               <DropdownMenu.Trigger>
                 {#snippet child({ props })}
                   <Sidebar.MenuButton size="lg" class="data-[state=open]:bg-sidebar-accent" {...props}>
-                    <Avatar.Root class="size-8 rounded-lg">
-                      {#if session?.user?.thumb}<Avatar.Image src={img(session.user.thumb, 64, 64)} alt="" />{/if}
+                    <Avatar.Root class="size-8 rounded-lg after:rounded-lg">
+                      {#if session?.user?.thumb}<Avatar.Image class="rounded-lg" src={img(session.user.thumb, 64, 64)} alt="" />{/if}
                       <Avatar.Fallback class="rounded-lg text-xs">{initials(userName)}</Avatar.Fallback>
                     </Avatar.Root>
                     <span class="grid flex-1 text-left leading-tight">

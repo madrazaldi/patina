@@ -256,7 +256,7 @@
                 <button class={["tab", { active: mediaType === t }]} onclick={() => setType(t)}>{label}</button>
               {/each}
             </div>
-            <Separator orientation="vertical" class="mx-1 data-[orientation=vertical]:h-5" />
+            <Separator orientation="vertical" class="mx-1 data-vertical:h-5 data-vertical:self-center" />
           {/if}
           <NativeSelect.Root bind:value={sort} size="sm" class="min-w-36">
             {#if sorts.data?.length}
@@ -274,7 +274,7 @@
           {#if valueFilters.length}
             <Button variant="outline" size="sm" class="border-dashed" onclick={openPicker}><ListFilter />Filter</Button>
           {/if}
-          {#if watchable || booleans.length}<Separator orientation="vertical" class="mx-1 data-[orientation=vertical]:h-5" />{/if}
+          {#if watchable || booleans.length}<Separator orientation="vertical" class="mx-1 data-vertical:h-5 data-vertical:self-center" />{/if}
           {#if watchable}
             <Button
               variant={unwatched ? "default" : "outline"}

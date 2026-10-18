@@ -98,7 +98,7 @@
     </form>
 
     {#if error}
-      <Alert.Root variant="destructive"><Alert.Description>{error}</Alert.Description></Alert.Root>
+      <Alert.Root variant="destructive"><Alert.Description class="whitespace-pre-wrap select-text">{error}</Alert.Description></Alert.Root>
     {:else if results === null}
       <div class="flex justify-center py-6"><Spinner class="text-muted-foreground" /></div>
     {:else if results.length === 0}
@@ -109,9 +109,9 @@
         </Empty.Header>
       </Empty.Root>
     {:else}
-      <Item.Group role="group" aria-label="Matches" class="max-h-[52vh] gap-1 overflow-auto">
+      <Item.Group role="group" aria-label="Matches" class="max-h-[52vh] overflow-auto has-data-[size=sm]:gap-1">
         {#each results as r, i (r.guid ?? i)}
-          <Item.Root size="sm" class="hover:bg-muted focus-visible:bg-muted cursor-pointer items-start text-left has-disabled:cursor-default has-disabled:opacity-60 has-disabled:hover:bg-transparent">
+          <Item.Root size="sm" class="hover:bg-muted focus-visible:bg-muted cursor-pointer items-start text-left disabled:cursor-default disabled:opacity-60 disabled:hover:bg-transparent">
             {#snippet child({ props })}
               <button type="button" {...props} disabled={busy} onclick={() => apply(r)}>
                 <Item.Media variant="image" class={square ? "" : "h-12! w-8!"}>
@@ -120,7 +120,7 @@
                 <Item.Content>
                   <Item.Title class="line-clamp-none flex-wrap">
                     {r.name}{#if r.year != null}<span class="text-muted-foreground font-normal"> ({r.year})</span>{/if}
-                    {#if r.matched}<Badge variant="secondary">Current</Badge>{/if}
+                    {#if r.matched}<Badge variant="outline" class="text-tint border-tint/40 bg-tint/10">Current</Badge>{/if}
                   </Item.Title>
                   {#if r.summary}<Item.Description class="line-clamp-2 text-xs">{r.summary}</Item.Description>{/if}
                 </Item.Content>

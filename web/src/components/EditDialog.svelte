@@ -152,7 +152,7 @@
     <p class="desc">{plex.fullTitle(full ?? item)}</p>
 
     {#if error}
-      <Alert.Root variant="destructive"><Alert.Description>{error}</Alert.Description></Alert.Root>
+      <Alert.Root variant="destructive"><Alert.Description class="whitespace-pre-wrap select-text">{error}</Alert.Description></Alert.Root>
     {:else if !full}
       <div class="flex justify-center py-6"><Spinner class="text-muted-foreground" /></div>
     {:else}

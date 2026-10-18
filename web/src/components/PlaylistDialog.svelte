@@ -57,7 +57,7 @@
     <p class="desc">{app.playlistItems.length ? `${app.playlistItems.length} selected titles` : plex.fullTitle(item)}</p>
 
     {#if error}
-      <Alert.Root variant="destructive"><Alert.Description>{error}</Alert.Description></Alert.Root>
+      <Alert.Root variant="destructive"><Alert.Description class="whitespace-pre-wrap select-text">{error}</Alert.Description></Alert.Root>
     {:else if lists === null}
       <div class="flex justify-center py-6"><Spinner class="text-muted-foreground" /></div>
     {:else if lists.length === 0}
@@ -68,7 +68,7 @@
         </Empty.Header>
       </Empty.Root>
     {:else}
-      <Item.Group role="group" aria-label="Playlists" class="max-h-[300px] gap-1 overflow-auto">
+      <Item.Group role="group" aria-label="Playlists" class="max-h-[300px] overflow-auto has-data-[size=sm]:gap-1">
         {#each lists as p (p.ratingKey)}
           <Item.Root size="sm" class="hover:bg-muted focus-visible:bg-muted cursor-pointer text-left">
             {#snippet child({ props })}

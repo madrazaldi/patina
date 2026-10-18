@@ -75,7 +75,7 @@
     </p>
 
     {#if error}
-      <Alert.Root variant="destructive"><Alert.Description>{error}</Alert.Description></Alert.Root>
+      <Alert.Root variant="destructive"><Alert.Description class="whitespace-pre-wrap select-text">{error}</Alert.Description></Alert.Root>
     {:else if !prefs || !own}
       <div class="flex justify-center py-10"><Spinner class="text-muted-foreground size-5" /></div>
     {:else}

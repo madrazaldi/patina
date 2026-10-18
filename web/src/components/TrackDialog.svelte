@@ -121,7 +121,7 @@
     <p class="desc">{show[1]}: pick tracks in one episode and Patina selects the closest match in every other.</p>
 
     {#if error}
-      <Alert.Root variant="destructive"><Alert.Description>{error}</Alert.Description></Alert.Root>
+      <Alert.Root variant="destructive"><Alert.Description class="whitespace-pre-wrap select-text">{error}</Alert.Description></Alert.Root>
     {:else if !view}
       <div class="text-muted-foreground flex flex-col items-center gap-3 py-10 text-sm">
         <Spinner class="size-5" />

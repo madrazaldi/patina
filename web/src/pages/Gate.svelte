@@ -109,7 +109,7 @@
             <Spinner class="text-muted-foreground size-5" />
             <p class="text-muted-foreground text-sm">Connecting to {app.stage.name}…</p>
           {:else if app.stage.kind === "failed"}
-            <Alert.Root variant="destructive"><Alert.Description class="select-text">{app.stage.message}</Alert.Description></Alert.Root>
+            <Alert.Root variant="destructive"><Alert.Description class="whitespace-pre-wrap select-text">{app.stage.message}</Alert.Description></Alert.Root>
             <div class="flex w-full flex-col gap-2">
               <Button onclick={retry}>Try again</Button>
               {#if canOffline}<Button variant="outline" onclick={() => (offline = true)}>Play downloads offline</Button>{/if}
