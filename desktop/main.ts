@@ -3,7 +3,7 @@
 // webview in web/ talks to it over Electrobun's browser RPC (see rpc.ts and
 // web/src/lib/ipc.ts).
 
-import { BrowserView, BrowserWindow, Updater, Utils } from "electrobun/main";
+import { ApplicationMenu, BrowserView, BrowserWindow, Updater, Utils } from "electrobun/main";
 import { electrobunEventEmitter } from "electrobun/main/events";
 import { logger } from "./core/log";
 import * as images from "./core/images";
@@ -70,6 +70,39 @@ const win = new BrowserWindow({
   rpc,
 });
 log.info(`window ${win.id} open (${channel}), artwork at ${imageServer.base.replace(/\/[0-9a-f]+$/, "/…")}`);
+
+// The macOS menu bar carries the standard shortcuts (⌘Q, ⌘W, ⌘C, ⌘V, …); without it they do nothing.
+// Electrobun only gives the edit roles their shortcuts, so the app and window roles set an accelerator.
+if (process.platform === "darwin") {
+  ApplicationMenu.setApplicationMenu([
+    {
+      label: "Patina",
+      submenu: [
+        { role: "about" },
+        { type: "separator" },
+        { role: "hide", accelerator: "CommandOrControl+H" },
+        { role: "hideOthers", accelerator: "Alt+Command+H" },
+        { role: "showAll" },
+        { type: "separator" },
+        { role: "quit", accelerator: "CommandOrControl+Q" },
+      ],
+    },
+    {
+      label: "Edit",
+      submenu: [{ role: "undo" }, { role: "redo" }, { type: "separator" }, { role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "selectAll" }],
+    },
+    {
+      label: "Window",
+      submenu: [
+        { role: "minimize" },
+        { role: "zoom" },
+        { role: "close", accelerator: "CommandOrControl+W" },
+        { type: "separator" },
+        { role: "toggleFullScreen", accelerator: "Control+Command+F" },
+      ],
+    },
+  ]);
+}
 
 // Dev builds say which engine renders the page (CEF or the system webview).
 if (channel === "dev") {
