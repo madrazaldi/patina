@@ -31,6 +31,9 @@ let debugBuild = process.env.PATINA_DEBUG_BUILD === "1";
 /** Whether this is a development build (`cfg!(debug_assertions)`); the shell sets it. */
 export function setDebugBuild(on: boolean): void {
   debugBuild = on;
+  // The plex.tv override (desktop/plex/tv.ts) is honoured in debug builds only.
+  if (on) process.env.PATINA_DEBUG_BUILD = "1";
+  else delete process.env.PATINA_DEBUG_BUILD;
 }
 
 export function info(): Info {

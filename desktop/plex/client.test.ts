@@ -108,10 +108,12 @@ beforeAll(() => {
       return new Response("{}");
     },
   });
+  process.env.PATINA_DEBUG_BUILD = "1";
   process.env.PATINA_PLEX_TV_URL = `http://127.0.0.1:${fake.port}`;
 });
 afterAll(() => {
   delete process.env.PATINA_PLEX_TV_URL;
+  delete process.env.PATINA_DEBUG_BUILD;
   fake.stop(true);
 });
 

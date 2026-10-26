@@ -30,11 +30,12 @@ const METADATA = "https://metadata.provider.plex.tv";
 /**
  * Debug builds: `PATINA_PLEX_TV_URL` points the account and resource endpoints at
  * a mock server (tools/mock_pms.py), so multi-server features can be tried offline.
- * There are no debug builds here, so the override is honoured unless `NODE_ENV=production`.
+ * The desktop app sets `PATINA_DEBUG_BUILD=1` for dev-channel builds (see core/ops/setup.ts);
+ * release builds ignore the override.
  */
 function accountBase(def: string): string {
   const url = process.env.PATINA_PLEX_TV_URL;
-  if (process.env.NODE_ENV !== "production" && url !== undefined) return url;
+  if (process.env.PATINA_DEBUG_BUILD === "1" && url !== undefined) return url;
   return def;
 }
 

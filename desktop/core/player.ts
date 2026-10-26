@@ -1584,8 +1584,9 @@ async function runInner(app: AppState, req: PlayRequest, origin: Scope | null): 
   await controls.applySaved(mpv);
   if (settings.skip_key.trim() !== "") await mpv.bindMessage(settings.skip_key.trim(), "patina-skip").catch(() => {});
   const keepOpen = await mpv.getProperty("keep-open").catch(() => "no");
-  if (settings.media_controls) {
-    // Patina publishes Now Playing itself; mpv's own entry would compete (older mpv lacks the property).
+  if (!settings.media_controls) {
+    // The desktop app does not publish Now Playing itself (the Rust build used souvlaki), so the
+    // setting maps onto mpv's own OS integration (older mpv lacks the property).
     await mpv.setProperty("media-controls", "no").catch(() => {});
   }
 
