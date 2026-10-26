@@ -23,7 +23,7 @@
     const config = app.seerr;
     status = null;
     statusError = undefined;
-    if (config) seerrStatus(config.url).then((s) => (status = s), (e) => (statusError = message(e)));
+    if (config) seerrStatus(`${config.url}|${app.scope}`).then((s) => (status = s), (e) => (statusError = message(e)));
   });
 
   const LISTS = [
@@ -81,6 +81,11 @@
   const requests = resource(() => {
     const f = filter, p = page;
     return tab === "requests" && app.seerr ? api.seerrRequests(f, p) : Promise.resolve(null);
+  });
+  // Deleting the last request of the last page leaves it empty: step back to the new last page.
+  $effect(() => {
+    const r = requests.data;
+    if (r && r.results.length === 0 && page > 1) page = Math.max(1, Math.min(page - 1, r.pages));
   });
 </script>
 

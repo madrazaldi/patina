@@ -102,7 +102,7 @@
     seerrError = undefined;
     if (!config) return;
     seerrUrl = config.url;
-    seerrStatus(config.url).then((s) => app.seerr?.url === config.url && (seerr = s), (e) => (seerrError = message(e)));
+    seerrStatus(`${config.url}|${app.scope}`).then((s) => app.seerr?.url === config.url && (seerr = s), (e) => (seerrError = message(e)));
   });
 
   async function connectSeerr() {
@@ -360,7 +360,7 @@
             empty to sign in with your Plex account.
           </Card.Description>
           {#if app.seerr}
-            <Card.Action><Button variant="ghost" size="sm" onclick={disconnectSeerr}>Disconnect</Button></Card.Action>
+            <Card.Action><Button variant="ghost" size="sm" disabled={connecting} onclick={disconnectSeerr}>Disconnect</Button></Card.Action>
           {/if}
         </Card.Header>
         <Card.Content class={BODY}>

@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 
-import { availability, capabilities, hasAny, requestState, seasonsFrom, tmdbImage, titlesFrom } from "./seerr";
+import { normalizeMetadata } from "../plex";
+import { availability, capabilities, hasAny, isTmdbTitle, requestState, seasonsFrom, tmdbImage, titlesFrom } from "./seerr";
 
 test("permissions follow Seerr: admins may do everything", () => {
   expect(hasAny(2, 16)).toBe(true);
@@ -54,4 +55,14 @@ test("seasons show what is available and what is requested, without specials", (
     [2, "Season 2", null, null, "approved", null],
     [3, "Season 3", null, null, null, "pending"],
   ]);
+});
+
+test("a Plex item is the Seerr title only when its TMDB id (or, without ids, its title) agrees", () => {
+  const item = (o: Record<string, unknown>) => normalizeMetadata({ ratingKey: "100", type: "movie", title: "Heat", ...o });
+  expect(isTmdbTitle(item({ Guid: [{ id: "imdb://tt1" }, { id: "tmdb://949" }] }), "movie", 949, "Heat")).toBe(true);
+  // Another server's rating key can name an unrelated title.
+  expect(isTmdbTitle(item({ title: "Up", Guid: [{ id: "tmdb://14160" }] }), "movie", 949, "Heat")).toBe(false);
+  expect(isTmdbTitle(item({ guid: "com.plexapp.agents.themoviedb://949?lang=en" }), "movie", 949, "Heat")).toBe(true);
+  expect(isTmdbTitle(item({}), "movie", 949, "heat")).toBe(true);
+  expect(isTmdbTitle(item({}), "tv", 949, "Heat")).toBe(false);
 });

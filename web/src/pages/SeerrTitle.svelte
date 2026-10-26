@@ -22,24 +22,10 @@
   const data = resource(() => api.seerrDetails(mediaType, tmdbId));
   let status = $state<SeerrStatus | null>(null);
   $effect(() => {
-    if (app.seerr) seerrStatus(app.seerr.url).then((s) => (status = s), () => {});
+    if (app.seerr) seerrStatus(`${app.seerr.url}|${app.scope}`).then((s) => (status = s), () => {});
   });
 
   let asking = $state<{ is4k: boolean } | null>(null);
-  let opening = $state(false);
-
-  /** Open the server's copy, if this server has it (Seerr may be linked to another one). */
-  async function openInPlex(ratingKey: string) {
-    opening = true;
-    try {
-      const found = await api.metadata(ratingKey);
-      if (found) nav.push({ name: "item", ratingKey });
-      else app.toast("Not on this server");
-    } catch (e) {
-      app.error(e);
-    }
-    opening = false;
-  }
 
   function seasonLabel(s: SeerrSeason) {
     if (s.status === "available") return "Available";
@@ -90,7 +76,7 @@
           <div class="mt-6 flex flex-wrap items-center gap-2">
             {#if d.ratingKey}
               {@const rk = d.ratingKey}
-              <Button size="lg" class="h-10 gap-2 px-5" disabled={opening} onclick={() => openInPlex(rk)}><Play fill="currentColor" />Open in Plex</Button>
+              <Button size="lg" class="h-10 gap-2 px-5" onclick={() => nav.push({ name: "item", ratingKey: rk })}><Play fill="currentColor" />Open in Plex</Button>
             {/if}
             {#if can && requestable(d, can, false)}
               <Button size="lg" variant={d.ratingKey ? "outline" : "default"} class="h-10 gap-2 px-5" onclick={() => (asking = { is4k: false })}>

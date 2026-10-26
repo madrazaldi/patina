@@ -1,7 +1,7 @@
 // The Seerr commands against tools/mock_seerr.py: connecting with an API key or
 // the Plex account, discovering and requesting titles, and managing requests.
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -9,13 +9,15 @@ import { dispatch } from "../commands";
 import type { Ctx } from "../commands";
 import * as seerr from "../core/seerr";
 import { AppState } from "../core/state";
-import { hasPython, startMock } from "./mock-pms";
+import * as session from "../core/session";
+import { hasPython, startMock, startMockPms } from "./mock-pms";
 import type { MockPms } from "./mock-pms";
 
 const SCRIPT = resolve(import.meta.dir, "../../tools/mock_seerr.py");
 const saved = process.env.XDG_CONFIG_HOME;
 let dir = "";
 let mock: MockPms | undefined;
+let pms: MockPms | undefined;
 let app: AppState;
 const opened: string[] = [];
 const ctx: Ctx = {
@@ -41,12 +43,16 @@ beforeAll(async () => {
   process.env.XDG_CONFIG_HOME = join(dir, "config");
   mock = await startMock(SCRIPT, "mock Seerr on ", ["--pending"], join(dir, "mock"));
   app = new AppState({ emit() {} });
+  pms = await startMockPms({ media: join(dir, "media"), dir: join(dir, "pms") });
+  writeFileSync(join(dir, "media", "movie.mkv"), new Uint8Array(1024));
+  await session.signInManual(app, pms.url, "x");
 });
 
 afterAll(async () => {
   seerr.reset();
   app?.dispose();
   await mock?.stop();
+  await pms?.stop();
   if (saved === undefined) delete process.env.XDG_CONFIG_HOME;
   else process.env.XDG_CONFIG_HOME = saved;
   if (dir) rmSync(dir, { recursive: true, force: true });
@@ -92,6 +98,8 @@ t("requesting a movie and seasons of a show", async () => {
 
   const show = await call("seerr_details", { mediaType: "tv", tmdbId: 8001 });
   expect(show.tvdbId).toBe(7001);
+  // The Plex copy is offered once this server's item has the same TMDB id.
+  expect(show.ratingKey).toBe("500");
   expect(show.seasons.map((s: seerr.SeerrSeason) => [s.number, s.status])).toEqual([[1, "available"], [2, "available"], [3, "unknown"]]);
   await expect(call("seerr_request", { mediaType: "tv", tmdbId: 8001, seasons: [] })).rejects.toThrow("Choose at least one season.");
   await call("seerr_request", { mediaType: "tv", tmdbId: 8001, tvdbId: 7001, seasons: [3], serverId: 0, profileId: 2, rootFolder: "/tv-archive" });

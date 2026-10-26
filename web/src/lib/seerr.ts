@@ -58,7 +58,8 @@ export function requestable(d: SeerrDetails, can: SeerrCan, is4k: boolean): bool
   return isNew(is4k ? d.status4k : d.status);
 }
 
-// The status (user and permissions) is fetched once per instance and shared by the pages.
+// The status (user and permissions) is fetched once per instance and account (`<url>|<app.scope>`:
+// a Plex Home switch signs in to Seerr as someone else) and shared by the pages.
 let cached: { key: string; promise: Promise<SeerrStatus> } | null = null;
 
 export function seerrStatus(key: string): Promise<SeerrStatus> {

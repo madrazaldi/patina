@@ -3,6 +3,8 @@
 // key Patina signs in with the Plex account. The webview gets the shapes below,
 // never the key or the session.
 
+import { MetadataOptions } from "../plex";
+import type { Metadata } from "../plex";
 import { SeerrClient, SeerrError, normalizeUrl } from "../seerr";
 import type { RawMediaInfo, RawMediaRequest, RawMovieDetails, RawResult, RawTvDetails, RawUser } from "../seerr";
 import type { AppState } from "./state";
@@ -25,7 +27,7 @@ export interface SeerrTitle {
   rating: number | null;
   status: Availability | null;
   status4k: Availability | null;
-  /** Rating key of the copy on the Plex server, once available. */
+  /** Rating key of the copy on the Plex server Seerr syncs with, once available (checked against this server in `details`). */
   ratingKey: string | null;
 }
 
@@ -362,6 +364,32 @@ export async function search(app: AppState, query: string, page: number): Promis
   return { page: got.page, pages: got.totalPages, results: titlesFrom(got.results) };
 }
 
+/**
+ * Whether a Plex item is this TMDB title: by its TMDB guid (new or legacy agent), or,
+ * when it has no external ids, by kind and title.
+ */
+export function isTmdbTitle(m: Metadata, mediaType: SeerrMediaType, tmdbId: number, title: string): boolean {
+  if (m.type !== (mediaType === "tv" ? "show" : "movie")) return false;
+  const ids = [...m.Guid.map((g) => g.id ?? ""), m.guid ?? ""];
+  const tmdb = ids.map((id) => /^(?:tmdb|com\.plexapp\.agents\.themoviedb):\/\/(\d+)/.exec(id)?.[1]).filter((id): id is string => !!id);
+  if (tmdb.length) return tmdb.includes(String(tmdbId));
+  return m.Guid.length === 0 && (m.title ?? "").toLowerCase() === title.toLowerCase();
+}
+
+/**
+ * Seerr's rating key names an item on the Plex server Seerr syncs with, which may not be
+ * the one Patina is connected to: keep it only if this server has the same title there.
+ */
+async function onThisServer(app: AppState, t: SeerrTitle): Promise<string | null> {
+  if (!t.ratingKey) return null;
+  try {
+    const m = await app.server().metadata(t.ratingKey, MetadataOptions.full());
+    return m && isTmdbTitle(m, t.mediaType, t.tmdbId, t.title) ? t.ratingKey : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function details(app: AppState, mediaType: SeerrMediaType, tmdbId: number): Promise<SeerrDetails> {
   const entry = current(app);
   const user = await me(entry);
@@ -372,6 +400,7 @@ export async function details(app: AppState, mediaType: SeerrMediaType, tmdbId: 
   const runtime = tv ? (tv.episodeRunTime?.[0] ?? null) : ((raw as RawMovieDetails).runtime ?? null);
   return {
     ...title,
+    ratingKey: await onThisServer(app, title),
     tagline: raw.tagline ?? "",
     genres: (raw.genres ?? []).map((g) => g.name),
     runtime: runtime || null,
