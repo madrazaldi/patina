@@ -5,3 +5,7 @@
 
 /test-results
 /playwright-report
+/.hutch
+/build
+/artifacts
+/.cottontail-tmp
