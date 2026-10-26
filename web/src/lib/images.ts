@@ -1,7 +1,9 @@
-// Artwork goes through the `plximg` protocol served by crates/app/src/images.rs,
-// which adds the server token and caches resized images on disk.
+// Artwork comes from the image server in the desktop shell (desktop/images-server.ts),
+// which adds the server token and caches resized images on disk. The shell tells the
+// page where it listens (`window.__PATINA__.images`) before the page loads. Outside the
+// shell (the Playwright fixture) the URLs point nowhere, which is fine: nothing loads.
 
-const root = navigator.userAgent.includes("Windows") ? "http://plximg.localhost" : "plximg://localhost";
+const root = (typeof window !== "undefined" && window.__PATINA__?.images) || "plximg://localhost";
 const base = `${root}/i`;
 
 /** URL for a server-relative or absolute image, resized to `w`×`h`. `server` is the machine id of another account server the image lives on. */

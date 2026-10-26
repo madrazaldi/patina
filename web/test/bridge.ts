@@ -1,8 +1,6 @@
 // Development-only IPC fixture. This entry is not part of the production build.
 import type { Metadata, Settings, SessionView } from "../src/lib/types";
-const callbacks = new Map<number, (event: unknown) => void>();
-const listeners = new Map<string, number>();
-let nextId = 0;
+const listeners = new Map<string, Set<(event: { event: string; payload: unknown }) => void>>();
 const item = (index: number): Metadata => ({
   ratingKey: String(index), key: `/library/metadata/${index}`, type: "movie", title: `Title ${String(index).padStart(5, "0")}`,
   year: 2024, duration: 600000, viewOffset: index === 1 ? 100000 : 0,
@@ -35,7 +33,7 @@ const held = new Map<string, (() => void)[]>();
 // Watchlist: 100 titles, the even ones are on the server. `lookups` tracks find_by_guid concurrency.
 const watchlist = Array.from({ length: 100 }, (_, n) => ({ ...item(1000 + n), guid: `plex://movie/${n}`, title: `Watchlist ${n}` }));
 const lookups = { active: 0, max: 0, total: 0, delay: 15, fail: false, present: new Set<number>(watchlist.map((_, n) => n).filter((n) => n % 2 === 0)) };
-const emit = (event: string, payload: unknown) => { const id = listeners.get(event); if (id !== undefined) callbacks.get(id)?.({ event, id, payload }); };
+const emit = (event: string, payload: unknown) => { for (const handler of listeners.get(event) ?? []) handler({ event, payload }); };
 const downloads = [{ id: "mock:alice:1", account: "alice", serverId: "mock", serverName: "Mock Server", item: item(1), size: 10000, received: 10000, state: "done", addedAt: 1 }];
 let profileRules: Record<string, unknown> = {};
 const smart = { policies: [{ id: "p1", account: "alice", serverId: "mock", serverName: "Mock Server", ratingKey: "500", target: "show", title: "Station Eleven Below", keep: 3, deleteWatched: true, enabled: true, active: true, downloads: 2, bytes: 2000 }], budget: null as number | null, used: 10000 };
@@ -74,13 +72,15 @@ const test = {
   },
   switchServer() { session = { ...session, serverId: "other", serverName: "Other Server" }; emit("session", { session, sections }); },
 };
-Object.assign(window, { __PATINA_TEST__: test, __TAURI_INTERNALS__: {
-  transformCallback(fn: (event: unknown) => void) { const id = ++nextId; callbacks.set(id, fn); return id; },
-  convertFileSrc(path: string) { return path; },
+Object.assign(window, { __PATINA_TEST__: test, __PATINA_IPC__: {
+  listen(event: string, handler: (event: { event: string; payload: unknown }) => void) {
+    if (!listeners.has(event)) listeners.set(event, new Set());
+    listeners.get(event)!.add(handler);
+    return () => void listeners.get(event)?.delete(handler);
+  },
   async invoke(cmd: string, args: Record<string, any> = {}) {
     calls.push({ cmd, args });
     if (held.has(cmd)) await new Promise<void>((go) => held.get(cmd)!.push(go));
-    if (cmd === "plugin:event|listen") { listeners.set(args.event, args.handler); return args.handler; }
     if (cmd === "snapshot") return { stage: { kind: "ready" }, session, sections, activities: [], revision: 0, connected: true };
     if (cmd === "settings") return structuredClone(settings);
     if (cmd === "set_ui_settings") { Object.assign(settings.ui, args.ui); return; }
@@ -136,7 +136,7 @@ Object.assign(window, { __PATINA_TEST__: test, __TAURI_INTERNALS__: {
       return { items: [0, 1, 2].map((n) => item(offset + n)), matches: 40, remaining: 30, wrapped: false, libraries: ["Movies"] };
     }
     if (cmd === "search_all_servers") {
-      const send = (message: unknown, index: number) => callbacks.get(args.progress.id)?.({ message, index });
+      const send = (message: unknown, _index: number) => args.progress.onmessage?.(message);
       send(allResults(false), 0);
       if (xsearch.hold) await new Promise<void>((go) => (xsearch.release = go));
       send(allResults(true), 1);

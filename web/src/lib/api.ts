@@ -1,7 +1,7 @@
 // Typed wrappers around the Rust commands in crates/app/src/commands.rs.
 // Errors reject with the message string.
 
-import { Channel, invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "./ipc";
 import type {
   AllResults,
   Artwork,

@@ -1,7 +1,7 @@
 // Global app state. Mirrors the Rust side (crates/app/src/state.rs) through
 // its events, plus UI-only state such as menus and dialogs.
 
-import { listen } from "@tauri-apps/api/event";
+import { listen } from "./ipc";
 import { untrack } from "svelte";
 import { nav } from "./router.svelte";
 import { api } from "./api";

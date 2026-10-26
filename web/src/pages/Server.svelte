@@ -218,8 +218,8 @@
                     {#if o.canInstall}
                       <Button size="sm" onclick={() => act(api.applyUpdate(false), "Installing update…")}>Install now</Button>
                       <Button variant="outline" size="sm" onclick={() => act(api.applyUpdate(true), "Update scheduled for tonight")}>Tonight</Button>
-                    {:else if release.downloadUrl}
-                      <Button variant="outline" size="sm" onclick={() => release.downloadUrl && api.openUrl(release.downloadUrl)}>
+                    {:else if release.downloadURL}
+                      <Button variant="outline" size="sm" onclick={() => release.downloadURL && api.openUrl(release.downloadURL)}>
                         <ExternalLink />Download
                       </Button>
                     {/if}

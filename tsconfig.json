@@ -12,8 +12,10 @@
     "types": ["vite/client"],
     "paths": {
       "$lib": ["./web/src/lib"],
-      "$lib/*": ["./web/src/lib/*"]
+      "$lib/*": ["./web/src/lib/*"],
+      "electrobun/view": ["./.hutch/devkit/api/browser/index.ts"],
+      "electrobun/rpc": ["./.hutch/devkit/api/sdks/main/entries/rpc.ts"]
     }
   },
-  "include": ["web/src/**/*.ts", "web/src/**/*.svelte"]
+  "include": ["web/src/**/*.ts", "web/src/**/*.svelte", "desktop/rpc.ts"]
 }

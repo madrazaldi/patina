@@ -37,7 +37,7 @@
     act(api.removeFromCollection(item.ratingKey ?? "", rk), "Removed from collection", true);
   }
 
-  // Pointer drag rather than HTML5 DnD, which the Tauri webview swallows on Windows.
+  // Pointer drag rather than HTML5 DnD, which the desktop webview swallows on Windows.
   let grid: HTMLDivElement | undefined = $state();
   let drag = $state<{ rk: string; x: number; y: number; moved: boolean } | null>(null);
   /** Item the dragged one would land before; null is the end. */

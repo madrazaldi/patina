@@ -17,7 +17,7 @@
   let current = $derived(queue.items.findIndex((q) => q.uid === queue.current));
   let upcoming = $derived(queue.items.length - current - 1);
 
-  // Pointer drag rather than HTML5 DnD, which the Tauri webview swallows on Windows.
+  // Pointer drag rather than HTML5 DnD, which the desktop webview swallows on Windows.
   let drag = $state<{ uid: number; y: number; moved: boolean } | null>(null);
   /** Entry the dragged one would land before; null is the end. */
   let before = $state<number | null | undefined>(undefined);

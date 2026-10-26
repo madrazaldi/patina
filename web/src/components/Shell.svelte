@@ -58,7 +58,7 @@
 
   let searchInput: HTMLInputElement | null = $state(null);
   // The sidebar remembers whether it was collapsed. Not in the provider's cookie: WKWebView
-  // drops cookies on the tauri:// scheme that release builds load from.
+  // drops cookies on the views:// scheme that release builds load from.
   let open = $state(localStorage.getItem("sidebar-open") !== "false");
   const mac = document.documentElement.classList.contains("mac");
 
@@ -143,7 +143,7 @@
 <Sidebar.Provider bind:open onOpenChange={(v) => localStorage.setItem("sidebar-open", String(v))} style="--sidebar-width: 15rem" class="h-svh min-h-0 overflow-hidden">
   <Sidebar.Root variant="inset" collapsible="icon">
     <nav class="sidebar contents" aria-label="Main">
-      <Sidebar.Header class={["gap-0 pb-1", mac ? "pt-9" : "pt-3"]} data-tauri-drag-region>
+      <Sidebar.Header class={["electrobun-webkit-app-region-drag gap-0 pb-1", mac ? "pt-9" : "pt-3"]}>
         <Sidebar.Menu>
           <Sidebar.MenuItem>
             <Sidebar.MenuButton size="lg" class="pointer-events-none" tabindex={-1}>
@@ -249,7 +249,7 @@
   </Sidebar.Root>
 
   <Sidebar.Inset class="min-h-0 overflow-hidden">
-    <header class={["topbar", { "clear-lights": mac && !open }]} data-tauri-drag-region>
+    <header class={["topbar electrobun-webkit-app-region-drag", { "clear-lights": mac && !open }]}>
       <Sidebar.Trigger class="text-muted-foreground" />
       <Separator orientation="vertical" class="mx-1.5 data-vertical:h-4 data-vertical:self-center" />
       <Button variant="ghost" size="icon-sm" class="text-muted-foreground" title="Back (⌘[)" disabled={!nav.canBack} onclick={() => nav.back()}><ChevronLeft /></Button>
@@ -270,7 +270,7 @@
         />
         <InputGroup.Addon align="inline-end"><Kbd>/</Kbd></InputGroup.Addon>
       </InputGroup.Root>
-      <div class="grow" data-tauri-drag-region></div>
+      <div class="grow"></div>
       <Button variant="outline" size="sm" class="text-muted-foreground gap-2" onclick={() => (app.palette = true)}>
         Commands <Kbd>⌘K</Kbd>
       </Button>

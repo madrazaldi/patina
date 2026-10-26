@@ -261,7 +261,7 @@ export interface Release {
   version?: string;
   added?: string;
   fixed?: string;
-  downloadUrl?: string;
+  downloadURL?: string;
 }
 
 export interface ButlerTask {
