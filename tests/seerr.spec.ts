@@ -74,3 +74,17 @@ test("an available title opens the server's copy, and requests can be approved",
   expect((await calls(page, "seerr_request_action")).at(-1).args).toEqual({ id: 7, action: "approve" });
   await expect(row).toContainText("Approved");
 });
+
+test("deleting the only request on the last page steps back to the new last page", async ({ page }) => {
+  await page.evaluate(() => (window as any).__PATINA_TEST__.seerr.many(41));
+  await connect(page);
+  await page.getByRole("button", { name: "Requests", exact: true }).click();
+  await page.getByRole("button", { name: "All requests", exact: true }).click();
+  await page.getByRole("button", { name: "Older" }).click();
+  await page.getByRole("button", { name: "Older" }).click();
+  await expect(page.getByText("Page 3 of 3")).toBeVisible();
+  await page.getByTitle("Delete request").click();
+  await page.getByRole("button", { name: "Delete", exact: true }).click();
+  await expect(page.getByText("Page 2 of 2")).toBeVisible();
+  await expect(page.locator(".rows .list-row")).toHaveCount(20);
+});

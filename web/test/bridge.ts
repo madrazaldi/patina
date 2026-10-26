@@ -67,6 +67,8 @@ const seerr = {
   config: null as null | { url: string; auth: string },
   requests: seerrRequests,
   on() { seerr.config = { url: "http://seerr.test:5055", auth: "apiKey" }; },
+  /** `n` requests in all, to page through. */
+  many(n: number) { while (seerr.requests.length < n) seerr.requests.push({ ...seerrRequests[0], id: 100 + seerr.requests.length, title: `Request ${seerr.requests.length}` }); },
 };
 function seerrCommand(cmd: string, args: Record<string, any>) {
   if (cmd === "seerr_config") return seerr.config;
@@ -86,10 +88,15 @@ function seerrCommand(cmd: string, args: Record<string, any>) {
     return { ...t, tagline: "", genres: ["Drama"], runtime: 100, tvdbId: t.mediaType === "tv" ? 7001 : null, seasons, requests: [] };
   }
   if (cmd === "seerr_request") return "approved";
-  if (cmd === "seerr_requests") return { page: 1, pages: 1, results: seerr.requests.filter((r) => args.filter === "all" || r.state === args.filter) };
+  if (cmd === "seerr_requests") {
+    const all = seerr.requests.filter((r) => args.filter === "all" || r.state === args.filter);
+    const page = args.page ?? 1;
+    return { page, pages: Math.max(1, Math.ceil(all.length / 20)), results: all.slice((page - 1) * 20, page * 20) };
+  }
   if (cmd === "seerr_request_action") {
     const r = seerr.requests.find((x) => x.id === args.id)!;
     if (args.action === "approve") r.state = "approved";
+    if (args.action === "delete") seerr.requests.splice(seerr.requests.indexOf(r), 1);
     return;
   }
   return null;
