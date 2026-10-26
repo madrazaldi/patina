@@ -16,6 +16,8 @@ export class ServerBase {
   protected _base: URL;
   protected _token: string;
   protected _machineIdentifier: string | null;
+  /** Aborts every request of this copy (see `withSignal`). */
+  protected _signal: AbortSignal | null = null;
 
   /** `PlexServer::new(info, base_url, token)`; pass an `Http` instead of `info` to share a client (`with_http`). */
   constructor(infoOrHttp: ClientInfo | Http, baseUrl: string, token: string) {
@@ -36,6 +38,16 @@ export class ServerBase {
   withMachineIdentifier(id: string | null): this {
     const copy = this.clone();
     copy._machineIdentifier = id;
+    return copy;
+  }
+
+  /**
+   * Returns a copy whose requests are cancelled when `signal` aborts (no counterpart in Rust,
+   * where dropping the future does it).
+   */
+  withSignal(signal: AbortSignal): this {
+    const copy = this.clone();
+    copy._signal = signal;
     return copy;
   }
 
@@ -97,6 +109,7 @@ export class ServerBase {
 
   protected async request<T>(method: string, path: string, params: Params, normalize: (v: unknown) => T): Promise<T> {
     const rb = this.http.request(method, this.url(path), this._token, params);
+    if (this._signal) rb.abortWith(this._signal);
     return this.http.json(rb, normalize);
   }
 
@@ -111,6 +124,7 @@ export class ServerBase {
 
   protected async empty(method: string, path: string, params: Params = new Params()): Promise<void> {
     const rb = this.http.request(method, this.url(path), this._token, params);
+    if (this._signal) rb.abortWith(this._signal);
     return this.http.empty(rb);
   }
 

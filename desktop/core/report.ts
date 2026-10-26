@@ -157,9 +157,13 @@ export class Pending<T> {
   }
 }
 
-/** How the worker reaches the server: resolves when delivered, rejects with the reason otherwise. */
+/**
+ * How the worker reaches the server: resolves when delivered, rejects with the reason otherwise.
+ * `signal` aborts when the worker gives up on the request (Rust drops the future), so a late
+ * answer can't land after newer reports.
+ */
 export interface Sink<T> {
-  send(target: T, op: Op): Promise<void>;
+  send(target: T, op: Op, signal: AbortSignal): Promise<void>;
 }
 
 /** Tuning, so tests can run quickly. */
@@ -258,13 +262,18 @@ async function worker<T>(rx: Channel<Msg<T>>, sink: Sink<T>, config: Config, eq?
     if (!job) continue;
     let error: string;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const ac = new AbortController();
     try {
       const timeout = new Promise<"timeout">((resolve) => {
         timer = setTimeout(() => resolve("timeout"), config.timeoutMs);
       });
-      const result = await Promise.race([sink.send(job.target, job.op).then(() => "ok" as const), timeout]);
+      const sent = sink.send(job.target, job.op, ac.signal).then(() => "ok" as const);
+      const result = await Promise.race([sent, timeout]);
       if (result === "ok") continue;
       error = `no answer within ${config.timeoutMs / 1000}s`;
+      // Cancel it and wait for it to end, so it can't reach the server after what comes next.
+      ac.abort();
+      await sent.catch(() => undefined);
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     } finally {
@@ -281,7 +290,8 @@ async function worker<T>(rx: Channel<Msg<T>>, sink: Sink<T>, config: Config, eq?
 
 /** The app's sink: talks to the Plex server a job was queued for. */
 const plexSink: Sink<PlexServer> = {
-  async send(server, op) {
+  async send(target, op, signal) {
+    const server = target.withSignal(signal);
     switch (op.kind) {
       case "timeline":
         return server.timeline(op.update);

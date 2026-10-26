@@ -344,7 +344,8 @@ export const commandNames = Object.keys(handlers);
 
 /** Run one command. Rejects with the handler's error. */
 export async function dispatch(app: AppState, cmd: string, args: Record<string, unknown> | undefined, ctx: Ctx): Promise<unknown> {
-  const handler = handlers[cmd];
+  // Own properties only: `constructor` and the other Object.prototype names are not commands.
+  const handler = Object.hasOwn(handlers, cmd) ? handlers[cmd] : undefined;
   if (!handler) throw new Error(`Unknown command ${cmd}.`);
   const out = await handler(app, args ?? {}, ctx);
   return out === undefined ? null : out;

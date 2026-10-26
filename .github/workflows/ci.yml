@@ -72,21 +72,10 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
 
-      - name: Install mpv and ffmpeg
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y mpv ffmpeg
-
       - run: bun install --frozen-lockfile
 
       - name: Type-check (web and desktop)
         run: bun run check
-
-      - name: Backend tests
-        run: bun run test:desktop
-        env:
-          # The tests that start mpv run headless (--vo=null --ao=null).
-          PATINA_MPV_TESTS: "1"
 
       - name: Build
         run: bun run build
@@ -107,6 +96,29 @@ jobs:
             playwright-report/
             test-results/
           retention-days: 7
+
+  # The desktop backend's tests (desktop/), playback included.
+  desktop:
+    name: Desktop backend tests
+    # 26.04 for mpv 0.38+ (the player needs the newer loadfile signature).
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install mpv and ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mpv ffmpeg
+
+      - run: bun install --frozen-lockfile
+
+      - name: Backend tests
+        run: bun run test:desktop
+        env:
+          # The tests that start mpv run headless (--vo=null --ao=null).
+          PATINA_MPV_TESTS: "1"
 
   # The Electrobun app builds on every platform (the bundle isn't published here).
   app:
@@ -130,7 +142,7 @@ jobs:
   ok:
     name: CI OK
     if: always()
-    needs: [rust, web, app]
+    needs: [rust, web, desktop, app]
     runs-on: ubuntu-24.04
     steps:
       - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')

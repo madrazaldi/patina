@@ -9,6 +9,7 @@ import { logger } from "./core/log";
 import * as images from "./core/images";
 import { setDebugBuild } from "./core/ops/setup";
 import * as player from "./core/player";
+import * as presence from "./core/presence";
 import * as session from "./core/session";
 import { AppState } from "./core/state";
 import type { PatinaRPC } from "./rpc";
@@ -26,6 +27,10 @@ setDebugBuild(channel === "dev" || process.env.PATINA_DEBUG_BUILD === "1");
 
 const sink = new WebviewSink();
 const app = new AppState(sink);
+// Discord Rich Presence follows every now-playing change (including the end of playback).
+sink.onEvent = (event) => {
+  if (event.kind === "nowPlaying") presence.update(event.nowPlaying, app.settings().player);
+};
 const imageServer = startImageServer(app);
 setTimeout(() => images.pruneCache(), 0);
 

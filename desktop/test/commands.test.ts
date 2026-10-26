@@ -77,6 +77,10 @@ test("unknown commands are rejected", async () => {
   const a = new AppState({ emit() {} });
   try {
     await expect(dispatch(a, "nope", {}, ctx)).rejects.toThrow("Unknown command nope.");
+    // Inherited names are not commands (`constructor` would hand back the AppState).
+    for (const cmd of ["constructor", "toString", "__proto__", "hasOwnProperty"]) {
+      await expect(dispatch(a, cmd, {}, ctx)).rejects.toThrow(`Unknown command ${cmd}.`);
+    }
   } finally {
     a.dispose();
   }

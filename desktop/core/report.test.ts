@@ -78,9 +78,10 @@ class Fake implements Sink<string> {
     private readonly delay: number,
     private fail: number,
   ) {}
-  async send(_target: string, op: Op): Promise<void> {
-    if (this.hang) await new Promise<never>(() => {});
-    await Bun.sleep(this.delay);
+  async send(_target: string, op: Op, signal: AbortSignal): Promise<void> {
+    // Like fetch, a request ends (rejecting) as soon as it is aborted.
+    const aborted = new Promise<never>((_, reject) => signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true }));
+    await Promise.race([this.hang ? new Promise<never>(() => {}) : Bun.sleep(this.delay), aborted]);
     if (this.fail > 0) {
       this.fail -= 1;
       throw new Error("boom");
@@ -146,6 +147,18 @@ test("a_hanging_server_is_cut_off_so_later_reports_get_through", async () => {
   const began = performance.now();
   expect(await reporter.flush(5000)).toBe(true);
   expect(performance.now() - began).toBeLessThan(2000);
+});
+
+test("a_request_cut_off_never_lands_after_newer_reports", async () => {
+  const fake = new Fake(100, 0);
+  const reporter = Reporter.spawn(fake, { timeoutMs: 30, attempts: 1, backoffMs: 5 });
+  reporter.send("s", update("1", "playing", 1_000));
+  await Bun.sleep(10);
+  reporter.send("s", update("2", "stopped", 2_000));
+  expect(await reporter.flush(5000)).toBe(true);
+  await Bun.sleep(150);
+  // Both were cut off (each takes 100ms); neither reached the server late.
+  expect(fake.seen.length).toBe(0);
 });
 
 test("flush_times_out_while_the_server_is_slow", async () => {
