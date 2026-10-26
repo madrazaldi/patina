@@ -4,7 +4,7 @@
 // never the key or the session.
 
 import { MetadataOptions } from "../plex";
-import type { Metadata } from "../plex";
+import type { Metadata, PlexServer } from "../plex";
 import { SeerrClient, SeerrError, normalizeUrl } from "../seerr";
 import type { RawMediaInfo, RawMediaRequest, RawMovieDetails, RawResult, RawTvDetails, RawUser } from "../seerr";
 import type { AppState } from "./state";
@@ -364,6 +364,9 @@ export async function search(app: AppState, query: string, page: number): Promis
   return { page: got.page, pages: got.totalPages, results: titlesFrom(got.results) };
 }
 
+/** How long the Seerr title page waits for the Plex server to confirm its copy. */
+const PLEX_CHECK_MS = 5_000;
+
 /**
  * Whether a Plex item is this TMDB title: by its TMDB guid (new or legacy agent), or,
  * when it has no external ids, by kind and title.
@@ -380,13 +383,18 @@ export function isTmdbTitle(m: Metadata, mediaType: SeerrMediaType, tmdbId: numb
  * Seerr's rating key names an item on the Plex server Seerr syncs with, which may not be
  * the one Patina is connected to: keep it only if this server has the same title there.
  */
-async function onThisServer(app: AppState, t: SeerrTitle): Promise<string | null> {
+export async function plexCopy(server: Pick<PlexServer, "metadata">, t: SeerrTitle, waitMs = PLEX_CHECK_MS): Promise<string | null> {
   if (!t.ratingKey) return null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const m = await app.server().metadata(t.ratingKey, MetadataOptions.full());
+    // Optional: a slow or unreachable Plex server must not hold up the Seerr page.
+    const timeout = new Promise<null>((resolve) => (timer = setTimeout(() => resolve(null), waitMs)));
+    const m = await Promise.race([server.metadata(t.ratingKey, MetadataOptions.full()), timeout]);
     return m && isTmdbTitle(m, t.mediaType, t.tmdbId, t.title) ? t.ratingKey : null;
   } catch {
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -400,7 +408,7 @@ export async function details(app: AppState, mediaType: SeerrMediaType, tmdbId: 
   const runtime = tv ? (tv.episodeRunTime?.[0] ?? null) : ((raw as RawMovieDetails).runtime ?? null);
   return {
     ...title,
-    ratingKey: await onThisServer(app, title),
+    ratingKey: app.session() ? await plexCopy(app.server(), title) : null,
     tagline: raw.tagline ?? "",
     genres: (raw.genres ?? []).map((g) => g.name),
     runtime: runtime || null,

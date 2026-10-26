@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 
 import { normalizeMetadata } from "../plex";
-import { availability, capabilities, hasAny, isTmdbTitle, requestState, seasonsFrom, tmdbImage, titlesFrom } from "./seerr";
+import { availability, capabilities, hasAny, isTmdbTitle, plexCopy, requestState, seasonsFrom, tmdbImage, titlesFrom } from "./seerr";
 
 test("permissions follow Seerr: admins may do everything", () => {
   expect(hasAny(2, 16)).toBe(true);
@@ -65,4 +65,15 @@ test("a Plex item is the Seerr title only when its TMDB id (or, without ids, its
   expect(isTmdbTitle(item({ guid: "com.plexapp.agents.themoviedb://949?lang=en" }), "movie", 949, "Heat")).toBe(true);
   expect(isTmdbTitle(item({}), "movie", 949, "heat")).toBe(true);
   expect(isTmdbTitle(item({}), "tv", 949, "Heat")).toBe(false);
+});
+
+test("the Plex copy is checked, but a server that doesn't answer doesn't hold up the page", async () => {
+  const [movie] = titlesFrom([{ id: 949, mediaType: "movie", title: "Heat", mediaInfo: { status: 5, ratingKey: "100" } }]);
+  const found = normalizeMetadata({ ratingKey: "100", type: "movie", title: "Heat", Guid: [{ id: "tmdb://949" }] });
+  expect(await plexCopy({ metadata: async () => found }, movie!)).toBe("100");
+  expect(await plexCopy({ metadata: async () => null }, movie!)).toBeNull();
+  expect(await plexCopy({ metadata: () => Promise.reject(new Error("offline")) }, movie!)).toBeNull();
+  const started = Date.now();
+  expect(await plexCopy({ metadata: () => new Promise(() => {}) }, movie!, 30)).toBeNull();
+  expect(Date.now() - started).toBeLessThan(1000);
 });
