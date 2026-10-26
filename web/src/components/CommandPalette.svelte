@@ -17,6 +17,7 @@
     FastForward,
     Film,
     House,
+    Inbox,
     Library,
     ListMusic,
     ListOrdered,
@@ -79,6 +80,7 @@
     watchlist: Bookmark,
     livetv: Tv,
     downloads: Download,
+    requests: Inbox,
     activity: Activity,
     server: Server,
     settings: Settings,
@@ -127,6 +129,7 @@
     if (app.hasTv) go("watchlist", "Watchlist", { name: "watchlist" }, "plex discover bookmarks");
     if (app.liveTv) go("livetv", "Live TV", { name: "livetv" }, "dvr channels guide");
     if (app.downloads.length) go("downloads", "Downloads", { name: "downloads" }, "offline");
+    if (app.seerr) go("requests", "Requests", { name: "requests" }, "seerr overseerr jellyseerr request discover missing");
     go("activity", "Activity", { name: "activity" }, "sessions history tasks");
     if (app.owned) go("server", "Server", { name: "server" }, "administration libraries maintenance");
     go("settings", "Settings", { name: "settings" }, "preferences player mpv appearance accent");

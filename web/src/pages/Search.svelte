@@ -6,6 +6,7 @@
   import { cn } from "$lib/utils";
   import Card from "../components/Card.svelte";
   import CopyDialog from "../components/CopyDialog.svelte";
+  import SeerrCard from "../components/SeerrCard.svelte";
   import Img from "../components/Img.svelte";
   import Status from "../components/Status.svelte";
   import { api } from "../lib/api";
@@ -14,7 +15,7 @@
   import * as plex from "../lib/plex";
   import { browseRoute, nav, routeFor } from "../lib/router.svelte";
   import { app, message } from "../lib/state.svelte";
-  import type { AllResults, Directory, Hub, SearchGroup } from "../lib/types";
+  import type { AllResults, Directory, Hub, SearchGroup, SeerrTitle } from "../lib/types";
   import { badge, needsChoice, quality, stateLabel } from "../lib/xsearch";
 
   let query = $derived(app.search.trim());
@@ -55,6 +56,25 @@
         (e) => !cancelled && query === q && (results = { q, error: message(e) }),
       );
     }, 220);
+    return () => { cancelled = true; clearTimeout(timer); };
+  });
+
+  // Titles to request through Seerr, when it is set up. Ones already on the server are left out.
+  let requestable = $state<{ q: string; titles?: SeerrTitle[]; error?: string } | null>(null);
+  $effect(() => {
+    retry;
+    let cancelled = false;
+    const q = query;
+    if (q.length < 2 || !app.seerr) {
+      requestable = null;
+      return;
+    }
+    const timer = setTimeout(() => {
+      api.seerrSearch(q).then(
+        (r) => !cancelled && query === q && (requestable = { q, titles: r.results.filter((t) => t.status !== "available").slice(0, 12) }),
+        (e) => !cancelled && query === q && (requestable = { q, error: message(e) }),
+      );
+    }, 320);
     return () => { cancelled = true; clearTimeout(timer); };
   });
 
@@ -161,6 +181,19 @@
         {/if}
       </section>
     {/each}
+  {/if}
+
+  {#if requestable?.q === query && (requestable.error || requestable.titles?.length)}
+    <section aria-label="Request with Seerr">
+      <div class="section-head"><h2>Request with Seerr</h2></div>
+      {#if requestable.error}
+        <p class="text-muted-foreground text-sm">Seerr could not search: {requestable.error}</p>
+      {:else}
+        <div class="poster-grid">
+          {#each requestable.titles ?? [] as t (`${t.mediaType}:${t.tmdbId}`)}<SeerrCard title={t} />{/each}
+        </div>
+      {/if}
+    </section>
   {/if}
 </div>
 

@@ -14,6 +14,7 @@
     Folder,
     House,
     Image as ImageIcon,
+    Inbox,
     ListMusic,
     LogOut,
     Music,
@@ -166,6 +167,7 @@
             {#if app.hasTv}{@render link({ name: "watchlist" }, "Watchlist", Bookmark)}{/if}
             {@render link({ name: "playlists" }, "Playlists", ListMusic)}
             {#if app.liveTv}{@render link({ name: "livetv" }, "Live TV", Radio)}{/if}
+            {#if app.seerr}{@render link({ name: "requests" }, "Requests", Inbox, nav.route.name === "requests" || nav.route.name === "seerr")}{/if}
             {#if app.downloads.length}
               {@render link({ name: "downloads" }, "Downloads", Download, undefined, activeDownloads ? downloadCount : undefined)}
             {/if}

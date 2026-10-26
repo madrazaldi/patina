@@ -60,6 +60,8 @@ EPG = "/tv.plex.providers.epg.cloud:2"
 CHANNELS = [("2.1", "Harbor One"), ("4.1", "Copper News"), ("7.1", "Verdigris Classics")]
 RULES = {"41": "Copper News Tonight"}
 DELETED = set()
+# TMDB ids of the titles tools/mock_seerr.py reports as available here.
+TMDB = {"100": 9001, "500": 8001}
 
 
 def img(kind, n):
@@ -132,6 +134,8 @@ def movie(i):
         "UltraBlurColors": {"topLeft": "1f4d44", "topRight": "3a2a1a", "bottomRight": "0f1a26", "bottomLeft": "2a1f3a"},
     }
     m.update({k: v for k, v in state.items() if v})
+    if rk in TMDB:
+        m["Guid"] = [{"id": f"tmdb://{TMDB[rk]}"}]
     return m
 
 
@@ -151,6 +155,7 @@ def show(i):
         "thumb": img("thumb", (i + 3) % 8), "art": img("art", (i + 3) % 8), "childCount": 2, "leafCount": 6,
         "viewedLeafCount": 1 if i == 0 else 0, "librarySectionID": 2, "contentRating": "TV-14",
         "Genre": [{"id": 12, "tag": "Mystery", "filter": "genre=12"}],
+        **({"Guid": [{"id": f"tmdb://{TMDB[rk]}"}]} if rk in TMDB else {}),
     }
 
 

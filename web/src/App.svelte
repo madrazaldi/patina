@@ -18,7 +18,9 @@
   import Pick from "./pages/Pick.svelte";
   import Playlist from "./pages/Playlist.svelte";
   import Playlists from "./pages/Playlists.svelte";
+  import Requests from "./pages/Requests.svelte";
   import Search from "./pages/Search.svelte";
+  import SeerrTitle from "./pages/SeerrTitle.svelte";
   import Server from "./pages/Server.svelte";
   import Settings from "./pages/Settings.svelte";
   import Watchlist from "./pages/Watchlist.svelte";
@@ -94,6 +96,10 @@
             <Server />
           {:else if route.name === "settings"}
             <Settings />
+          {:else if route.name === "requests"}
+            <Requests />
+          {:else if route.name === "seerr"}
+            <SeerrTitle mediaType={route.mediaType} tmdbId={route.tmdbId} />
           {/if}
         </div>
       {/key}

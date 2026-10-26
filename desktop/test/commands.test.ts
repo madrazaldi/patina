@@ -71,7 +71,7 @@ test("every command the UI calls is handled", () => {
   const called = [...api.matchAll(/call(?:<[^(]*>)?\(\s*"([a-z_]+)"/g)].map((m) => m[1]!);
   expect(called.length).toBeGreaterThan(100);
   expect(called.filter((c) => !commandNames.includes(c))).toEqual([]);
-  expect(commandNames.length).toBe(141);
+  expect(commandNames.length).toBe(153);
 });
 
 test("unknown commands are rejected", async () => {

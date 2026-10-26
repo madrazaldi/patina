@@ -882,3 +882,108 @@ export interface AllResults {
   /** Every server has answered, failed or timed out. */
   done: boolean;
 }
+
+// Seerr (desktop/core/seerr.ts) -------------------------------------------------
+
+/** Where a title stands in Seerr; `null` when nobody has requested it. */
+export type SeerrAvailability = "unknown" | "pending" | "processing" | "partial" | "available" | "blocklisted" | "deleted";
+export type SeerrRequestState = "pending" | "approved" | "declined" | "failed" | "completed";
+export type SeerrMediaType = "movie" | "tv";
+
+export interface SeerrConfig {
+  url: string;
+  auth: "apiKey" | "plex";
+}
+
+export interface SeerrCan {
+  requestMovie: boolean;
+  requestTv: boolean;
+  request4kMovie: boolean;
+  request4kTv: boolean;
+  advanced: boolean;
+  manage: boolean;
+}
+
+export interface SeerrStatus extends SeerrConfig {
+  version: string | null;
+  user: { id: number; name: string; avatar: string | null };
+  can: SeerrCan;
+}
+
+export interface SeerrTitle {
+  mediaType: SeerrMediaType;
+  tmdbId: number;
+  title: string;
+  year: number | null;
+  overview: string;
+  poster: string | null;
+  backdrop: string | null;
+  rating: number | null;
+  status: SeerrAvailability | null;
+  status4k: SeerrAvailability | null;
+  /** The copy on the Plex server, once available. */
+  ratingKey: string | null;
+}
+
+export interface SeerrSeason {
+  number: number;
+  name: string;
+  episodes: number | null;
+  airDate: string | null;
+  status: SeerrAvailability | null;
+  status4k: SeerrAvailability | null;
+  requested: SeerrRequestState | null;
+  requested4k: SeerrRequestState | null;
+}
+
+export interface SeerrRequest {
+  id: number;
+  state: SeerrRequestState;
+  mediaType: SeerrMediaType;
+  tmdbId: number;
+  title: string;
+  year: number | null;
+  poster: string | null;
+  is4k: boolean;
+  seasons: number[];
+  requestedBy: string;
+  mine: boolean;
+  createdAt: string | null;
+  status: SeerrAvailability | null;
+}
+
+export interface SeerrDetails extends SeerrTitle {
+  tagline: string;
+  genres: string[];
+  runtime: number | null;
+  tvdbId: number | null;
+  seasons: SeerrSeason[];
+  requests: SeerrRequest[];
+}
+
+export interface SeerrPage<T> {
+  page: number;
+  pages: number;
+  results: T[];
+}
+
+export interface SeerrServer {
+  id: number;
+  name: string;
+  isDefault: boolean;
+  activeProfileId: number | null;
+  activeDirectory: string | null;
+  profiles: { id: number; name: string }[];
+  rootFolders: { path: string; freeSpace: number | null }[];
+}
+
+export interface SeerrNewRequest {
+  mediaType: SeerrMediaType;
+  tmdbId: number;
+  tvdbId?: number | null;
+  seasons?: number[];
+  is4k?: boolean;
+  serverId?: number | null;
+  profileId?: number | null;
+  rootFolder?: string | null;
+}

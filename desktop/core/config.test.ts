@@ -71,11 +71,19 @@ test("the file layout matches what the Rust toml crate writes", () => {
   const text = readFileSync(join(dir, "patina", "config.toml"), "utf8");
   // Top-level scalar first, then the tables in declaration order; None fields are absent.
   const order = [...text.matchAll(/^\[([a-z.]+)\]$/gm)].map((m) => m[1]);
-  expect(order).toEqual(["auth", "server", "player", "ui", "tui"]);
+  expect(order).toEqual(["auth", "server", "player", "ui", "tui", "seerr"]);
   expect(text.startsWith(`client_id = "${settings.client_id}"`)).toBe(true);
   expect(text).not.toContain("account_id");
   expect(text).toContain("watched_threshold = 0.9");
   expect(text).toContain('skip_key = "TAB"');
+});
+
+test("seerr settings round trip and default to empty", () => {
+  expect(parseSettings("").seerr).toEqual({ url: "", api_key: "" });
+  const settings = parseSettings('[seerr]\nurl = "http://seerr.local:5055"\napi_key = "k"\n');
+  expect(settings.seerr).toEqual({ url: "http://seerr.local:5055", api_key: "k" });
+  expect(parseSettings(settingsToToml(settings)).seerr).toEqual(settings.seerr);
+  expect(() => parseSettings("[seerr]\nurl = 3\n")).toThrow();
 });
 
 test("the client id is created once and kept", () => {

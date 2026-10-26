@@ -26,6 +26,7 @@ import * as undo from "../core/undo";
 import type { AppState } from "../core/state";
 import { LibraryQuery, MetadataOptions, Params, normalizeMetadata } from "../plex";
 import { autoCommands } from "./auto";
+import { seerrCommands } from "./seerr";
 import type { Ctx, Handler } from "./types";
 
 export type { Ctx, Handler, Host } from "./types";
@@ -337,6 +338,7 @@ const handlers: Record<string, Handler> = {
   },
 
   ...autoCommands,
+  ...seerrCommands,
 };
 
 /** Every command name the webview may call. */

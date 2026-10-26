@@ -19,7 +19,8 @@
   import { nav } from "../lib/router.svelte";
   import { act, app, message } from "../lib/state.svelte";
   import PlaybackRulesForm from "../components/PlaybackRulesForm.svelte";
-  import type { HomeUser, PlaybackPrefs, PlaybackRules, ShowRules } from "../lib/types";
+  import { forgetSeerrStatus, seerrStatus } from "../lib/seerr";
+  import type { HomeUser, PlaybackPrefs, PlaybackRules, SeerrStatus, ShowRules } from "../lib/types";
 
   let p = $derived(app.settings?.player);
   let ui = $derived(app.settings?.ui);
@@ -87,6 +88,46 @@
     if (r.codec) bits.push(r.codec);
     if (r.hdr && r.hdr !== "any") bits.push(r.hdr === "prefer" ? "HDR" : "SDR");
     return bits.join(" · ") || "No rules";
+  }
+
+  // Seerr: the saved instance is checked on open; the form connects a new one (checked before saving).
+  let seerr = $state<SeerrStatus | null>(null);
+  let seerrError = $state<string>();
+  let seerrUrl = $state("");
+  let seerrKey = $state("");
+  let connecting = $state(false);
+  $effect(() => {
+    const config = app.seerr;
+    seerr = null;
+    seerrError = undefined;
+    if (!config) return;
+    seerrUrl = config.url;
+    seerrStatus(`${config.url}|${app.scope}`).then((s) => app.seerr?.url === config.url && (seerr = s), (e) => (seerrError = message(e)));
+  });
+
+  async function connectSeerr() {
+    connecting = true;
+    seerrError = undefined;
+    try {
+      // An empty field keeps a saved key; disconnect first to switch to the Plex sign-in.
+      const status = await api.seerrConnect(seerrUrl, seerrKey.trim() === "" && app.seerr?.auth === "apiKey" ? null : seerrKey);
+      forgetSeerrStatus();
+      seerrKey = "";
+      await app.loadSeerr();
+      seerr = status;
+      app.toast(`Connected to Seerr as ${status.user.name}`);
+    } catch (e) {
+      seerrError = message(e);
+    }
+    connecting = false;
+  }
+
+  async function disconnectSeerr() {
+    if (await act(api.seerrDisconnect(), "Seerr disconnected")) {
+      forgetSeerrStatus();
+      seerrUrl = "";
+      await app.loadSeerr();
+    }
   }
 
   const home = resource(() => (app.hasTv ? api.homeUsers() : Promise.resolve([])));
@@ -308,6 +349,53 @@
               <Switch aria-label="Hide spoilers" checked={ui.hide_spoilers} onCheckedChange={(on) => app.updateUi({ hide_spoilers: on })} />
             </div>
           </div>
+        </Card.Content>
+      </Card.Root>
+
+      <Card.Root class={CARD}>
+        <Card.Header class={HEAD}>
+          <h2 class="text-base leading-snug font-semibold tracking-tight">Seerr</h2>
+          <Card.Description>
+            Request movies and shows the server doesn't have through Seerr, Overseerr or Jellyseerr. Leave the API key
+            empty to sign in with your Plex account.
+          </Card.Description>
+          {#if app.seerr}
+            <Card.Action><Button variant="ghost" size="sm" disabled={connecting} onclick={disconnectSeerr}>Disconnect</Button></Card.Action>
+          {/if}
+        </Card.Header>
+        <Card.Content class={BODY}>
+          {#if app.seerr}
+            <div class={ROW}>
+              {#if seerr}
+                {@render label(
+                  `Connected as ${seerr.user.name}`,
+                  `${seerr.url}${seerr.version ? ` · Seerr ${seerr.version}` : ""} · ${seerr.auth === "plex" ? "signed in with Plex" : "API key"}${seerr.can.manage ? " · can manage requests" : ""}`,
+                  "selectable",
+                )}
+              {:else if seerrError}
+                {@render label("Not connected", seerrError, "text-destructive selectable")}
+              {:else}
+                {@render label(app.seerr.url, "Checking…")}
+              {/if}
+              <div class={CTRL}><Button variant="outline" size="sm" onclick={() => nav.push({ name: "requests" })}>Open requests</Button></div>
+            </div>
+          {/if}
+          <div class={ROW}>
+            {@render label("Server address", "For example http://192.168.1.10:5055")}
+            <div class={CTRL}><Input class="w-72" placeholder="http://seerr.local:5055" aria-label="Seerr address" bind:value={seerrUrl} /></div>
+          </div>
+          <div class={ROW}>
+            {@render label("API key", "In Seerr under Settings → General. Requests made with it count as the Seerr admin's.")}
+            <div class={CTRL}>
+              <Input class="w-72" type="password" placeholder={app.seerr?.auth === "apiKey" ? "Saved (enter to replace)" : "Optional"} aria-label="Seerr API key" bind:value={seerrKey} />
+              <Button size="sm" disabled={connecting || !seerrUrl.trim()} onclick={connectSeerr}>{connecting ? "Connecting…" : app.seerr ? "Reconnect" : "Connect"}</Button>
+            </div>
+          </div>
+          {#if seerrError && !app.seerr}
+            <div class="p-4">
+              <Alert.Root variant="destructive"><Alert.Description class="whitespace-pre-wrap select-text">{seerrError}</Alert.Description></Alert.Root>
+            </div>
+          {/if}
         </Card.Content>
       </Card.Root>
 
