@@ -160,11 +160,12 @@ export class SeerrClient {
   ): Promise<T> {
     const plex = authed && "plexToken" in this.auth;
     if (plex && !this.cookie) await this.ensureSignedIn();
-    let resp = await this.send(method, path, query, body, authed ? this.cookie : null);
-    // Seerr restarted or the session expired: sign in again, once.
-    if (plex && (resp.status === 401 || resp.status === 403) && this.cookie) {
-      this.cookie = null;
-      await this.ensureSignedIn();
+    const sent = authed ? this.cookie : null;
+    let resp = await this.send(method, path, query, body, sent);
+    // Seerr restarted or the session expired: sign in again (once for all requests that noticed), and retry once.
+    if (plex && sent && (resp.status === 401 || resp.status === 403)) {
+      if (this.cookie === sent) this.cookie = null;
+      if (!this.cookie) await this.ensureSignedIn();
       resp = await this.send(method, path, query, body, this.cookie);
     }
     if (!resp.ok) throw await failure(resp, method, path);

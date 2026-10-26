@@ -396,6 +396,11 @@ export async function request(app: AppState, r: NewRequest): Promise<RequestStat
     profileId: r.profileId ?? undefined,
     rootFolder: r.rootFolder ?? undefined,
   });
+  // Seerr answers 202 with only a message when nothing was left to request (say, someone else just did).
+  if (typeof made?.status !== "number") {
+    const why = (made as { message?: unknown } | undefined)?.message;
+    throw new SeerrError(typeof why === "string" && why ? why : "Seerr did not create the request.");
+  }
   return requestState(made.status);
 }
 

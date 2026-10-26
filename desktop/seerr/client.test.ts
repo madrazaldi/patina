@@ -42,7 +42,9 @@ test("a Plex sign-in is kept and renewed once the session is gone", async () => 
     await Promise.all([client.me(), client.me()]);
     expect(sessions).toBe(1);
     valid = "expired";
-    expect((await client.me()).displayName).toBe("Alice");
+    // Requests that find the session gone at the same time share one new sign-in.
+    const both = await Promise.all([client.me(), client.me(), client.me()]);
+    expect(both.map((u) => u.displayName)).toEqual(["Alice", "Alice", "Alice"]);
     expect(sessions).toBe(2);
     expect(seen.filter((s) => s === "POST /api/v1/auth/plex")).toHaveLength(2);
   } finally {

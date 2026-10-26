@@ -46,7 +46,8 @@ export function openSeasons(d: SeerrDetails, is4k: boolean) {
   return d.seasons.filter((s) => {
     const status = is4k ? s.status4k : s.status;
     const requested = is4k ? s.requested4k : s.requested;
-    return status !== "available" && status !== "partial" && status !== "processing" && requested !== "pending" && requested !== "approved";
+    // Seerr keeps a failed request's seasons until it is retried or deleted.
+    return status !== "available" && status !== "partial" && status !== "processing" && requested !== "pending" && requested !== "approved" && requested !== "failed";
   });
 }
 

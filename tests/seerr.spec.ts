@@ -46,8 +46,9 @@ test("search offers titles the server lacks and requests seasons of a show", asy
   await expect(page.getByRole("heading", { level: 1, name: "Ferry Season" })).toBeVisible();
   await page.getByRole("button", { name: "Request more", exact: true }).click();
   const dialog = page.locator("dialog");
-  // Season 1 is on the server already.
+  // Season 1 is on the server already; season 2's request failed and stays Seerr's until retried or deleted.
   await expect(dialog.getByRole("checkbox", { name: "Season 1" })).toHaveCount(0);
+  await expect(dialog.getByRole("checkbox", { name: "Season 2" })).toHaveCount(0);
   await dialog.getByRole("checkbox", { name: "Season 3" }).click();
   await page.screenshot({ path: testInfo.outputPath("seerr-request.png"), animations: "disabled" });
   await dialog.getByRole("button", { name: "Request 1 season", exact: true }).click();

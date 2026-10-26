@@ -343,10 +343,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json({"message": "No seasons requested."}, 400)
             taken = set(SHOWS[tmdb]["available"] if not is4k else [])
             for r in requests_for(kind, tmdb):
-                if r["is4k"] == is4k and r["status"] in (1, 2):
+                if r["is4k"] == is4k and r["status"] not in (3, 5):
                     taken.update(s["seasonNumber"] for s in r["seasons"])
-            if set(seasons) & taken:
-                return self.send_json({"message": "Request for this media already exists."}, 409)
+            # Like Seerr: seasons already requested or available are dropped; none left is a 202.
+            seasons = [n for n in seasons if n not in taken]
+            if not seasons:
+                return self.send_json({"message": "No seasons available to request"}, 202)
         elif media_status(kind, tmdb, is4k) in (2, 3, 4, 5):
             return self.send_json({"message": "Request for this media already exists."}, 409)
         req = {"id": NEXT_ID[0], "status": 2 if manage else 1, "type": kind, "is4k": is4k, "createdAt": now(),

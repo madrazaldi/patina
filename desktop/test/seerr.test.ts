@@ -100,6 +100,8 @@ t("requesting a movie and seasons of a show", async () => {
   expect(events().find((e) => e.what === "request" && e.mediaType === "tv")).toMatchObject({
     mediaId: 8001, seasons: [3], tvdbId: 7001, serverId: 0, profileId: 2, rootFolder: "/tv-archive",
   });
+  // Nothing left to request is Seerr's 202, not a success.
+  await expect(call("seerr_request", { mediaType: "tv", tmdbId: 8001, seasons: [3] })).rejects.toThrow("No seasons available to request");
   // Seerr's own message comes through.
   await expect(call("seerr_request", { mediaType: "movie", tmdbId: 9002 })).rejects.toThrow("Request for this media already exists.");
 });

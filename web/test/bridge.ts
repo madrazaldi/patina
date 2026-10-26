@@ -61,7 +61,7 @@ const seerrTitle = (mediaType: "movie" | "tv", tmdbId: number, title: string, st
   mediaType, tmdbId, title, year: 2021, overview: `${title} overview.`, poster: null, backdrop: null, rating: 7.4, status, status4k: null, ratingKey,
 });
 const seerrTitles = [seerrTitle("movie", 9001, "Title 00001", "available", "1"), seerrTitle("movie", 9002, "Lighthouse Keepers", null), seerrTitle("tv", 8001, "Ferry Season", "partial")];
-const seerrSeason = (number: number, status: string | null) => ({ number, name: `Season ${number}`, episodes: 8, airDate: "2021-01-10", status, status4k: null, requested: null, requested4k: null });
+const seerrSeason = (number: number, status: string | null, requested: string | null = null) => ({ number, name: `Season ${number}`, episodes: 8, airDate: "2021-01-10", status, status4k: null, requested, requested4k: null });
 const seerrRequests = [{ id: 7, state: "pending", mediaType: "movie", tmdbId: 9003, title: "Northern Static", year: 2023, poster: null, is4k: false, seasons: [], requestedBy: "Alice", mine: false, createdAt: "2026-10-01T10:00:00.000Z", status: "pending" }];
 const seerr = {
   config: null as null | { url: string; auth: string },
@@ -82,7 +82,7 @@ function seerrCommand(cmd: string, args: Record<string, any>) {
   if (cmd === "seerr_search") return { page: 1, pages: 1, results: seerrTitles.filter((t) => t.title.toLowerCase().includes(String(args.query).toLowerCase())) };
   if (cmd === "seerr_details") {
     const t = seerrTitles.find((x) => x.tmdbId === args.tmdbId)!;
-    const seasons = t.mediaType === "tv" ? [seerrSeason(1, "available"), seerrSeason(2, null), seerrSeason(3, null)] : [];
+    const seasons = t.mediaType === "tv" ? [seerrSeason(1, "available"), seerrSeason(2, null, "failed"), seerrSeason(3, null)] : [];
     return { ...t, tagline: "", genres: ["Drama"], runtime: 100, tvdbId: t.mediaType === "tv" ? 7001 : null, seasons, requests: [] };
   }
   if (cmd === "seerr_request") return "approved";
