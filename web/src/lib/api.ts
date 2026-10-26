@@ -18,6 +18,16 @@ import type {
   Maintenance,
   MatchResult,
   Recordings,
+  SeerrConfig,
+  SeerrDetails,
+  SeerrMediaType,
+  SeerrNewRequest,
+  SeerrPage,
+  SeerrRequest,
+  SeerrRequestState,
+  SeerrServer,
+  SeerrStatus,
+  SeerrTitle,
   ServerStats,
   Stream,
   Directory,
@@ -340,4 +350,21 @@ export const api = {
   serverStats: (timespan: number, since: number) => call<ServerStats>("server_stats", { timespan, since }),
   /** Saves a zip to the Downloads folder and reveals it; resolves to the path. */
   saveDiagnostics: (what: "logs" | "database") => call<string>("save_diagnostics", { what }),
+
+  // Seerr
+  /** The configured instance, without contacting it; null when not set up. */
+  seerrConfig: () => call<SeerrConfig | null>("seerr_config"),
+  seerrStatus: () => call<SeerrStatus>("seerr_status"),
+  /** Check and save an instance; an empty key signs in with the Plex account, null keeps the saved key. */
+  seerrConnect: (url: string, apiKey: string | null) => call<SeerrStatus>("seerr_connect", { url, apiKey }),
+  seerrDisconnect: () => call("seerr_disconnect"),
+  seerrDiscover: (list: string, page: number) => call<SeerrPage<SeerrTitle>>("seerr_discover", { list, page }),
+  seerrSearch: (query: string, page = 1) => call<SeerrPage<SeerrTitle>>("seerr_search", { query, page }),
+  seerrDetails: (mediaType: SeerrMediaType, tmdbId: number) => call<SeerrDetails>("seerr_details", { mediaType, tmdbId }),
+  /** Resolves to the new request's state (`approved` when approved automatically). */
+  seerrRequest: (request: SeerrNewRequest) => call<SeerrRequestState>("seerr_request", { ...request }),
+  seerrRequestOptions: (mediaType: SeerrMediaType, is4k: boolean) => call<SeerrServer[]>("seerr_request_options", { mediaType, is4k }),
+  seerrRequests: (filter: string, page: number, mine = false) => call<SeerrPage<SeerrRequest>>("seerr_requests", { filter, page, mine }),
+  seerrRequestAction: (id: number, action: "approve" | "decline" | "retry" | "delete") => call("seerr_request_action", { id, action }),
+  seerrOpen: (mediaType: SeerrMediaType, tmdbId: number) => call("seerr_open", { mediaType, tmdbId }),
 };

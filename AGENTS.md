@@ -36,6 +36,8 @@ XDG_CONFIG_HOME=$XDG_CONFIG_HOME PATINA_ROUTE=/settings bun run dev
 
 `PATINA_ROUTE` (dev builds, i.e. `bun run dev`) opens a page on start: `/item/<ratingKey>`, `/library/<id>`, `/playlist/<id>`, `/search?q=…`, `/downloads`, `/settings`, and so on.
 
+`tools/mock_seerr.py` fakes a Seerr server for the Requests page (API key `mock-key`; see `README.md`).
+
 The mock logs every timeline, scrobble and stream-selection call. Downloads go to the real downloads folder (set in Settings), so remove test downloads afterwards. Logging: `PATINA_LOG=debug` (the desktop backend logs to stderr). The TUI logs to `patina-tui.log` in the platform data dir, never to the terminal.
 
 ## CI and releases
@@ -52,7 +54,7 @@ To release, run `tools/release.sh 0.2.0` on a clean `main` (it bumps `version` i
 | `crates/mpv` (`patina-mpv`) | Starts mpv and drives it over JSON IPC (Rust). |
 | `crates/core` (`patina-core`) | The shared Rust backend of the TUI, with no UI code: config, sign-in/sessions, playback and play queues, downloads, live server events, Live TV, and `ops::*`. |
 | `crates/tui` (`patina-tui`) | The terminal client and CLI. |
-| `desktop/` | The desktop backend, a TypeScript port of `plex`, `mpv` and `core` that runs on Bun inside the Electrobun main process: `desktop/plex` (Plex client), `desktop/mpv`, `desktop/core` (same module names as `crates/core/src`), `desktop/commands` (the ~140 webview commands), `desktop/shell` (RPC bridge, loopback artwork server) and `desktop/main.ts` (window and startup). |
+| `desktop/` | The desktop backend, a TypeScript port of `plex`, `mpv` and `core` that runs on Bun inside the Electrobun main process: `desktop/plex` (Plex client), `desktop/mpv`, `desktop/core` (same module names as `crates/core/src`), `desktop/seerr` (Seerr client; desktop only, no Rust twin), `desktop/commands` (the ~150 webview commands), `desktop/shell` (RPC bridge, loopback artwork server) and `desktop/main.ts` (window and startup). |
 | `web/` | The Svelte webview. |
 
 - **The two backends are ports of each other.** The TypeScript modules keep the Rust names (camelCase) and behaviour, and read and write the same files and formats. When you change behaviour in `crates/core` or `crates/plex` that the desktop app shares (file formats, plex request shapes, retry policy), change the `desktop/` twin too, and the other way around. The desktop tests (`desktop/**/*.test.ts`) are ports of the Rust tests.

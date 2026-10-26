@@ -15,6 +15,7 @@ import type {
   PlaybackState,
   PlayerSettings,
   QueueView,
+  SeerrConfig,
   SavedView,
   SavedQueueView,
   ServerActivity,
@@ -87,6 +88,8 @@ class App {
   downloads = $state<Download[]>([]);
   /** Whether the server has a DVR (Live TV page). */
   liveTv = $state(false);
+  /** The Seerr instance for requesting titles, when one is set up. */
+  seerr = $state<SeerrConfig | null>(null);
   /** Bumped whenever watch state may have changed; views refetch. */
   revision = $state(0);
   /** Bumped when playback sessions on the server change (Activity page refetches). */
@@ -192,6 +195,16 @@ class App {
     this.downloads = downloads;
     this.settings = settings;
     this.info = info;
+    void this.loadSeerr();
+  }
+
+  /** Read which Seerr instance is set up (no network). */
+  async loadSeerr() {
+    try {
+      this.seerr = await api.seerrConfig();
+    } catch {
+      this.seerr = null;
+    }
   }
 
   /** Look for a saved queue to offer, unless something is already playing. */
@@ -311,6 +324,7 @@ class App {
   #saving = false;
   #settingsGeneration = 0;
   async reloadSettings() {
+    void this.loadSeerr();
     const generation = this.#settingsGeneration;
     try {
       const next = await api.settings();

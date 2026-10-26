@@ -92,6 +92,14 @@ export interface TuiSettings {
   accent: string;
 }
 
+/** A Seerr (Overseerr/Jellyseerr) instance for requesting titles the server doesn't have. */
+export interface SeerrSettings {
+  /** Base URL such as `http://seerr.local:5055`; empty when not set up. */
+  url: string;
+  /** API key (Settings → General in Seerr); empty signs in with the Plex account instead. */
+  api_key: string;
+}
+
 export interface Settings {
   /** Stable per-install identifier sent as `X-Plex-Client-Identifier`. */
   client_id: string;
@@ -102,6 +110,7 @@ export interface Settings {
   ui: UiSettings;
   /** The terminal client's appearance and behaviour. */
   tui: TuiSettings;
+  seerr: SeerrSettings;
 }
 
 export function defaultAuthSettings(): AuthSettings {
@@ -136,6 +145,9 @@ export function defaultUiSettings(): UiSettings {
 export function defaultTuiSettings(): TuiSettings {
   return { show_inspector: true, show_watch_status: true, show_library_counts: true, hide_watched: false, accent: "" };
 }
+export function defaultSeerrSettings(): SeerrSettings {
+  return { url: "", api_key: "" };
+}
 export function defaultSettings(): Settings {
   return {
     client_id: crypto.randomUUID(),
@@ -144,6 +156,7 @@ export function defaultSettings(): Settings {
     player: defaultPlayerSettings(),
     ui: defaultUiSettings(),
     tui: defaultTuiSettings(),
+    seerr: defaultSeerrSettings(),
   };
 }
 
@@ -425,6 +438,11 @@ function tuiFrom(t: Table): TuiSettings {
   };
 }
 
+function seerrFrom(t: Table): SeerrSettings {
+  const d = defaultSeerrSettings();
+  return { url: field(t, "url", d.url, str), api_key: field(t, "api_key", d.api_key, str) };
+}
+
 /** Settings from a parsed document; throws on a type mismatch (serde would fail the same way). */
 function settingsFrom(t: Table): Settings {
   const d = defaultSettings();
@@ -435,6 +453,7 @@ function settingsFrom(t: Table): Settings {
     player: "player" in t ? playerFrom(table(t.player, "player")) : d.player,
     ui: "ui" in t ? uiFrom(table(t.ui, "ui")) : d.ui,
     tui: "tui" in t ? tuiFrom(table(t.tui, "tui")) : d.tui,
+    seerr: "seerr" in t ? seerrFrom(table(t.seerr, "seerr")) : d.seerr,
   };
 }
 
@@ -528,6 +547,7 @@ export function settingsToToml(s: Settings, existing: Table | null = null): stri
     player: { ...s.player },
     ui: { ...s.ui },
     tui: { ...s.tui },
+    seerr: { ...s.seerr },
   };
   const doc: Table = { client_id: s.client_id };
   for (const [name, fields] of Object.entries(known)) {
@@ -556,6 +576,7 @@ const knownKeys: Record<string, string[]> = {
   player: Object.keys(defaultPlayerSettings()),
   ui: Object.keys(defaultUiSettings()),
   tui: Object.keys(defaultTuiSettings()),
+  seerr: Object.keys(defaultSeerrSettings()),
 };
 
 /** Existing document of the config file, when it parses (to keep unknown keys). */

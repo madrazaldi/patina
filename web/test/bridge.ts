@@ -56,8 +56,46 @@ const allResults = (done: boolean) => ({
     ...(done ? [{ key: "plex://movie/2", title: "Only Elsewhere", year: 2020, kind: "movie", subtitle: null, copies: [copy("other", "Other Server", false, 42, "720p")] }] : []),
   ],
 });
+// Seerr: off until connected (or `seerr.on()`); a movie on the server, a show partly on it, one pending request.
+const seerrTitle = (mediaType: "movie" | "tv", tmdbId: number, title: string, status: string | null, ratingKey: string | null = null) => ({
+  mediaType, tmdbId, title, year: 2021, overview: `${title} overview.`, poster: null, backdrop: null, rating: 7.4, status, status4k: null, ratingKey,
+});
+const seerrTitles = [seerrTitle("movie", 9001, "Title 00001", "available", "1"), seerrTitle("movie", 9002, "Lighthouse Keepers", null), seerrTitle("tv", 8001, "Ferry Season", "partial")];
+const seerrSeason = (number: number, status: string | null) => ({ number, name: `Season ${number}`, episodes: 8, airDate: "2021-01-10", status, status4k: null, requested: null, requested4k: null });
+const seerrRequests = [{ id: 7, state: "pending", mediaType: "movie", tmdbId: 9003, title: "Northern Static", year: 2023, poster: null, is4k: false, seasons: [], requestedBy: "Alice", mine: false, createdAt: "2026-10-01T10:00:00.000Z", status: "pending" }];
+const seerr = {
+  config: null as null | { url: string; auth: string },
+  requests: seerrRequests,
+  on() { seerr.config = { url: "http://seerr.test:5055", auth: "apiKey" }; },
+};
+function seerrCommand(cmd: string, args: Record<string, any>) {
+  if (cmd === "seerr_config") return seerr.config;
+  if (cmd === "seerr_connect") {
+    if (args.apiKey === "wrong") throw new Error("Seerr did not accept the sign-in. Check the API key, or that your Plex account has access.");
+    seerr.on();
+    return seerrCommand("seerr_status", {});
+  }
+  if (!seerr.config) throw new Error("Seerr is not set up. Add it in Settings.");
+  if (cmd === "seerr_status") return { ...seerr.config, version: "2.7.3", user: { id: 1, name: "Mock Admin", avatar: null }, can: { requestMovie: true, requestTv: true, request4kMovie: false, request4kTv: false, advanced: false, manage: true } };
+  if (cmd === "seerr_disconnect") { seerr.config = null; return; }
+  if (cmd === "seerr_discover") return { page: 1, pages: 1, results: seerrTitles };
+  if (cmd === "seerr_search") return { page: 1, pages: 1, results: seerrTitles.filter((t) => t.title.toLowerCase().includes(String(args.query).toLowerCase())) };
+  if (cmd === "seerr_details") {
+    const t = seerrTitles.find((x) => x.tmdbId === args.tmdbId)!;
+    const seasons = t.mediaType === "tv" ? [seerrSeason(1, "available"), seerrSeason(2, null), seerrSeason(3, null)] : [];
+    return { ...t, tagline: "", genres: ["Drama"], runtime: 100, tvdbId: t.mediaType === "tv" ? 7001 : null, seasons, requests: [] };
+  }
+  if (cmd === "seerr_request") return "approved";
+  if (cmd === "seerr_requests") return { page: 1, pages: 1, results: seerr.requests.filter((r) => args.filter === "all" || r.state === args.filter) };
+  if (cmd === "seerr_request_action") {
+    const r = seerr.requests.find((x) => x.id === args.id)!;
+    if (args.action === "approve") r.state = "approved";
+    return;
+  }
+  return null;
+}
 const test = {
-  calls, settings, xsearch,
+  calls, settings, xsearch, seerr,
   fail(value: boolean) { fail = value; },
   setSavedQueue(value: unknown) { savedQueue = value; },
   delay(value: number) { delay = value; },
@@ -81,6 +119,7 @@ Object.assign(window, { __PATINA_TEST__: test, __PATINA_IPC__: {
   async invoke(cmd: string, args: Record<string, any> = {}) {
     calls.push({ cmd, args });
     if (held.has(cmd)) await new Promise<void>((go) => held.get(cmd)!.push(go));
+    if (cmd.startsWith("seerr_")) return seerrCommand(cmd, args);
     if (cmd === "snapshot") return { stage: { kind: "ready" }, session, sections, activities: [], revision: 0, connected: true };
     if (cmd === "settings") return structuredClone(settings);
     if (cmd === "set_ui_settings") { Object.assign(settings.ui, args.ui); return; }
@@ -142,7 +181,7 @@ Object.assign(window, { __PATINA_TEST__: test, __PATINA_IPC__: {
       send(allResults(true), 1);
       return allResults(true);
     }
-    if (cmd === "item_hubs") return [];
+    if (cmd === "item_hubs" || cmd === "search") return [];
     if (cmd === "home_hubs") return [
       { hubIdentifier: "continue", title: "Continue Watching", Metadata: [item(1)], Directory: [] },
       { hubIdentifier: "recent", title: "Recently Added", Metadata: [item(2), item(3)], Directory: [] },

@@ -2,7 +2,7 @@
 // remembers the scroll position of the content area, so going back lands
 // where you left off.
 
-import type { Metadata } from "./types";
+import type { Metadata, SeerrMediaType } from "./types";
 
 export type Route =
   | { name: "home" }
@@ -18,7 +18,9 @@ export type Route =
   | { name: "livetv" }
   | { name: "activity" }
   | { name: "server" }
-  | { name: "settings" };
+  | { name: "settings" }
+  | { name: "requests" }
+  | { name: "seerr"; mediaType: SeerrMediaType; tmdbId: number };
 
 interface Entry {
   route: Route;
@@ -50,6 +52,11 @@ export function parseRoute(path: string): Route | null {
       return b ? { name: "item", ratingKey: b } : null;
     case "playlist":
       return b ? { name: "playlist", id: b } : null;
+    case "seerr": {
+      // /seerr/movie/603
+      const id = Number(path.split("/")[3]);
+      return (b === "movie" || b === "tv") && Number.isInteger(id) && id > 0 ? { name: "seerr", mediaType: b, tmdbId: id } : null;
+    }
     case "search":
     case "pick":
     case "playlists":
@@ -59,6 +66,7 @@ export function parseRoute(path: string): Route | null {
     case "activity":
     case "server":
     case "settings":
+    case "requests":
       return { name: a };
     default:
       return null;

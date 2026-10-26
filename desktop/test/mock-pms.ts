@@ -40,10 +40,15 @@ process.on("exit", () => {
  */
 export async function startMockPms(opts: { media: string; dir: string; args?: string[] }): Promise<MockPms> {
   mkdirSync(opts.media, { recursive: true });
-  mkdirSync(opts.dir, { recursive: true });
-  const eventsPath = join(opts.dir, "events.log");
+  return startMock(SCRIPT, "mock PMS on ", [...(opts.args ?? []), "--media", opts.media], opts.dir);
+}
+
+/** Run a mock server script with `--port 0 <args>` and wait for its `<prefix><url>` line on stderr. */
+export async function startMock(script: string, prefix: string, args: string[], dir: string): Promise<MockPms> {
+  mkdirSync(dir, { recursive: true });
+  const eventsPath = join(dir, "events.log");
   writeFileSync(eventsPath, "");
-  const proc = Bun.spawn(["python3", "-I", SCRIPT, "--port", "0", ...(opts.args ?? []), "--media", opts.media], {
+  const proc = Bun.spawn(["python3", "-I", script, "--port", "0", ...args], {
     stdin: "ignore",
     stdout: Bun.file(eventsPath),
     stderr: "pipe",
@@ -59,7 +64,6 @@ export async function startMockPms(opts: { media: string; dir: string; args?: st
     first += decoder.decode(value, { stream: true });
   }
   const line = first.split("\n")[0].trim();
-  const prefix = "mock PMS on ";
   if (!line.startsWith(prefix)) {
     proc.kill();
     running.delete(proc);

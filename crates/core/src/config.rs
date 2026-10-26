@@ -20,6 +20,8 @@ pub struct Settings {
     pub ui: UiSettings,
     /// The terminal client's appearance and behaviour.
     pub tui: TuiSettings,
+    /// The Seerr instance the desktop app requests titles from.
+    pub seerr: SeerrSettings,
 }
 
 impl Default for Settings {
@@ -31,6 +33,7 @@ impl Default for Settings {
             player: PlayerSettings::default(),
             ui: UiSettings::default(),
             tui: TuiSettings::default(),
+            seerr: SeerrSettings::default(),
         }
     }
 }
@@ -169,6 +172,17 @@ impl Default for TuiSettings {
     fn default() -> Self {
         Self { show_inspector: true, show_watch_status: true, show_library_counts: true, hide_watched: false, accent: String::new() }
     }
+}
+
+/// A Seerr (Overseerr/Jellyseerr) instance for requesting titles the server doesn't have.
+/// Only the desktop app uses it; it is here so the terminal client keeps it when saving.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SeerrSettings {
+    /// Base URL such as `http://seerr.local:5055`; empty when not set up.
+    pub url: String,
+    /// API key (Settings → General in Seerr); empty signs in with the Plex account instead.
+    pub api_key: String,
 }
 
 pub struct Accent {
@@ -361,6 +375,14 @@ mod tests {
         settings.ui.home_layouts.insert("alice:home".into(), HomeLayout { compact_continue: true, ..Default::default() });
         let text = toml::to_string_pretty(&settings).unwrap();
         assert_eq!(settings, toml::from_str::<Settings>(&text).unwrap());
+    }
+    #[test]
+    fn seerr_settings_survive_a_save() {
+        let settings: Settings = toml::from_str("[seerr]\nurl = \"http://seerr.local:5055\"\napi_key = \"k\"\n").unwrap();
+        assert_eq!(settings.seerr, SeerrSettings { url: "http://seerr.local:5055".into(), api_key: "k".into() });
+        let text = toml::to_string_pretty(&settings).unwrap();
+        assert_eq!(toml::from_str::<Settings>(&text).unwrap().seerr, settings.seerr);
+        assert_eq!(toml::from_str::<Settings>("").unwrap().seerr, SeerrSettings::default());
     }
     #[test]
     fn partial_settings_update_preserves_other_fields() {

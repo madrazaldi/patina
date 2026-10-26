@@ -70,6 +70,7 @@ The desktop app and the terminal client have the same features; the terminal cli
 - **Pick something to watch:** from Home, the sidebar, the command palette or the terminal client's root list. Choose what you feel like (movie, show or both; only unwatched; longest runtime; genres; content ratings; a library; year range; lowest audience rating) and get three or four random candidates, with **Reroll** (`R`) for others that skips what you have seen until everything that fits has been offered. The server does the filtering and random ordering, so large libraries stay fast.
 - **Undo:** marking watched or unwatched (a single item, a whole show or season, or a selection), removing an entry from a playlist (it goes back to its original position), clearing progress and removing an item from Continue Watching show a toast with **Undo**; **Cmd/Ctrl+Z** undoes the latest one anywhere except in a text field or a dialog (`I` or `Ctrl-Z` in the terminal client). The last 25 actions are remembered for the current account and server only, and dropped when you switch either. Undo restores watch counts, resume positions and playlist order, not just the visible state.
 - **Playlists** (create, add, remove, reorder by dragging, rename, clear, delete; playlists of any length are read in pages, up to 100,000 entries, and a cut-off is shown) and your plex.tv **Watchlist**. Watchlist items link to the copy on your server when there is one. Availability is checked a few titles at a time, rechecked when the library changes, and a failed check is reported with a Retry instead of showing the title as missing.
+- **Requests with Seerr** (desktop app): connect a [Seerr](https://github.com/seerr-team/seerr), Overseerr or Jellyseerr server in **Settings → Seerr**, with an API key or by signing in with your Plex account. A **Requests** page lists trending, popular and upcoming titles and your requests (everyone's, if you may manage them). Search adds titles the server doesn't have. Request a movie or chosen seasons of a show, in 4K too when Seerr has a 4K server, and pick the Radarr/Sonarr server, quality profile and folder if your Seerr account allows it. Approve, decline, retry or delete requests, and open a title's copy on the server once it arrives.
 - **Downloads:** download a movie, episode, season, show, album or artist for offline playback. Downloads play in mpv even when the server can't be reached. Pause and resume in either client; interrupted transfers retry and resume after restart when the server supplies a file validator and supports byte ranges (otherwise they safely restart). Patina checks free space before transferring. Offline resume points are saved locally; watch progress syncs on reconnect to the original account/server, with newer server watch activity taking precedence. Older downloads without an account identity retain local resume points but do not sync automatically.
 - **Live TV & DVR** (with a tuner): a channel guide with what's on now and next, watching channels, recording programs, and managing upcoming recordings and recording rules.
 - **Activity:** live sessions (with transcode details and the option to stop a stream), watch history, and background tasks and transcoder sessions.
@@ -158,6 +159,7 @@ When the server can't be reached, `d` browses and plays your downloads offline.
 - Artwork is not shown; items are text, with a details panel.
 - There are no OS media controls; playback is controlled with the keys below or in mpv. Discord Rich Presence works as in the GUI (**Settings → Player**).
 - Server statistics are text bars instead of charts.
+- There is no Seerr integration; its settings are kept when the terminal client saves the config.
 - Sign-in, settings and downloads are shared with the desktop app. The terminal client has its own section of settings (accent colour, details panel, watch status and counts, hide watched).
 
 ### Keys
@@ -354,6 +356,12 @@ export XDG_CONFIG_HOME=$(mktemp -d)
 export PATINA_PLEX_TV_URL=http://127.0.0.1:32515
 cargo run -p patina-tui -- login --token x   # signs in "via plex.tv", then pick Alpha
 cargo run -p patina-tui -- search --all-servers ember
+```
+
+`tools/mock_seerr.py` is a fake Seerr server for the **Requests** page. Connect it in Settings with API key `mock-key` (an admin), or with no key to sign in as a user whose requests need approval. `--pending` starts with a request waiting for approval, and `--media` uses the same artwork as the Plex mock:
+
+```sh
+python3 tools/mock_seerr.py --media /path/to/media --port 5055 --pending
 ```
 
 Debug builds (`bun run dev` for the desktop app) also accept `PATINA_ROUTE=/item/100` (also `/pick`, `/search`, `/library/1` and so on; opens a page) and `PATINA_PLAY=<ratingKey>` (starts playback).
