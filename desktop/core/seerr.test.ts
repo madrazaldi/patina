@@ -27,10 +27,12 @@ test("results keep movies and shows with their artwork and availability", () => 
     { id: 1, mediaType: "movie", title: "A", releaseDate: "2021-02-03", posterPath: "/a.jpg", mediaInfo: { status: 5, ratingKey: "100" } },
     { id: 2, mediaType: "tv", name: "B", firstAirDate: "", posterPath: "http://127.0.0.1/b.jpg" },
     { id: 3, mediaType: "person", name: "C" },
+    { id: 4, mediaType: "movie", title: "D", mediaInfo: { status: 1, status4k: 5, ratingKey: null, ratingKey4k: "42" } },
   ]);
   expect(titles.map((t) => [t.mediaType, t.title, t.year, t.poster, t.status, t.ratingKey])).toEqual([
     ["movie", "A", 2021, "https://image.tmdb.org/t/p/w500/a.jpg", "available", "100"],
     ["tv", "B", null, "http://127.0.0.1/b.jpg", null, null],
+    ["movie", "D", null, null, "unknown", "42"],
   ]);
   expect(tmdbImage(null, "w500")).toBeNull();
 });

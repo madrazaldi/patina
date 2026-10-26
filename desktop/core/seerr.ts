@@ -201,7 +201,8 @@ function titleFrom(mediaType: SeerrMediaType, raw: RawResult | RawMovieDetails |
     rating: raw.voteAverage ? raw.voteAverage : null,
     status: availability(info?.status),
     status4k: availability(info?.status4k),
-    ratingKey: info?.ratingKey || null,
+    // A title that arrived only in 4K is named by its 4K key.
+    ratingKey: info?.ratingKey || info?.ratingKey4k || null,
   };
 }
 
