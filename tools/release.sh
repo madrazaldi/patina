@@ -15,6 +15,8 @@ git rev-parse -q --verify "refs/tags/v$version" >/dev/null && { echo "tag v$vers
 # Only the version line inside [workspace.package].
 sed -i.bak "/^\[workspace.package\]/,/^\[/ s/^version = \".*\"/version = \"$version\"/" Cargo.toml && rm Cargo.toml.bak
 cargo update --workspace --quiet
+# The desktop backend's copy (desktop/core/config.ts), sent to Plex and shown in the app.
+sed -i.bak "s/^export const VERSION = \".*\";/export const VERSION = \"$version\";/" desktop/core/config.ts && rm desktop/core/config.ts.bak
 
 git commit -qam "Release v$version"
 git tag -a "v$version" -m "Patina v$version"

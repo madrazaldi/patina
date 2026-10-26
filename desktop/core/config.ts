@@ -17,7 +17,7 @@ import { defaultProgram } from "../mpv";
 const log = logger("config");
 
 export const PRODUCT = "Patina";
-/** Workspace version of the Rust crates (`[workspace.package] version`); keep in sync on release. */
+/** Workspace version of the Rust crates (`[workspace.package] version`); tools/release.sh bumps both. */
 export const VERSION = "0.2.0";
 
 export interface AuthSettings {

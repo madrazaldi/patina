@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { commandNames, dispatch } from "../commands";
 import type { Ctx } from "../commands";
 import * as live from "../core/live";
+import * as prefs from "../core/prefs";
 import * as session from "../core/session";
 import { AppState } from "../core/state";
 import type { CoreEvent } from "../core/state";
@@ -156,6 +157,13 @@ t("server administration reads", async () => {
   expect(picked.items).toBeArray();
   expect(await call("smart_downloads")).toBeObject();
   expect(await call("playback_prefs", { show: null })).toBeObject();
+  // The profile's entry is stored with `show: null` (as the TUI writes it); the UI's save replaces it.
+  prefs.save(app, null, null, { audioLanguages: ["eng"] });
+  await call("set_playback_prefs", { show: null, title: null, rules: { audioLanguages: ["jpn"] } });
+  const profile = (await call("playback_prefs", { show: null })) as { profile: { audioLanguages: string[] | null } };
+  expect(profile.profile.audioLanguages).toEqual(["jpn"]);
+  await call("set_playback_prefs", { show: null, title: null, rules: {} });
+  expect(((await call("playback_prefs", { show: null })) as typeof profile).profile.audioLanguages).toBeNull();
   expect(await call("playback_prefs_shows")).toBeArray();
 });
 

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { parse, stringify } from "smol-toml";
 
 import type { HomeLayout, PlayerSettings } from "./config";
+import { VERSION } from "./config";
 import {
   configDir,
   defaultHomeLayout,
@@ -137,4 +138,10 @@ test("exports for sub-settings stay usable", () => {
   const h: HomeLayout = defaultHomeLayout();
   expect(p.skip_key).toBe("TAB");
   expect(h.order).toEqual([]);
+});
+
+test("the_version_matches_the_workspace_version", () => {
+  // tools/release.sh bumps both; the packaged app reads Cargo.toml.
+  const cargo = readFileSync(new URL("../../Cargo.toml", import.meta.url), "utf8");
+  expect<string | undefined>(VERSION).toBe(cargo.match(/^version = "([^"]+)"/m)?.[1]);
 });

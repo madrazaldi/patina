@@ -6,14 +6,12 @@ import { normalizeMetadata } from "../plex";
 import * as smart from "../core/smart";
 import type { Handler } from "./types";
 
-const clean = <T>(v: T | null | undefined): T | undefined => (v == null ? undefined : v);
-
 export const autoCommands: Record<string, Handler> = {
   // Playback preferences -----------------------------------------------------
   /** The profile's rules, and a show's when `show` is given, with what applies. */
-  playback_prefs: (app, a) => prefs.view(app, clean(a.show)),
-  /** Replace the rules of the profile, or of a show; empty rules clear them. */
-  set_playback_prefs: (app, a) => prefs.save(app, clean(a.show), clean(a.title), a.rules),
+  playback_prefs: (app, a) => prefs.view(app, a.show ?? null),
+  /** Replace the rules of the profile, or of a show; empty rules clear them. `show: null` is the profile, as stored. */
+  set_playback_prefs: (app, a) => prefs.save(app, a.show ?? null, a.title ?? null, a.rules),
   /** Shows that have rules of their own. */
   playback_prefs_shows: (app) => prefs.shows(app),
   /** Index of the version of an item the rules prefer. */
