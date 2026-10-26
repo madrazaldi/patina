@@ -541,3 +541,10 @@
     transform: rotate(360deg);
   }
 }
+
+/* Window drag regions (Electrobun). A region drags from its own surface; the
+   controls inside it keep their clicks. */
+.electrobun-webkit-app-region-drag :is(button, a, input, textarea, select, label, summary, [role="button"], [role="menuitem"], [role="combobox"], [role="switch"]) {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}

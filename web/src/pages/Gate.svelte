@@ -81,7 +81,7 @@
 {#if offline && (app.stage.kind === "failed" || app.stage.kind === "connecting")}
   <div class="flex h-screen flex-col">
     <!-- Clear the window buttons of the overlay title bar. -->
-    <header class="flex h-12 flex-none items-center gap-3 border-b pr-[calc(var(--gutter)-8px)] pl-21" data-tauri-drag-region>
+    <header class="flex h-12 flex-none items-center gap-3 border-b pr-[calc(var(--gutter)-8px)] pl-21 electrobun-webkit-app-region-drag">
       <span class="text-[17px] font-semibold tracking-tight">Patina</span>
       <span class="text-muted-foreground text-sm">{app.stage.kind === "connecting" ? `Connecting to ${app.stage.name}…` : "Offline"}</span>
       <span class="flex-1"></span>
@@ -97,8 +97,8 @@
   <ConfirmDialog />
 {:else}
   <!-- Auto margins rather than place-items-center, so a tall column scrolls instead of clipping its top. -->
-  <div class="flex h-screen overflow-y-auto p-10" data-tauri-drag-region>
-    <div class="m-auto flex w-full max-w-sm flex-col items-center gap-6">
+  <div class="electrobun-webkit-app-region-drag flex h-screen overflow-y-auto p-10">
+    <div class="electrobun-webkit-app-region-no-drag m-auto flex w-full max-w-sm flex-col items-center gap-6">
       <div class="text-4xl font-semibold tracking-tight">Patina</div>
 
       <Card.Root class="w-full">

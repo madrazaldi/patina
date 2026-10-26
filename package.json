@@ -4,11 +4,14 @@
   "license": "MIT OR Apache-2.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "check": "svelte-check --tsconfig ./tsconfig.json",
-    "tauri": "tauri",
-    "test": "playwright test"
+    "dev": "bunx electrobun prepare && vite build && PATINA_DEBUG_BUILD=1 bunx electrobun dev",
+    "dev:web": "vite",
+    "desktop:prepare": "bunx electrobun prepare",
+    "build": "bunx electrobun prepare && vite build",
+    "build:app": "bunx electrobun prepare && vite build && bunx electrobun build --env=stable",
+    "check": "bunx electrobun prepare && svelte-check --tsconfig ./tsconfig.json && tsc -p tsconfig.desktop.json",
+    "test": "playwright test",
+    "test:desktop": "bun test desktop"
   },
   "dependencies": {
     "@lucide/svelte": "^1.59.0",

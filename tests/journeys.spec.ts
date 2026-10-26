@@ -138,7 +138,7 @@ test("download Play all selects only one profile and server", async ({ page }) =
 
 test("a late search retry cannot overwrite newer successful results", async ({ page }) => {
   await page.evaluate(() => {
-    const bridge = (window as any).__TAURI_INTERNALS__, invoke = bridge.invoke;
+    const bridge = (window as any).__PATINA_IPC__, invoke = bridge.invoke;
     const requests: { resolve: (value: unknown) => void; reject: (error: Error) => void }[] = [];
     (window as any).__searchRequests = requests;
     bridge.invoke = (cmd: string, args: unknown) => cmd === "search"

@@ -19,6 +19,7 @@ env:
   RUSTFLAGS: -D warnings
 
 jobs:
+  # The Rust crates behind patina-tui (plex, mpv, core, tui).
   rust:
     name: Rust (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -38,18 +39,13 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev mpv ffmpeg
+          sudo apt-get install -y libssl-dev mpv ffmpeg
 
       # Self-hosted runners keep target/ between runs.
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
           cache-on-failure: true
-
-      # tauri::generate_context! needs frontendDist to exist; the Rust jobs don't need the real bundle.
-      - name: Stub frontend dist
-        shell: bash
-        run: mkdir -p dist
 
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked
@@ -67,18 +63,30 @@ jobs:
         if: runner.os == 'Linux'
         run: cargo test -p patina-core --test reliability --locked -- --ignored --test-threads=1 mpv_
 
+  # The desktop app: Svelte webview (web/) and the TypeScript backend (desktop/) on Electrobun.
   web:
-    name: Web
+    name: Web and desktop backend
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
 
       - uses: oven-sh/setup-bun@v2
 
+      - name: Install mpv and ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mpv ffmpeg
+
       - run: bun install --frozen-lockfile
 
-      - name: Type-check
+      - name: Type-check (web and desktop)
         run: bun run check
+
+      - name: Backend tests
+        run: bun run test:desktop
+        env:
+          # The tests that start mpv run headless (--vo=null --ao=null).
+          PATINA_MPV_TESTS: "1"
 
       - name: Build
         run: bun run build
@@ -100,11 +108,29 @@ jobs:
             test-results/
           retention-days: 7
 
+  # The Electrobun app builds on every platform (the bundle isn't published here).
+  app:
+    name: App bundle (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+
+      - run: bun install --frozen-lockfile
+
+      - name: Build the app
+        run: bun run build:app
+
   # Single required check for branch protection.
   ok:
     name: CI OK
     if: always()
-    needs: [rust, web]
+    needs: [rust, web, app]
     runs-on: ubuntu-24.04
     steps:
       - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')

@@ -1,7 +1,7 @@
 name: Release
 
 # Push a tag matching the workspace version (e.g. `v0.2.0` for version = "0.2.0") to build
-# the Tauri desktop app and patina-tui for every platform into a draft GitHub release.
+# the Electrobun desktop app and patina-tui for every platform into a draft GitHub release.
 # `tools/release.sh 0.2.0` bumps the version, commits and tags. Review the draft, then publish
 # it by hand. Tags with a pre-release suffix (`v0.2.0-rc.1`) are marked as pre-releases.
 
@@ -48,7 +48,7 @@ jobs:
             -F draft=true -F prerelease=$prerelease -F generate_release_notes=true --jq .id)
           echo "id=$id" >> "$GITHUB_OUTPUT"
 
-  # The Tauri desktop app.
+  # The Electrobun desktop app (the Bun backend is bundled in; no Rust involved).
   desktop:
     name: Desktop (${{ matrix.target }})
     needs: draft
@@ -57,41 +57,32 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # 22.04 so the AppImage and .deb run on older glibc.
-          - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu }
-          - { os: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu }
-          - { os: windows-latest, target: x86_64-pc-windows-msvc }
-          # One .dmg for Apple silicon and Intel. Ad-hoc signed, not notarized.
-          - { os: macos-latest, target: universal-apple-darwin, rust: "aarch64-apple-darwin,x86_64-apple-darwin" }
+          - { os: ubuntu-22.04, target: linux-x64 }
+          - { os: ubuntu-22.04-arm, target: linux-arm64 }
+          - { os: windows-latest, target: windows-x64 }
+          - { os: macos-latest, target: macos-arm64 }
     steps:
       - uses: actions/checkout@v7
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.rust || matrix.target }}
-
-      - name: Install Linux dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
-
-      - uses: Swatinem/rust-cache@v2
-        if: runner.environment == 'github-hosted'
-        with:
-          key: ${{ matrix.target }}
 
       - uses: oven-sh/setup-bun@v2
 
       - run: bun install --frozen-lockfile
 
-      - uses: tauri-apps/tauri-action@v1
+      - name: Build
+        run: bun run build:app
+
+      - name: Upload the artifacts
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ github.token }}
-        with:
-          releaseId: ${{ needs.draft.outputs.release_id }}
-          tauriScript: bun run tauri
-          args: --target ${{ matrix.target }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Electrobun writes the installers and update archives to artifacts/.
+          for f in artifacts/*; do
+            [ -f "$f" ] || continue
+            name="Patina-$GITHUB_REF_NAME-${{ matrix.target }}-$(basename "$f")"
+            cp "$f" "$name"
+            gh release upload "$GITHUB_REF_NAME" "$name" --clobber
+          done
 
   tui:
     name: patina-tui (${{ matrix.target }})
