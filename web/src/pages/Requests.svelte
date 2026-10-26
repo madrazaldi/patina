@@ -85,7 +85,8 @@
   // Deleting the last request of the last page leaves it empty: step back to the new last page.
   $effect(() => {
     const r = requests.data;
-    if (r && r.results.length === 0 && page > 1) page = Math.max(1, Math.min(page - 1, r.pages));
+    // Only on a finished answer for this page: the stale empty one stays visible while the next loads.
+    if (r && !requests.loading && r.page === page && r.results.length === 0 && page > 1) page = Math.max(1, Math.min(page - 1, r.pages));
   });
 </script>
 
