@@ -65,6 +65,27 @@ extension Ops {
             }
         }
 
+        /// `tokio::time::timeout`, or `Promise.race` with a timer: `op`'s result, or `nil` when
+        /// it takes longer than `limit`. Like there, `op` is not cancelled; it finishes on its own.
+        public static func within<T: Sendable>(_ limit: Duration, _ op: @escaping @MainActor () async -> T) async -> T? {
+            let once = WithinState()
+            return await withCheckedContinuation { (k: CheckedContinuation<T?, Never>) in
+                once.timer = Task {
+                    try? await Task.sleep(for: limit)
+                    if once.done { return }
+                    once.done = true
+                    k.resume(returning: nil)
+                }
+                Task {
+                    let value = await op()
+                    once.timer?.cancel()
+                    if once.done { return }
+                    once.done = true
+                    k.resume(returning: value)
+                }
+            }
+        }
+
         /// `MediaType::from_name(name).map(MediaType::id)`.
         public nonisolated static func mediaTypeId(_ name: String) -> Int? {
             MediaType.fromName(name)?.rawValue
@@ -75,4 +96,10 @@ extension Ops {
             try Metadata(json: v)
         }
     }
+}
+
+/// Whether `within` has answered, and its timer.
+private final class WithinState {
+    var done = false
+    var timer: Task<Void, Never>?
 }
