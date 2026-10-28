@@ -221,4 +221,11 @@ public protocol PlaybackEngine: AnyObject {
     var isPaused: Bool { get }
     /// The largest rate the current item supports.
     var maxRate: Double { get }
+
+    /// Which of the lock screen's next and previous buttons work (the queue is the core's).
+    func setRemoteQueue(hasPrevious: Bool, hasNext: Bool)
+}
+
+extension PlaybackEngine {
+    public func setRemoteQueue(hasPrevious: Bool, hasNext: Bool) {}
 }
