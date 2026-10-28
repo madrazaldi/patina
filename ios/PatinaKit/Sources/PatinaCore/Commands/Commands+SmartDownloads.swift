@@ -1,5 +1,5 @@
 // Port of the smart-downloads half of desktop/commands/auto.ts (the playback preferences half
-// is Commands+Auto.swift). Policies are scoped by account and server inside the core.
+// is Commands+PlaybackPrefs.swift). Policies are scoped by account and server inside the core.
 
 import Foundation
 import PlexKit

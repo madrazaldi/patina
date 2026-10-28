@@ -8,20 +8,9 @@ nonisolated private let log = logger("playback")
 
 extension Ops {
     public enum Playback {
-        /// The finished downloads among `ids`, in that order (`downloads.files`, which the
-        /// downloads port provides; done here against the `Download` type until then).
-        static func files(_ paths: Paths, _ ids: [String]) -> [Download] {
-            let all = Downloads.list(paths)
-            return ids.compactMap { id in
-                all.first { $0.id == id && $0.state == .done }.flatMap { d in
-                    d.file.map { FileManager.default.fileExists(atPath: $0) } == true ? d : nil
-                }
-            }
-        }
-
         /// Play downloads offline, in the order given.
         public static func playDownloads(_ app: AppState, _ ids: [String]) throws {
-            let files = files(app.paths, ids)
+            let files = Downloads.files(app.paths, ids)
             let account = app.session().map(Offline.account) ?? app.settings().auth.accountId ?? ""
             if files.contains(where: { $0.account != "" && $0.account != account }) {
                 throw CoreError("These downloads belong to another Plex profile. Switch to that profile to play them.")
