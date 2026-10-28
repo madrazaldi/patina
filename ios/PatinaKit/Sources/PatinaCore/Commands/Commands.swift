@@ -17,9 +17,10 @@
 // | Commands+Playback.swift       | Playback, Bulk audio & subtitles (playback) |
 // | Commands+Activity.swift       | Activity, Server administration (admin)     |
 // | Commands+Library.swift        | Library browsing, Pick, Search across servers, Collections (admin) |
-// | Commands+Downloads.swift      | Downloads (downloads agent)                 |
+// | Commands+Downloads.swift      | Downloads                                   |
 // | Commands+LiveTv.swift         | Live TV (admin)                             |
-// | Commands+Auto.swift           | auto.ts: playback preferences (playback), smart downloads (downloads) |
+// | Commands+PlaybackPrefs.swift  | auto.ts: playback preferences (playback)    |
+// | Commands+SmartDownloads.swift | auto.ts: smart downloads (downloads)        |
 // | Commands+Seerr.swift          | seerr.ts (admin)                            |
 //
 // Conventions: the `AppState` comes first, then the arguments with the TypeScript argument

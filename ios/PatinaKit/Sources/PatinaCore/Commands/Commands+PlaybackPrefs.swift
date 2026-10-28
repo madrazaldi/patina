@@ -1,5 +1,5 @@
 // Port of the playback-preferences half of desktop/commands/auto.ts (the smart-downloads half
-// is Commands+Auto.swift).
+// is Commands+SmartDownloads.swift).
 
 import Foundation
 import PlexKit
