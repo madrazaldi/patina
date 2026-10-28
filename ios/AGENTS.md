@@ -1,0 +1,52 @@
+# ios/AGENTS.md
+
+Guidance for the iOS app (iPhone and iPad). Read the root `AGENTS.md` first; this adds what differs.
+
+The iOS app is a third port of the backend, in Swift, with a SwiftUI front end and an in-app player built on [AetherEngine](https://github.com/superuser404notfound/AetherEngine) (FFmpeg demux over AVPlayer and VideoToolbox) instead of mpv. It has the desktop app's features. It does not share files with the desktop app or the TUI (iOS apps are sandboxed), but it writes the same formats.
+
+## Layout
+
+| Part | Role |
+|---|---|
+| `ios/Patina.xcodeproj` | The app target: entry point, assets, Info.plist (`ios/Patina-Info.plist` is merged into the generated one). Its `Patina/` folder is a synchronized group, so new files need no project edits. |
+| `ios/PatinaKit` | A local Swift package with all the code. |
+| `PatinaKit/Sources/PlexKit` | Port of `desktop/plex`. `Sendable`, nonisolated. |
+| `PatinaKit/Sources/SeerrKit` | Port of `desktop/seerr`. `Sendable`, nonisolated. |
+| `PatinaKit/Sources/PatinaCore` | Port of `desktop/core` (and the command handlers of `desktop/commands`). Defaults to `@MainActor`, like the single-threaded JavaScript it ports. |
+| `PatinaKit/Sources/PatinaPlayer` | The `PlaybackEngine` (`PatinaCore/Playback/PlaybackEngine.swift`) over AetherEngine, plus the player surface, subtitles, gestures, Picture in Picture and Now Playing. |
+| `PatinaKit/Sources/PatinaUI` | Every screen. `RootView` is what the app shows. |
+
+## Commands
+
+```bash
+cd ios/PatinaKit
+swift build --target PlexKit                 # any non-UI target builds on macOS
+swift test                                   # PlexKitTests, SeerrKitTests, PatinaCoreTests (no simulator needed)
+swift test --filter PlexKitTests.ClientTests # one suite
+
+# UI and player targets are iOS-only; build them for the simulator:
+xcodebuild -scheme PatinaUI -destination 'generic/platform=iOS Simulator' build -quiet
+# The app:
+cd ios && xcodebuild -project Patina.xcodeproj -scheme Patina -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
+```
+
+Run against the mock server (`tools/mock_pms.py`), as the root `AGENTS.md` describes: the simulator reaches it at `http://127.0.0.1:32499`. Sign in with "Connect to a server" (URL and token `x`).
+
+## Porting rules
+
+- **Keep the TypeScript names and behaviour.** Every Swift file starts with `// Port of desktop/<path>.ts.` (or says what it is when it has no twin). Modules, types and functions keep their names in Swift casing (`downloads.enqueue(app, ratingKey)` becomes `Downloads.enqueue(app, ratingKey:)`). Comments explain why, as in the TypeScript, and stay as sparse.
+- **Plex JSON round-trips.** Models are `Codable`. They decode leniently through the `de` helpers (`optString`, `optI64`, `optF64`, `boolean`, `oneOrMany`, the TypeScript names) and encode with Plex's own field names, so a stored model (in `downloads.json`, the saved queue) reads back as it was received.
+- **Tests are ports of the TypeScript tests**, written with Swift Testing (`import Testing`). HTTP is stubbed with a `URLProtocol`. No test talks to a real server.
+- **What iOS changes:**
+  - Settings are `config.json` in Application Support, with the same keys as `config.toml`. Tokens are kept in the Keychain, never in the file.
+  - There is one process, so there are no cross-process locks.
+  - Downloads go to `Documents/Downloads`, which the Files app shows, and transfer in a background `URLSession`.
+  - The app owns the play queue and the controls. mpv owned them on the desktop, so `player.ts` is ported against `PlaybackEngine` instead.
+  - Discord Rich Presence and the mpv-specific settings (path, extra arguments, `mpv.conf`, the skip key) have no iOS equivalent.
+- **Concurrency:** Swift 6 language mode. The `@MainActor` modules use `Task {}` where the TypeScript uses `app.spawn`, and `Task.sleep` loops where it uses `setInterval`. PlexKit and SeerrKit are free of actor isolation and `Sendable`.
+
+## UI
+
+- SwiftUI, iOS 18+. `NavigationSplitView` with a sidebar on iPad, a `TabView` on iPhone (compact width). Dark only, with the user's accent (`ui.accent`).
+- Navigation uses `Route` values (`/item/<ratingKey>`, `/library/<id>`, ... as in `web/src/lib/router.svelte.ts`), so any screen can link to any other without importing it.
+- iPad with a keyboard gets the desktop shortcuts: ⌘K opens the command palette, ⌘F focuses search, ⌘Z undoes, and Space plays or pauses in the player.
