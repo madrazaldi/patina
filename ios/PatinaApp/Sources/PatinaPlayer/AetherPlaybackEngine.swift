@@ -373,7 +373,7 @@ public final class AetherPlaybackEngine: PlaybackEngine {
         emit(.time(positionSeconds: engine.currentTime))
     }
 
-    private func stateChanged(_ state: PlaybackState) {
+    private func stateChanged(_ state: AetherPlaybackState) {
         switch state {
         case .playing:
             setPaused(false)
