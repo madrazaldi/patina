@@ -13,7 +13,7 @@
 /* Begin PBXFileReference section */
 		A10000000000000000000801 /* Patina.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Patina.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000000000000000000802 /* Patina-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "Patina-Info.plist"; sourceTree = "<group>"; };
-		A10000000000000000000803 /* PatinaKit */ = {isa = PBXFileReference; lastKnownFileType = wrapper; path = PatinaKit; sourceTree = "<group>"; };
+		A10000000000000000000803 /* PatinaApp */ = {isa = PBXFileReference; lastKnownFileType = wrapper; path = PatinaApp; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -37,7 +37,7 @@
 			children = (
 				A10000000000000000000501 /* Patina */,
 				A10000000000000000000802 /* Patina-Info.plist */,
-				A10000000000000000000803 /* PatinaKit */,
+				A10000000000000000000803 /* PatinaApp */,
 				A10000000000000000000602 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -101,7 +101,7 @@
 			mainGroup = A10000000000000000000601;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				A10000000000000000003001 /* XCLocalSwiftPackageReference "PatinaKit" */,
+				A10000000000000000003001 /* XCLocalSwiftPackageReference "PatinaApp" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A10000000000000000000602 /* Products */;
@@ -270,9 +270,9 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		A10000000000000000003001 /* XCLocalSwiftPackageReference "PatinaKit" */ = {
+		A10000000000000000003001 /* XCLocalSwiftPackageReference "PatinaApp" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = PatinaKit;
+			relativePath = PatinaApp;
 		};
 /* End XCLocalSwiftPackageReference section */
 

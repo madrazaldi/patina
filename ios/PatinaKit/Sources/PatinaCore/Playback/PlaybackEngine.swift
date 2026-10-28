@@ -10,7 +10,7 @@
 import Foundation
 
 /// One item to play.
-public struct EngineLoad: Sendable, Equatable {
+nonisolated public struct EngineLoad: Sendable, Equatable {
     public var url: URL
     /// Where to start; 0 plays from the beginning.
     public var startSeconds: Double
@@ -47,14 +47,14 @@ public struct EngineLoad: Sendable, Equatable {
 }
 
 /// A subtitle choice.
-public enum EngineSubtitle: Sendable, Hashable {
+nonisolated public enum EngineSubtitle: Sendable, Hashable {
     /// An embedded stream, by container stream index.
     case stream(Int)
     /// `EngineLoad.externalSubtitles[i]`.
     case external(Int)
 }
 
-public struct ExternalSubtitle: Sendable, Equatable {
+nonisolated public struct ExternalSubtitle: Sendable, Equatable {
     public var url: URL
     public var title: String
     /// ISO 639 code, when Plex knows it.
@@ -75,7 +75,7 @@ public struct ExternalSubtitle: Sendable, Equatable {
 }
 
 /// Lock screen and Control Center metadata.
-public struct NowPlayingCard: Sendable, Equatable {
+nonisolated public struct NowPlayingCard: Sendable, Equatable {
     public var title: String
     /// Show and episode, or artist and album.
     public var subtitle: String?
@@ -92,7 +92,7 @@ public struct NowPlayingCard: Sendable, Equatable {
 }
 
 /// A track as the engine found it in the file.
-public struct EngineTrack: Sendable, Equatable, Identifiable {
+nonisolated public struct EngineTrack: Sendable, Equatable, Identifiable {
     public enum Kind: Sendable { case audio, subtitle }
     /// Container stream index, or `externalSubtitleBase + i` for `externalSubtitles[i]`.
     public var id: Int
@@ -120,7 +120,7 @@ public struct EngineTrack: Sendable, Equatable, Identifiable {
     }
 }
 
-public struct EngineChapter: Sendable, Equatable {
+nonisolated public struct EngineChapter: Sendable, Equatable {
     public var title: String
     public var startSeconds: Double
 
@@ -131,7 +131,7 @@ public struct EngineChapter: Sendable, Equatable {
 }
 
 /// Why playback failed, for the failure actions (see `failure.ts`).
-public enum EngineFailureKind: Sendable, Equatable {
+nonisolated public enum EngineFailureKind: Sendable, Equatable {
     /// The connection dropped or the server stopped answering: retry when it is back.
     case network
     /// The format, codec or file cannot be played: offer another version or a transcode.
@@ -140,7 +140,7 @@ public enum EngineFailureKind: Sendable, Equatable {
 }
 
 /// What the screen's diagnostics panel shows (desktop: `controls.ts` `Diagnostics`).
-public struct EngineDiagnostics: Sendable, Equatable {
+nonisolated public struct EngineDiagnostics: Sendable, Equatable {
     public var buffering: Bool
     /// Seconds buffered ahead of the playhead.
     public var bufferedSeconds: Double?
@@ -165,7 +165,7 @@ public struct EngineDiagnostics: Sendable, Equatable {
 }
 
 /// What the engine reports, in order, for the item it is playing.
-public enum EngineEvent: Sendable, Equatable {
+nonisolated public enum EngineEvent: Sendable, Equatable {
     /// The item opened: what it holds.
     case loaded(durationSeconds: Double?, tracks: [EngineTrack], chapters: [EngineChapter])
     /// About 4 times a second while the clock moves, and after every seek.
@@ -183,7 +183,7 @@ public enum EngineEvent: Sendable, Equatable {
 
 /// A lock screen, Control Center or headphone command, which the core handles like the
 /// equivalent `control` command.
-public enum RemoteCommand: Sendable, Equatable {
+nonisolated public enum RemoteCommand: Sendable, Equatable {
     case play, pause, togglePause, next, previous, stop
     case seek(toSeconds: Double)
     case skip(bySeconds: Double)

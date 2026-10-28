@@ -9,25 +9,24 @@ The iOS app is a third port of the backend, in Swift, with a SwiftUI front end a
 | Part | Role |
 |---|---|
 | `ios/Patina.xcodeproj` | The app target: entry point, assets, Info.plist (`ios/Patina-Info.plist` is merged into the generated one). Its `Patina/` folder is a synchronized group, so new files need no project edits. |
-| `ios/PatinaKit` | A local Swift package with all the code. |
+| `ios/PatinaKit` | Swift package with the backend and no dependencies; builds and tests on macOS. |
 | `PatinaKit/Sources/PlexKit` | Port of `desktop/plex`. `Sendable`, nonisolated. |
 | `PatinaKit/Sources/SeerrKit` | Port of `desktop/seerr`. `Sendable`, nonisolated. |
-| `PatinaKit/Sources/PatinaCore` | Port of `desktop/core` (and the command handlers of `desktop/commands`). Defaults to `@MainActor`, like the single-threaded JavaScript it ports. |
-| `PatinaKit/Sources/PatinaPlayer` | The `PlaybackEngine` (`PatinaCore/Playback/PlaybackEngine.swift`) over AetherEngine, plus the player surface, subtitles, gestures, Picture in Picture and Now Playing. |
-| `PatinaKit/Sources/PatinaUI` | Every screen. `RootView` is what the app shows. |
+| `PatinaKit/Sources/PatinaCore` | Port of `desktop/core` (and the command handlers of `desktop/commands`). Defaults to `@MainActor`, like the single-threaded JavaScript it ports; plain value types are marked `nonisolated`. |
+| `ios/PatinaApp` | Swift package with the iOS-only code, depending on PatinaKit and AetherEngine. |
+| `PatinaApp/Sources/PatinaPlayer` | The `PlaybackEngine` (`PatinaCore/Playback/PlaybackEngine.swift`) over AetherEngine, plus the player surface, subtitles, gestures, Picture in Picture and Now Playing. |
+| `PatinaApp/Sources/PatinaUI` | Every screen. `RootView` is what the app shows. |
 
 ## Commands
 
 ```bash
 cd ios/PatinaKit
-swift build --target PlexKit                 # any non-UI target builds on macOS
+swift build --target PlexKit                 # the backend builds on macOS
 swift test                                   # PlexKitTests, SeerrKitTests, PatinaCoreTests (no simulator needed)
-swift test --filter PlexKitTests.ClientTests # one suite
+swift test --filter PlexKitTests             # one target
 
-# UI and player targets are iOS-only; build them for the simulator:
-xcodebuild -scheme PatinaUI -destination 'generic/platform=iOS Simulator' build -quiet
-# The app:
-cd ios && xcodebuild -project Patina.xcodeproj -scheme Patina -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
+# The player and the screens are iOS-only; build the app for the simulator:
+cd ios && xcodebuild -project Patina.xcodeproj -scheme Patina -destination 'generic/platform=iOS Simulator' build -quiet
 ```
 
 Run against the mock server (`tools/mock_pms.py`), as the root `AGENTS.md` describes: the simulator reaches it at `http://127.0.0.1:32499`. Sign in with "Connect to a server" (URL and token `x`).
