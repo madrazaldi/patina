@@ -112,7 +112,8 @@ private func isStop(_ op: Report.Op, at time: Int? = nil) -> Bool {
 
     @Test func aSlowServerCostsTheCallerNothingAndCollapsesTheBacklog() async throws {
         let fake = Fake(150, 0)
-        let reporter = fake.reporter(fast)
+        // A timeout well above the delay: a retried request would be recorded twice.
+        let reporter = fake.reporter(Report.Config(timeoutMs: 2000, attempts: 4, backoffMs: 10))
         reporter.send("s", update("1", .playing, 0))
         // The first request is now in flight and takes 150ms.
         try await Task.sleep(for: .milliseconds(20))
