@@ -457,7 +457,7 @@ public final class AppState {
                 try? await Task.sleep(for: interval)
                 guard let self, !Task.isCancelled else { return }
                 let list = Downloads.list(paths)
-                let next = String(describing: list) + Smart.fingerprint()
+                let next = String(describing: list) + Smart.fingerprint(paths)
                 if next != downloadsSeen {
                     downloadsSeen = next
                     emit(.downloads(list))

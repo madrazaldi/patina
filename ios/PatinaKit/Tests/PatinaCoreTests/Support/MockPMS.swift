@@ -57,6 +57,11 @@ nonisolated struct MockResponse: Sendable {
     var hang = false
     /// Seconds to wait before answering (a slow server).
     var delay: Double = 0
+    /// Send the body in pieces of this many bytes, `chunkDelay` seconds apart (a media transfer).
+    var chunkSize = 0
+    var chunkDelay: Double = 0
+    /// Drop the connection once this many bytes of the body are sent.
+    var dropAfter: Int?
 
     static func json(_ v: JSONValue, status: Int = 200, delay: Double = 0) -> MockResponse {
         MockResponse(status: status, body: Data(v.serialized().utf8), delay: delay)
@@ -795,8 +800,24 @@ nonisolated final class MockProtocol: URLProtocol, @unchecked Sendable {
         guard go else { return }
         let resp = HTTPURLResponse(url: url, statusCode: r.status, httpVersion: "HTTP/1.1", headerFields: r.headers)!
         client?.urlProtocol(self, didReceive: resp, cacheStoragePolicy: .notAllowed)
+        if r.chunkSize > 0 { return sendChunk(r, from: 0) }
         if !r.body.isEmpty { client?.urlProtocol(self, didLoad: r.body) }
         if !r.hang { client?.urlProtocolDidFinishLoading(self) }
+    }
+
+    private func sendChunk(_ r: MockResponse, from at: Int) {
+        if flight.withLock({ $0.stopped }) { return }
+        if let drop = r.dropAfter, at >= drop {
+            client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost))
+            return
+        }
+        guard at < r.body.count else {
+            client?.urlProtocolDidFinishLoading(self)
+            return
+        }
+        let end = min(at + r.chunkSize, r.body.count)
+        client?.urlProtocol(self, didLoad: r.body.subdata(in: at..<end))
+        DispatchQueue.global().asyncAfter(deadline: .now() + r.chunkDelay) { self.sendChunk(r, from: end) }
     }
 
     override func stopLoading() {
