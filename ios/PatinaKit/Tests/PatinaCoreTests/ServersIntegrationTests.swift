@@ -1,6 +1,5 @@
 // Port of desktop/test/servers.test.ts: several mock servers, keeping each item with its own
-// server, and undo. The cross-server search tests belong with Ops.XSearch and the playback
-// failure test with Failure; their owners port them.
+// server, undo, and searching across servers. The playback failure test is with Failure.
 
 import Foundation
 import PlexKit
@@ -155,5 +154,60 @@ private func appFor(_ env: TestEnv, _ current: MockPMS, _ others: [MockPMS]) thr
         #expect(Metadata.serverId(items[0]) == "beta-names")
         Servers.tag(app, &items, "alpha-names")
         #expect(Metadata.serverId(items[0]) == nil)
+    }
+    @Test func aSearchGroupsATitleAcrossServersWithEachServersCopy() async throws {
+        let alpha = MockPMS(name: "Alpha", machine: "alpha-search", seed: 0)
+        let beta = MockPMS(name: "Beta", machine: "beta-search", seed: 1)
+        let app = try appFor(env, alpha, [beta])
+        defer { app.dispose() }
+
+        var updates = 0
+        let found = await Ops.XSearch.searchAll(app, "e") { _ in updates += 1 }
+        #expect(found.done)
+        #expect(updates >= 3)  // the start and each server's answer are reported
+        #expect(found.servers.allSatisfy { $0.state == .done })
+
+        // Ten titles are on both servers, each in its own quality.
+        let shared = found.groups.filter { $0.copies.count == 2 }
+        let group = try #require(shared.first)  // a title was found on both servers
+        #expect(group.copies[0].current)  // the connected server's copy comes first
+        #expect(Metadata.serverId(group.copies[0].item) == nil)
+        #expect(Metadata.serverId(group.copies[1].item) == "beta-search")
+        #expect(group.copies[0].versions.first?.resolution == "720p")
+        #expect(group.copies[1].versions.first?.resolution == "1080p")
+
+        // Titles only one server has are still listed.
+        #expect(found.groups.contains { $0.copies.count == 1 && Metadata.serverId($0.copies[0].item) == "beta-search" })
+        #expect(found.groups.contains { $0.copies.count == 1 && $0.copies[0].current })
+
+        // The other server's copy is fetched from that server: the same rating key means another title on this one.
+        let copy = group.copies[1].item
+        let there = try await Servers.serverOf(app, copy).metadata(Metadata.ratingKey(copy))
+        #expect(there?.title == group.title)
+        let here = try await app.server().metadata(Metadata.ratingKey(copy))
+        #expect(here?.title != group.title)  // the key must not be looked up on the connected server
+    }
+
+    @Test func aSlowServerTimesOutWhileTheOthersAnswer() async throws {
+        let alpha = MockPMS(name: "Alpha", machine: "alpha-slow", seed: 0)
+        let slow = MockPMS(name: "Slow", machine: "slow-slow", seed: 1, searchDelay: 4)
+        let beta = MockPMS(name: "Beta", machine: "beta-slow", seed: 2)
+        let app = try appFor(env, alpha, [slow, beta])
+        defer { app.dispose() }
+
+        let began = ContinuousClock.now
+        var seenPending = false
+        let found = await Ops.XSearch.searchAllWithin(app, "e", .milliseconds(800)) { r in
+            seenPending = seenPending || (r.servers.contains { $0.state == .pending } && !r.groups.isEmpty)
+        }
+        #expect(ContinuousClock.now - began < .seconds(3))  // the slow server must not hold the search
+        #expect(found.done)
+        func state(_ id: String) -> Ops.XSearch.ServerState? { found.servers.first { $0.id == id }?.state }
+        #expect(state("slow-slow") == .timedOut)
+        #expect(state("alpha-slow") == .done)
+        #expect(state("beta-slow") == .done)
+        #expect(seenPending)  // partial results are reported before the slow server finishes
+        #expect(!found.groups.isEmpty)
+        #expect(found.groups.allSatisfy { $0.copies.allSatisfy { $0.serverId != "slow-slow" } })
     }
 }
