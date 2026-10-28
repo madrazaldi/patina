@@ -33,6 +33,9 @@ nonisolated struct MockRequest: Sendable {
     /// `parse_qs`: every value of each key.
     let query: [String: [String]]
     let headers: [String: String]
+    /// The query as sent, still percent-encoded.
+    var rawQuery = ""
+    var body = Data()
 
     func q(_ key: String) -> String? {
         query[key]?.first
@@ -779,7 +782,8 @@ nonisolated final class MockProtocol: URLProtocol, @unchecked Sendable {
         var query: [String: [String]] = [:]
         for (k, v) in formPairs(c?.percentEncodedQuery ?? "") { query[k, default: []].append(v) }
         let seen = MockRequest(
-            method: req.httpMethod ?? "GET", path: c?.path ?? url.path, query: query, headers: req.allHTTPHeaderFields ?? [:])
+            method: req.httpMethod ?? "GET", path: c?.path ?? url.path, query: query, headers: req.allHTTPHeaderFields ?? [:],
+            rawQuery: c?.percentEncodedQuery ?? "", body: req.httpBody ?? req.httpBodyStream.map(readAll) ?? Data())
         let r = mock.handle(seen)
         if r.delay > 0 {
             DispatchQueue.global().asyncAfter(deadline: .now() + r.delay) { self.deliver(r, mock, url) }
@@ -828,6 +832,20 @@ nonisolated final class MockProtocol: URLProtocol, @unchecked Sendable {
         }
         held?.streamClosed()
     }
+}
+
+/// The body of a request, which `URLProtocol` sees as a stream.
+nonisolated func readAll(_ stream: InputStream) -> Data {
+    var out = Data()
+    var buffer = [UInt8](repeating: 0, count: 16384)
+    stream.open()
+    defer { stream.close() }
+    while true {
+        let n = stream.read(&buffer, maxLength: buffer.count)
+        if n <= 0 { break }
+        out.append(buffer, count: n)
+    }
+    return out
 }
 
 /// `parse_qs` of a form-encoded query: `+` is a space, `%XX` a byte.

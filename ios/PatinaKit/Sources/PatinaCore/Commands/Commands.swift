@@ -16,7 +16,7 @@
 // | Commands+Watchlist.swift      | Watchlist, Playlists (admin agent)          |
 // | Commands+Playback.swift       | Playback, Bulk audio & subtitles (playback) |
 // | Commands+Activity.swift       | Activity, Server administration (admin)     |
-// | Commands+Library.swift        | Library browsing, Pick, Search across servers, Collections (admin) |
+// | Commands+Library.swift        | Library browsing, saved views, Pick, Search across servers, Collections (admin) |
 // | Commands+Downloads.swift      | Downloads                                   |
 // | Commands+LiveTv.swift         | Live TV (admin)                             |
 // | Commands+PlaybackPrefs.swift  | auto.ts: playback preferences (playback)    |
