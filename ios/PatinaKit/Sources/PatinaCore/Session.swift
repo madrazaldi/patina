@@ -206,7 +206,7 @@ extension Session {
     }
 
     public static func signOut(_ app: AppState) {
-        Player.control(.stop)
+        Player.control(app, .stop)
         Live.stop(app)
         app.updateSettings { s in
             s.auth.token = nil

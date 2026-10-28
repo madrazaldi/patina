@@ -183,10 +183,12 @@ public nonisolated struct NowPlaying: Sendable, Equatable {
     public var live: Bool
     /// A downloaded file played offline.
     public var local: Bool
+    /// The intro or credits in view, which the screen offers to skip (`Commands.skipMarker`).
+    public var marker: SkipMarker?
 
     public init(
         item: Metadata, positionMs: Int, durationMs: Int, paused: Bool, transcoding: Bool, queueLen: Int,
-        queuePos: Int, uid: Int, ending: Bool, stopAfter: Bool, live: Bool, local: Bool
+        queuePos: Int, uid: Int, ending: Bool, stopAfter: Bool, live: Bool, local: Bool, marker: SkipMarker? = nil
     ) {
         self.item = item
         self.positionMs = positionMs
@@ -200,6 +202,7 @@ public nonisolated struct NowPlaying: Sendable, Equatable {
         self.stopAfter = stopAfter
         self.live = live
         self.local = local
+        self.marker = marker
     }
 }
 
