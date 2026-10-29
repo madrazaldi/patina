@@ -13,6 +13,7 @@ public struct PlayerScrubBar: View {
     @State private var dragging = false
     @State private var moved = false
     @State private var lastX: CGFloat = 0
+    @State private var bubbleWidth: CGFloat?
 
     public init(state: PlayerTransportState, actions: PlayerTransportActions, interaction: PlayerInteraction) {
         self.state = state
@@ -92,13 +93,16 @@ public struct PlayerScrubBar: View {
             }
             .frame(maxHeight: .infinity)
             .contentShape(.rect)
-            .overlay(alignment: .topLeading) {
+            .overlay(alignment: .bottomLeading) {
                 if let scrub = interaction.scrub {
-                    let knob = x(scrub.target)
+                    // Plain offsets: alignment guides here were skipped when the bar and the bubble
+                    // came in together (a scrub on the picture with the chrome hidden), which left the
+                    // bubble on the bar's corner, half off the screen.
+                    let bubble = bubbleWidth ?? (state.supportsThumbnails ? 188 : 120)
                     ScrubBubble(scrub: scrub, thumbnail: interaction.scrubThumbnail, showsThumbnail: state.supportsThumbnails)
                         .fixedSize()
-                        .alignmentGuide(.top) { d in d[.bottom] + 14 }
-                        .alignmentGuide(.leading) { d in -min(max(knob - d.width / 2, 0), max(width - d.width, 0)) }
+                        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { bubbleWidth = $0 }
+                        .offset(x: min(max(x(scrub.target) - bubble / 2, 0), max(width - bubble, 0)), y: -(geo.size.height + 14))
                         .transition(.scale(scale: 0.85, anchor: .bottom).combined(with: .opacity))
                         .allowsHitTesting(false)
                 }

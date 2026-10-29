@@ -150,8 +150,27 @@ public final class PlayerInteraction {
         let delay = autoHideDelay
         autoHideTask = Task { [weak self] in
             try? await Task.sleep(for: delay)
-            guard !Task.isCancelled, let self, scrub == nil, isPlaying else { return }
-            hideChrome()
+            // A menu hangs off its button in the chrome, and hiding the chrome closes it: wait until
+            // it is closed, then give the controls their full delay again.
+            guard Self.isMenuOpen() else { self?.autoHideFired(); return }
+            while !Task.isCancelled, Self.isMenuOpen() { try? await Task.sleep(for: .milliseconds(300)) }
+            try? await Task.sleep(for: delay)
+            self?.autoHideFired()
+        }
+    }
+
+    private func autoHideFired() {
+        guard !Task.isCancelled, scrub == nil, isPlaying else { return }
+        hideChrome()
+    }
+
+    /// Whether a menu is open. SwiftUI says nothing of it; UIKit hosts an open menu in a container
+    /// view of its own at the top of the window.
+    static func isMenuOpen() -> Bool {
+        UIApplication.shared.connectedScenes.contains { scene in
+            (scene as? UIWindowScene)?.windows.contains { window in
+                !window.isHidden && window.subviews.contains { NSStringFromClass(type(of: $0)).hasSuffix("ContextMenuContainerView") }
+            } ?? false
         }
     }
 
@@ -382,9 +401,11 @@ final class SystemVolume {
     }
 
     private func observed(_ value: Double) {
+        // The system rounds the volume to its own steps and reports our changes back rounded. Taking
+        // those reports would undo every small step of a drag, so the volume would stick on a step.
+        if let until = ownChangeUntil, ContinuousClock.now < until { return }
         guard abs(value - volume) > 0.001 else { return }
         volume = value
-        if let until = ownChangeUntil, ContinuousClock.now < until { return }
         onExternalChange?(value)
     }
 }
