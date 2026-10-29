@@ -1,5 +1,5 @@
 {
-  "originHash" : "12c282e971d5e7acdc7a8845b19a39305970573f1f39c941c286783c2f6c5ded",
+  "originHash" : "19b0eb1c213b19cfb9bab64eefb73894f25da3a8780e777b1776760a24f66c0d",
   "pins" : [
     {
       "identity" : "aetherengine",
@@ -35,6 +35,15 @@
       "state" : {
         "revision" : "e636c2b2458930770932a36d311ec9d478575b90",
         "version" : "0.3.1"
+      }
+    },
+    {
+      "identity" : "swift-libass",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/mihai8804858/swift-libass",
+      "state" : {
+        "revision" : "6513c488e377a26c06db327fb2acfc2653a041d5",
+        "version" : "1.4.0"
       }
     }
   ],

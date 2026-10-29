@@ -1,8 +1,9 @@
 // The picture and its subtitles (no desktop twin: mpv drew both in its own window).
 //
 // AetherEngine leaves subtitles to the host: it publishes the cues, and this view draws them
-// over the picture, text at the bottom of the visible picture (or where an ASS cue asks) and
-// bitmaps (PGS, DVB, VobSub) where the disc placed them.
+// over the picture, text at the bottom of the visible picture (or where a cue asks) and bitmaps
+// (PGS, DVB, VobSub) where the disc placed them. ASS and SSA tracks go to libass instead
+// (`ASSSubtitles`).
 
 import AetherEngine
 import SwiftUI
@@ -50,6 +51,7 @@ public struct PlayerSurface: View {
                     .scaleEffect(fill == .zoom ? PlayerVideoFill.zoomScale : 1)
                     .animation(.spring(response: 0.4, dampingFraction: 0.9), value: fill)
                 SubtitleOverlay(cues: player.subtitleCues, video: video, bounds: bounds, style: subtitleStyle, lift: subtitleLift)
+                ASSSubtitleLayer(subtitles: player.assSubtitles, video: video, bounds: bounds)
             }
             .frame(width: geo.size.width, height: geo.size.height)
             .clipped()

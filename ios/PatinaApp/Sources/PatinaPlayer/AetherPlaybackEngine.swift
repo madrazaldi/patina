@@ -74,6 +74,8 @@ public final class AetherPlaybackEngine: PlaybackEngine {
     /// The engine itself, for `PlayerSurface` to bind its view to.
     @ObservationIgnored public let engine: AetherEngine
     @ObservationIgnored public let pictureInPicture: PictureInPicture
+    /// The selected ASS or SSA track, drawn by libass.
+    @ObservationIgnored public let assSubtitles = ASSSubtitles()
     @ObservationIgnored private let nowPlaying: NowPlayingController
 
     // MARK: Per item
@@ -115,6 +117,7 @@ public final class AetherPlaybackEngine: PlaybackEngine {
         bufferedPosition = 0
         allCues = []
         subtitleCues = []
+        assSubtitles.setScript(nil, fonts: [])
         videoSize = nil
         phase = .loading
         rate = 1
@@ -128,6 +131,8 @@ public final class AetherPlaybackEngine: PlaybackEngine {
             externalSubtitles: request.externalSubtitles.map { EngineMapping.externalTrack($0, headers: request.httpHeaders) }
         )
         options.initialSubtitleTrackID = request.subtitle.map(EngineMapping.subtitleTrackID)
+        // ASS tracks arrive as raw event lines, for libass; other formats are unaffected.
+        options.preserveASSMarkup = true
         do {
             try await engine.load(
                 url: request.url,
@@ -156,6 +161,7 @@ public final class AetherPlaybackEngine: PlaybackEngine {
         subtitle = EngineMapping.subtitle(trackID: engine.activeSubtitleTrackIndex)
         emit(.audioTrack(audioTrackID))
         emit(.subtitleTrack(subtitle))
+        updateASSScript()
         emit(.paused(isPaused))
         emit(.time(positionSeconds: engine.currentTime))
         updateDiagnostics()
@@ -187,6 +193,7 @@ public final class AetherPlaybackEngine: PlaybackEngine {
         let clamped = min(max(rate, 0.25), maxRate)
         self.rate = clamped
         engine.setRate(Float(clamped))
+        assSubtitles.setPlaying(!isPaused, rate: clamped)
         nowPlaying.playbackChanged()
     }
 
@@ -234,6 +241,7 @@ public final class AetherPlaybackEngine: PlaybackEngine {
         bufferedPosition = 0
         allCues = []
         subtitleCues = []
+        assSubtitles.setScript(nil, fonts: [])
         videoSize = nil
         audioTracks = []
         subtitleTracks = []
@@ -298,8 +306,18 @@ public final class AetherPlaybackEngine: PlaybackEngine {
                 guard let self else { return }
                 allCues = cues
                 setActiveCues(at: engine.clock.sourceTime)
+                assSubtitles.add(cues)
             }
             .store(in: &subscriptions)
+        // Published in willSet, so read the engine on the next turn.
+        Publishers.Merge3(
+            engine.$activeSubtitleTrackIndex.map { _ in () },
+            engine.$subtitleTracks.map { _ in () },
+            engine.$sidecarASSHeader.map { _ in () }
+        )
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self] in self?.updateASSScript() }
+        .store(in: &subscriptions)
         engine.$audioTracks.combineLatest(engine.$subtitleTracks)
             .sink { [weak self] _, _ in Task { @MainActor in self?.readTracks() } }
             .store(in: &subscriptions)
@@ -341,6 +359,8 @@ public final class AetherPlaybackEngine: PlaybackEngine {
                 width: engine.sourceVideoWidth, height: engine.sourceVideoHeight,
                 pixelAspect: engine.sourceVideoPixelAspectRatio, software: engine.softwareDisplaySize
             )
+            assSubtitles.setStorage(engine.sourceVideoWidth > 0 && engine.sourceVideoHeight > 0
+                ? CGSize(width: Int(engine.sourceVideoWidth), height: Int(engine.sourceVideoHeight)) : nil)
             updateDiagnostics()
             updateThumbnailSupport()
         }
@@ -358,11 +378,37 @@ public final class AetherPlaybackEngine: PlaybackEngine {
 
     private func sourceTimeTicked(_ time: Double) {
         setActiveCues(at: time)
+        assSubtitles.setTime(time)
     }
 
     private func setActiveCues(at time: Double) {
-        let active = EngineMapping.activeCues(allCues, at: time)
+        // An ASS track's cues are raw event lines, which only libass can draw.
+        let active = isASSTrackSelected ? [] : EngineMapping.activeCues(allCues, at: time)
         if active.map(\.id) != subtitleCues.map(\.id) { subtitleCues = active }
+    }
+
+    /// The selected subtitle track, from the engine.
+    private var selectedSubtitleTrack: TrackInfo? {
+        guard let id = engine.activeSubtitleTrackIndex else { return nil }
+        return engine.subtitleTracks.first { $0.id == id }
+    }
+
+    private var isASSTrackSelected: Bool {
+        selectedSubtitleTrack.map { ["ass", "ssa"].contains($0.codec.lowercased()) } ?? false
+    }
+
+    /// Points libass at the selected track's script. A sidecar's header comes once the file is
+    /// decoded; until then the track draws with the default style, so nothing waits on it.
+    private func updateASSScript() {
+        guard itemLoaded, isASSTrackSelected, let track = selectedSubtitleTrack else {
+            assSubtitles.setScript(nil, fonts: [])
+            setActiveCues(at: engine.clock.sourceTime)
+            return
+        }
+        let header = track.assHeader ?? (track.isExternal ? engine.sidecarASSHeader : nil) ?? ASSRenderer.defaultHeader
+        assSubtitles.setScript(header, fonts: engine.fontAttachments)
+        assSubtitles.add(allCues)
+        setActiveCues(at: engine.clock.sourceTime)
     }
 
     private func emitTime(force: Bool) {
@@ -411,6 +457,7 @@ public final class AetherPlaybackEngine: PlaybackEngine {
     }
 
     private func setPaused(_ paused: Bool) {
+        assSubtitles.setPlaying(!paused, rate: rate)
         guard paused != isPaused else { return }
         isPaused = paused
         if itemLoaded { emit(.paused(paused)) }

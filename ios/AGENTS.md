@@ -13,8 +13,8 @@ The iOS app is a third port of the backend, in Swift, with a SwiftUI front end a
 | `PatinaKit/Sources/PlexKit` | Port of `desktop/plex`. `Sendable`, nonisolated. |
 | `PatinaKit/Sources/SeerrKit` | Port of `desktop/seerr`. `Sendable`, nonisolated. |
 | `PatinaKit/Sources/PatinaCore` | Port of `desktop/core` (and the command handlers of `desktop/commands`). Defaults to `@MainActor`, like the single-threaded JavaScript it ports; plain value types are marked `nonisolated`. |
-| `ios/PatinaApp` | Swift package with the iOS-only code, depending on PatinaKit and AetherEngine. |
-| `PatinaApp/Sources/PatinaPlayer` | The `PlaybackEngine` (`PatinaCore/Playback/PlaybackEngine.swift`) over AetherEngine, plus the player surface, subtitles, gestures, Picture in Picture and Now Playing. |
+| `ios/PatinaApp` | Swift package with the iOS-only code, depending on PatinaKit, AetherEngine and [swift-libass](https://github.com/mihai8804858/swift-libass). |
+| `PatinaApp/Sources/PatinaPlayer` | The `PlaybackEngine` (`PatinaCore/Playback/PlaybackEngine.swift`) over AetherEngine, plus the player surface, subtitles, gestures, Picture in Picture and Now Playing. ASS and SSA tracks are drawn by libass (`ASSRenderer`, `ASSSubtitles`) from the raw event lines, header and fonts AetherEngine hands over under `preserveASSMarkup`; other text formats by `SubtitleOverlay`. |
 | `PatinaApp/Sources/PatinaUI` | Every screen. `RootView` is what the app shows. |
 
 ## Commands
