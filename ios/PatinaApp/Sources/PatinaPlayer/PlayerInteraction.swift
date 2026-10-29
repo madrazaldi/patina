@@ -364,7 +364,14 @@ public final class PlayerInteraction {
 /// own, so a change from the hardware buttons is reported for the player's HUD instead.
 final class SystemVolume {
     var onExternalChange: ((Double) -> Void)?
-    private(set) var volume: Double = Double(AVAudioSession.sharedInstance().outputVolume)
+    /// The volume to adjust from. While a change of ours settles the system still reports older,
+    /// rounded values, so it is ours; after that it is the system's, which a button may have moved.
+    var volume: Double {
+        if let until = ownChangeUntil, ContinuousClock.now < until { return target }
+        return Double(AVAudioSession.sharedInstance().outputVolume)
+    }
+    private var target: Double = 0
+    private var known = Double(AVAudioSession.sharedInstance().outputVolume)
     private weak var slider: UISlider?
     private var observation: NSKeyValueObservation?
     private var ownChangeUntil: ContinuousClock.Instant?
@@ -393,7 +400,8 @@ final class SystemVolume {
     @discardableResult
     func set(_ value: Double) -> Double {
         let clamped = min(max(value, 0), 1)
-        volume = clamped
+        target = clamped
+        known = clamped
         ownChangeUntil = .now + .milliseconds(400)
         slider?.setValue(Float(clamped), animated: false)
         slider?.sendActions(for: .valueChanged)
@@ -404,8 +412,8 @@ final class SystemVolume {
         // The system rounds the volume to its own steps and reports our changes back rounded. Taking
         // those reports would undo every small step of a drag, so the volume would stick on a step.
         if let until = ownChangeUntil, ContinuousClock.now < until { return }
-        guard abs(value - volume) > 0.001 else { return }
-        volume = value
+        guard abs(value - known) > 0.001 else { return }
+        known = value
         onExternalChange?(value)
     }
 }
