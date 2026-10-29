@@ -1,0 +1,7 @@
+PatinaKit/.build/
+PatinaKit/.swiftpm/
+xcuserdata/
+*.xcuserstate
+DerivedData/
+PatinaApp/.build/
+PatinaApp/.swiftpm/

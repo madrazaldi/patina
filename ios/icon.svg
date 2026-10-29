@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- iOS app icon: no corner radius (the system masks it). -->
+  <rect width="1024" height="1024" fill="#131313"/>
+  <g transform="translate(-40.5 -50) scale(1.1)">
+    <path d="M340 262 H540 A160 160 0 0 1 540 582 H408 V762 H340 Z" fill="#7fb3a0"/>
+    <path d="M478 344 L626 422 L478 500 Z" fill="#131313" stroke="#131313" stroke-width="14" stroke-linejoin="round"/>
+  </g>
+</svg>

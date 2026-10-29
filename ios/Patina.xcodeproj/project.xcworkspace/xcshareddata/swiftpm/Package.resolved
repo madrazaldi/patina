@@ -1,0 +1,51 @@
+{
+  "originHash" : "19b0eb1c213b19cfb9bab64eefb73894f25da3a8780e777b1776760a24f66c0d",
+  "pins" : [
+    {
+      "identity" : "aetherengine",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/superuser404notfound/AetherEngine",
+      "state" : {
+        "revision" : "dceea2a2e7eeef8455f4b19dc6c77891f74341ab",
+        "version" : "7.50.0"
+      }
+    },
+    {
+      "identity" : "ffmpegbuild",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/superuser404notfound/FFmpegBuild",
+      "state" : {
+        "revision" : "2c7977df9c3e337e4d6a46cc506d7914d7d2b61e",
+        "version" : "3.10.1"
+      }
+    },
+    {
+      "identity" : "libdovi",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/superuser404notfound/LibDovi",
+      "state" : {
+        "revision" : "0d7cce1d6836a30d13a3a2326e50a153af53f014",
+        "version" : "2.1.0"
+      }
+    },
+    {
+      "identity" : "smbclient",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/kishikawakatsumi/SMBClient",
+      "state" : {
+        "revision" : "e636c2b2458930770932a36d311ec9d478575b90",
+        "version" : "0.3.1"
+      }
+    },
+    {
+      "identity" : "swift-libass",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/mihai8804858/swift-libass",
+      "state" : {
+        "revision" : "6513c488e377a26c06db327fb2acfc2653a041d5",
+        "version" : "1.4.0"
+      }
+    }
+  ],
+  "version" : 3
+}
