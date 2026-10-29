@@ -422,7 +422,7 @@ public final class AetherPlaybackEngine: PlaybackEngine {
             return
         }
         let header = track.assHeader ?? (track.isExternal ? engine.sidecarASSHeader : nil) ?? ASSRenderer.defaultHeader
-        assSubtitles.setScript(header, fonts: engine.fontAttachments)
+        assSubtitles.setScript((track.id, header), fonts: engine.fontAttachments)
         assSubtitles.add(allCues)
         setActiveCues(at: engine.clock.sourceTime)
     }

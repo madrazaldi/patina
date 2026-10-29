@@ -17,7 +17,7 @@ public final class ASSSubtitles {
     private(set) var frame: ASSFrame?
 
     @ObservationIgnored private var renderer: ASSRenderer?
-    @ObservationIgnored private var header: String?
+    @ObservationIgnored private var script: (track: Int, header: String)?
     @ObservationIgnored private var fedCueIDs: Set<Int> = []
     @ObservationIgnored private var generation = 0
 
@@ -37,16 +37,17 @@ public final class ASSSubtitles {
 
     // MARK: Fed by the engine
 
-    /// Draws the track whose script header is `header`, or stops drawing with nil.
-    func setScript(_ header: String?, fonts: @autoclosure () -> [FontAttachment]) {
-        guard header != self.header else { return }
-        self.header = header
+    /// Draws `track`, whose script header is `header`, or stops drawing with nil. Another track
+    /// starts afresh even with the same header (the languages of one release often share it).
+    func setScript(_ script: (track: Int, header: String)?, fonts: @autoclosure () -> [FontAttachment]) {
+        guard script?.track != self.script?.track || script?.header != self.script?.header else { return }
+        self.script = script
         generation += 1
-        renderer = header.map { ASSRenderer(header: $0, fonts: fonts()) }
+        renderer = script.map { ASSRenderer(header: $0.header, fonts: fonts()) }
         fedCueIDs = []
         lastRender = nil
         frame = nil
-        isActive = header != nil
+        isActive = script != nil
         updateDisplayLink()
     }
 
