@@ -1,10 +1,11 @@
 // Port of web/src/pages/Settings.svelte: the account and its servers, playback (with the
 // automatic audio, subtitle and version choices of PlaybackRulesForm.svelte), appearance,
 // downloads, Seerr, diagnostics and About. The mpv and Discord settings have no iOS
-// equivalent.
+// equivalent; the streaming cache stands in for mpv's demuxer cache.
 
 import OSLog
 import PatinaCore
+import PatinaPlayer
 import PlexKit
 import SwiftUI
 
@@ -15,6 +16,7 @@ struct SettingsScreen: View {
         Form {
             AccountSettings()
             PlaybackSettings()
+            StreamCacheSettings()
             AutomaticPlaybackSettings()
             AppearanceSettings()
             DownloadSettings()
@@ -147,6 +149,36 @@ private struct PlaybackSettings: View {
     /// A binding that saves `key` on change.
     private func bind<T>(_ key: String, _ value: T, _ json: @escaping (T) -> JSONValue) -> Binding<T> {
         Binding(get: { value }, set: { store.updatePlayer([key: json($0)]) })
+    }
+}
+
+/// How much of a stream the player reads ahead and keeps (no desktop twin: mpv's
+/// `demuxer-max-bytes` and `demuxer-max-back-bytes` in mpv.conf).
+private struct StreamCacheSettings: View {
+    @AppStorage(StreamCache.readAheadKey) private var readAhead = 0
+    @AppStorage(StreamCache.sizeKey) private var size = 0
+
+    var body: some View {
+        Section {
+            Picker("Read Ahead", selection: $readAhead) {
+                Text("Automatic").tag(0)
+                Text("2 Minutes").tag(120)
+                Text("5 Minutes").tag(300)
+                Text("10 Minutes").tag(600)
+                Text("30 Minutes").tag(1800)
+                Text("Whole Item").tag(Int.max)
+            }
+            Picker("Cache Size", selection: $size) {
+                Text("Automatic").tag(0)
+                ForEach([512, 1024, 2048, 4096, 8192], id: \.self) { mb in
+                    Text(Format.bytes(Int64(mb) << 20)).tag(mb << 20)
+                }
+            }
+        } header: {
+            Text("Streaming Cache")
+        } footer: {
+            Text("How far ahead of the playhead the player downloads, and how much of the item it keeps on this \(UIDevice.current.model), for seeking back without downloading again. Automatic reads about 40 seconds ahead and keeps up to 2 GB; the cache never takes more than a quarter of the free space. Applies from the next item, and not to transcoded streams.")
+        }
     }
 }
 

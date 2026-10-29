@@ -27,6 +27,17 @@ nonisolated public enum PlayerPhase: Equatable, Sendable {
     }
 }
 
+/// How much of a stream the player keeps, from Settings › Streaming Cache: the iOS stand-in for
+/// mpv's demuxer cache. Read at each load, so a change applies from the next item.
+nonisolated public enum StreamCache {
+    /// Seconds to read ahead of the playhead (`Int`); 0 is the engine's default of about 40 s,
+    /// `Int.max` the whole item.
+    public static let readAheadKey = "player.cacheReadAhead"
+    /// Bytes the cache may keep on disk, played and ahead together (`Int`); 0 is automatic (up to
+    /// 2 GB). The engine never takes more than a quarter of the free space.
+    public static let sizeKey = "player.cacheSize"
+}
+
 @Observable
 public final class AetherPlaybackEngine: PlaybackEngine {
     // MARK: PlaybackEngine
@@ -133,6 +144,11 @@ public final class AetherPlaybackEngine: PlaybackEngine {
         options.initialSubtitleTrackID = request.subtitle.map(EngineMapping.subtitleTrackID)
         // ASS tracks arrive as raw event lines, for libass; other formats are unaffected.
         options.preserveASSMarkup = true
+        let readAhead = UserDefaults.standard.integer(forKey: StreamCache.readAheadKey)
+        // One segment of the engine's local stream is about 4 seconds.
+        if readAhead > 0 { options.forwardBufferSegments = readAhead == .max ? .max : max(1, readAhead / 4) }
+        let cacheSize = UserDefaults.standard.integer(forKey: StreamCache.sizeKey)
+        if cacheSize > 0 { options.sessionCacheByteBudget = cacheSize }
         do {
             try await engine.load(
                 url: request.url,
