@@ -134,10 +134,6 @@ struct PickedFilter: Hashable {
     var value: String
     var label: String
 
-    var json: JSONValue {
-        ["filter": .string(filter), "title": .string(title), "value": .string(value), "label": .string(label)]
-    }
-
     init(filter: String, title: String, value: String, label: String) {
         self.filter = filter
         self.title = title
@@ -145,69 +141,17 @@ struct PickedFilter: Hashable {
         self.label = label
     }
 
-    init?(json: JSONValue) {
-        guard let filter = json["filter"]?.stringValue, let value = json["value"]?.stringValue else { return nil }
-        self.filter = filter
-        self.value = value
-        title = json["title"]?.stringValue ?? filter
-        label = json["label"]?.stringValue ?? value
+    init(_ p: Ops.Views.Picked) {
+        self.init(filter: p.filter, title: p.title, value: p.value, label: p.label)
     }
+
+    var saved: Ops.Views.Picked { Ops.Views.Picked(filter: filter, title: title, value: value, label: label) }
 }
 
-/// A named library query (`SavedView`), stored in `ui.saved_views` in the web's format.
-struct SavedView: Identifiable {
-    var id: String
-    var name: String
-    var scope: String
-    var library: String
-    var mediaType: Int
-    var sort: String
-    var desc: Bool
-    var unwatched: Bool
-    var toggles: [String]
-    var picked: [PickedFilter]
+/// A named library query, kept in `ui.saved_views` through the core (`Ops.Views`).
+typealias SavedView = Ops.Views.SavedView
 
-    init?(json: JSONValue) {
-        guard let id = json["id"]?.stringValue, let name = json["name"]?.stringValue,
-            let scope = json["scope"]?.stringValue, let library = json["library"]?.stringValue
-        else { return nil }
-        self.id = id
-        self.name = name
-        self.scope = scope
-        self.library = library
-        mediaType = json["mediaType"]?.intValue ?? 0
-        sort = json["sort"]?.stringValue ?? "titleSort"
-        desc = json["desc"]?.boolValue ?? false
-        unwatched = json["unwatched"]?.boolValue ?? false
-        toggles = json["toggles"]?.arrayValue?.compactMap(\.stringValue) ?? []
-        picked = json["picked"]?.arrayValue?.compactMap(PickedFilter.init(json:)) ?? []
-    }
-
-    init(
-        id: String, name: String, scope: String, library: String, mediaType: Int, sort: String, desc: Bool,
-        unwatched: Bool, toggles: [String], picked: [PickedFilter]
-    ) {
-        self.id = id
-        self.name = name
-        self.scope = scope
-        self.library = library
-        self.mediaType = mediaType
-        self.sort = sort
-        self.desc = desc
-        self.unwatched = unwatched
-        self.toggles = toggles
-        self.picked = picked
-    }
-
-    var json: JSONValue {
-        [
-            "id": .string(id), "name": .string(name), "scope": .string(scope), "library": .string(library),
-            "mediaType": .number(Double(mediaType)), "sort": .string(sort), "desc": .bool(desc),
-            "unwatched": .bool(unwatched), "toggles": .array(toggles.map { .string($0) }),
-            "picked": .array(picked.map(\.json)),
-        ]
-    }
-}
+extension Ops.Views.SavedView: @retroactive Identifiable {}
 
 enum LibraryTab: String, CaseIterable, Hashable {
     case browse, recommended, collections, folders
@@ -392,36 +336,45 @@ final class LibraryModel {
     // MARK: Saved views
 
     var savedViews: [SavedView] {
-        (store.settings?.ui.savedViews ?? []).compactMap(SavedView.init(json:))
-            .filter { $0.scope == store.scope && $0.library == id }
+        _ = store.settings
+        return Commands.savedViews(store.app, library: id)
     }
 
     func saveView(_ name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        let view = SavedView(
-            id: UUID().uuidString.lowercased(), name: trimmed, scope: store.scope, library: id, mediaType: mediaType ?? 0,
-            sort: sort, desc: desc, unwatched: unwatched, toggles: toggles, picked: picked)
-        store.updateUi(["saved_views": .array((store.settings?.ui.savedViews ?? []) + [view.json])])
-        store.toast("Saved “\(trimmed)”")
+        do {
+            var view = try Commands.newSavedView(store.app, library: id, name: trimmed)
+            view.mediaType = mediaType ?? 0
+            view.sort = sort
+            view.desc = desc
+            view.unwatched = unwatched
+            view.toggles = toggles
+            view.picked = picked.map(\.saved)
+            try Commands.saveView(store.app, view: view)
+            store.toast("Saved “\(trimmed)”")
+        } catch {
+            store.error(error)
+        }
+        store.reloadSettings()
     }
 
     func useView(_ view: SavedView) {
         tab = .browse
         if view.mediaType != 0 { mediaType = view.mediaType }
-        sort = view.sort
+        sort = view.sort.isEmpty ? "titleSort" : view.sort
         desc = view.desc
         unwatched = view.unwatched
         toggles = view.toggles
-        picked = view.picked
+        picked = view.picked.map(PickedFilter.init)
         selection = []
         position = 0
         Task { await loadMeta() }
     }
 
     func removeView(_ view: SavedView) {
-        let all = (store.settings?.ui.savedViews ?? []).filter { $0["id"]?.stringValue != view.id }
-        store.updateUi(["saved_views": .array(all)])
+        do { try Commands.deleteView(store.app, id: view.id) } catch { store.error(error) }
+        store.reloadSettings()
     }
 
     // MARK: Selection

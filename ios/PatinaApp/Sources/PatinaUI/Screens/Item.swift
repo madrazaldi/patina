@@ -19,6 +19,8 @@ struct ItemScreen: View {
     @State private var season: String?
     @State private var watchlisted: Bool?
     @State private var expanded = false
+    /// The episode whose show gets "Audio & Subtitles for the Whole Show".
+    @State private var tracksFor: Metadata?
 
     private var regular: Bool { sizeClass == .regular }
     private var margin: CGFloat { Theme.margin(sizeClass) }
@@ -38,6 +40,9 @@ struct ItemScreen: View {
             }
         }
         .navigationTitle(item.value??.title ?? "")
+        .sheet(isPresented: Binding(get: { tracksFor != nil }, set: { if !$0 { tracksFor = nil } })) {
+            if let tracksFor { TrackSheet(item: tracksFor) }
+        }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if let m = item.value ?? nil {
@@ -126,26 +131,7 @@ struct ItemScreen: View {
         let square = PlexUI.shape(m) == .square
         return VStack(alignment: .leading, spacing: 18) {
             ZStack(alignment: .bottomLeading) {
-                // The backdrop moves at half speed as the page scrolls, and stretches when pulled.
-                Artwork(Metadata.backdrop(m), width: 1600, height: 900, server: Metadata.serverId(m))
-                    .frame(maxWidth: .infinity)
-                    .frame(height: height)
-                    .visualEffect { content, proxy in
-                        let y = proxy.frame(in: .scrollView).minY
-                        return content
-                            .scaleEffect(y > 0 ? 1 + y / height : 1, anchor: .bottom)
-                            .offset(y: y > 0 ? 0 : -y * 0.5)
-                    }
-                    .overlay {
-                        LinearGradient(
-                            stops: [
-                                .init(color: Theme.background.opacity(0.25), location: 0),
-                                .init(color: Theme.background.opacity(0.1), location: 0.35),
-                                .init(color: Theme.background.opacity(0.85), location: 0.78),
-                                .init(color: Theme.background, location: 1),
-                            ], startPoint: .top, endPoint: .bottom)
-                    }
-                    .clipped()
+                Color.clear
                 HStack(alignment: .bottom, spacing: regular ? 28 : 16) {
                     Artwork(Metadata.poster(m), width: 300, height: square ? 300 : 450, server: Metadata.serverId(m))
                         .frame(width: regular ? 190 : 112, height: (regular ? 190 : 112) * (square ? 1 : 1.5))
@@ -170,6 +156,30 @@ struct ItemScreen: View {
             }
             .frame(height: height)
             .containerRelativeFrame(.horizontal)
+            // Edge to edge, also under a side tab bar or the sensor housing in landscape.
+            .background(alignment: .top) {
+                // The backdrop moves at half speed as the page scrolls, and stretches when pulled.
+                Artwork(Metadata.backdrop(m), width: 1600, height: 900, server: Metadata.serverId(m))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: height)
+                    .visualEffect { content, proxy in
+                        let y = proxy.frame(in: .scrollView).minY
+                        return content
+                            .scaleEffect(y > 0 ? 1 + y / height : 1, anchor: .bottom)
+                            .offset(y: y > 0 ? 0 : -y * 0.5)
+                    }
+                    .overlay {
+                        LinearGradient(
+                            stops: [
+                                .init(color: Theme.background.opacity(0.25), location: 0),
+                                .init(color: Theme.background.opacity(0.1), location: 0.35),
+                                .init(color: Theme.background.opacity(0.85), location: 0.78),
+                                .init(color: Theme.background, location: 1),
+                            ], startPoint: .top, endPoint: .bottom)
+                    }
+                    .clipped()
+                    .ignoresSafeArea(edges: [.top, .horizontal])
+            }
             Group {
                 actions(m)
                 summary(m)
@@ -445,9 +455,7 @@ struct ItemScreen: View {
                             }
                         }
                         if Metadata.kind(m) == "episode" {
-                            // TODO(merge): Commands.setShowStreams (bulk "for the whole show") is a later task.
-                            Button("Audio & Subtitles for the Whole Show…", systemImage: "rectangle.stack") {}
-                                .disabled(true)
+                            Button("Audio & Subtitles for the Whole Show…", systemImage: "rectangle.stack") { tracksFor = m }
                         }
                     } label: {
                         pill("Subtitles", current.map(MediaStream.shortLabel) ?? "Off", "captions.bubble")

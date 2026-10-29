@@ -7,7 +7,7 @@ struct PatinaApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView()
+            RootView(store: delegate.store)
         }
         .commands { PatinaCommands() }
     }

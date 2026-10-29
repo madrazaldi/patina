@@ -4,6 +4,7 @@
 
 import Observation
 import PatinaCore
+import PatinaPlayer
 import PlexKit
 import SwiftUI
 
@@ -40,6 +41,8 @@ public enum ItemSheet: Identifiable {
     case subtitle(Metadata)
     case switchUser
     case customizeHome
+    /// Keep the next unwatched items of a show, season or playlist downloaded.
+    case keepDownloaded(Metadata)
 
     public var id: String {
         switch self {
@@ -51,6 +54,7 @@ public enum ItemSheet: Identifiable {
         case .subtitle(let m): "subtitle:\(m.ratingKey ?? "")"
         case .switchUser: "switchUser"
         case .customizeHome: "customizeHome"
+        case .keepDownloaded(let m): "keep:\(m.ratingKey ?? "")"
         }
     }
 }
@@ -66,6 +70,9 @@ struct ChangeLog {
 public final class AppStore: EventSink {
     @ObservationIgnored public private(set) var app: AppState!
     @ObservationIgnored public let host = AppHost()
+    /// The app's player (one for its lifetime), which the core drives; nil in previews or when
+    /// it could not start.
+    @ObservationIgnored public private(set) var engine: AetherPlaybackEngine?
 
     // Mirrors of the core (the CoreEvents).
     public internal(set) var connected = true
@@ -101,9 +108,11 @@ public final class AppStore: EventSink {
     public var compact = false
 
     // Overlays.
+    /// The full-screen player is up (the mini player shows otherwise).
+    public var playerOpen = false
     public var sheet: ItemSheet?
     public var confirming: ConfirmRequest?
-    /// The command palette (⌘K). TODO: the palette screen is a later task.
+    /// The command palette (⌘K).
     public var palette = false
     public var searchText = ""
     /// Bumped to put the cursor in the search field (⌘F).
@@ -114,6 +123,7 @@ public final class AppStore: EventSink {
     @ObservationIgnored private var log: [ChangeLog] = []
     @ObservationIgnored private var debugRouteDone = false
     @ObservationIgnored private var debugSignInDone = false
+    @ObservationIgnored private var debugPlayDone = false
     /// Library pages, filters and scroll kept across visits (`libraryMemory`).
     @ObservationIgnored var libraryMemory: [(String, LibraryModel)] = []
 
@@ -141,6 +151,15 @@ public final class AppStore: EventSink {
         seerr = PendingCommands.seerrConfigured(app)
         if start {
             let app = app!
+            do {
+                let engine = try AetherPlaybackEngine()
+                Player.attach(app, engine)
+                // Picture in Picture's "return to app" button brings the full player back.
+                engine.pictureInPicture.onRestore = { [weak self] in self?.playerOpen = true }
+                self.engine = engine
+            } catch {
+                logger("ui").error("the player could not start: \(errorText(error))")
+            }
             // desktop/main.ts: `app.spawn(session.restore(app))`.
             app.spawn { await PatinaCore.Session.restore(app) }
         }
@@ -207,9 +226,14 @@ public final class AppStore: EventSink {
             }
             self.sections = sections
         case .nowPlaying(let np):
+            let started = nowPlaying == nil && np != nil
             nowPlaying = np
             // Once something plays the offer is moot (resuming, or the user chose otherwise).
             if np != nil { savedQueue = nil }
+            // Video opens full screen; music stays in the mini player until it is tapped. A
+            // failure keeps the player up to offer what to do.
+            if started, let np, !PlexUI.isAudio(np.item) { playerOpen = true }
+            if np == nil, failure == nil { playerOpen = false }
         case .queue(let q):
             queue = q
         case .activities(let list):
@@ -228,6 +252,7 @@ public final class AppStore: EventSink {
             playback = s
         case .playbackFailure(let f):
             failure = f
+            if f == nil, nowPlaying == nil { playerOpen = false }
         }
     }
 
@@ -242,6 +267,14 @@ public final class AppStore: EventSink {
                 debugRouteDone = true
                 if route == .search, let q = url.queryItems?.first(where: { $0.name == "q" })?.value { searchText = q }
                 navigate(to: route)
+            }
+            // PATINA_PLAY=<ratingKey> starts playback on startup.
+            if !debugPlayDone, let key = ProcessInfo.processInfo.environment["PATINA_PLAY"] {
+                debugPlayDone = true
+                perform {
+                    guard let item = try await Commands.metadata(self.app, ratingKey: key) else { return }
+                    try await PendingCommands.play(self.app, item: item)
+                }
             }
         #endif
     }

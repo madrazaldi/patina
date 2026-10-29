@@ -1,5 +1,5 @@
-// The overlays of the shell: toasts (web/src/components/Toasts.svelte) and the slot the
-// mini player will fill (the player screen is a later task).
+// The overlays of the shell: toasts (web/src/components/Toasts.svelte) and the mini player
+// (the bar of web/src/components/NowPlaying.svelte).
 
 import PatinaCore
 import PlexKit
@@ -20,7 +20,7 @@ struct ToastStack: View {
         .frame(maxWidth: 460)
         .padding(.horizontal, 16)
         // Clear of the tab bar and the mini player.
-        .padding(.bottom, (store.compact && store.stage == .ready ? 58 : 16) + (store.nowPlaying != nil ? 72 : 0))
+        .padding(.bottom, (store.compact && store.stage == .ready ? 58 : 16) + (store.nowPlaying != nil || store.failure != nil ? 72 : 0))
         .frame(maxWidth: .infinity, alignment: sizeClass == .regular ? .bottomTrailing : .bottom)
     }
 }
@@ -59,53 +59,127 @@ struct ToastView: View {
     }
 }
 
-/// Room for the mini player above the tab bar (iPhone) or at the bottom of the detail
-/// column (iPad), shown while something plays. TODO: the player agent fills it in (the
-/// controls, the full-screen player); for now it shows what plays and pauses it.
+/// The mini player, above the tab bar (iPhone) or at the bottom of the detail column (iPad),
+/// while something plays: tap or swipe it up for the full player. After a failure it says so
+/// and offers to try again.
 struct MiniPlayerSlot: View {
     @Environment(AppStore.self) private var store
     @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
-        if let np = store.nowPlaying {
-            let (title, subtitle) = PlexUI.playingLines(np.item)
-            HStack(spacing: 12) {
-                Artwork(Metadata.poster(np.item), width: 96, height: 96, server: Metadata.serverId(np.item))
-                    .frame(width: 44, height: 44)
-                    .clipShape(.rect(cornerRadius: 8, style: .continuous))
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title).font(.subheadline.weight(.semibold)).lineLimit(1)
-                    if !subtitle.isEmpty {
-                        Text(subtitle).font(.caption).foregroundStyle(Theme.secondaryText).lineLimit(1)
-                    }
+        Group {
+            if let np = store.nowPlaying {
+                bar(np)
+            } else if let failure = store.failure {
+                failed(failure)
+            }
+        }
+        .padding(.horizontal, sizeClass == .regular ? 20 : 10)
+        .padding(.bottom, 6)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+
+    private func bar(_ np: NowPlaying) -> some View {
+        let (title, subtitle) = PlexUI.playingLines(np.item)
+        let app = store.app!
+        return HStack(spacing: 12) {
+            Group {
+                if let d = store.localDownload(np) {
+                    DownloadArtwork(id: d.id, source: Metadata.poster(np.item))
+                } else {
+                    Artwork(Metadata.poster(np.item), width: 96, height: 96, server: Metadata.serverId(np.item))
                 }
-                Spacer()
+            }
+            .frame(width: 44, height: 44)
+            .clipShape(.rect(cornerRadius: 8, style: .continuous))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(.subheadline.weight(.semibold)).lineLimit(1)
+                if !subtitle.isEmpty {
+                    Text(subtitle).font(.caption).foregroundStyle(Theme.secondaryText).lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Button {
+                Haptics.tap()
+                Commands.control(app, command: .togglePause)
+            } label: {
+                Image(systemName: np.paused ? "play.fill" : "pause.fill")
+                    .font(.title3)
+                    .contentTransition(.symbolEffect(.replace))
+                    .frame(width: 44, height: 44)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(np.paused ? "Play" : "Pause")
+            if np.queuePos + 1 < np.queueLen {
                 Button {
                     Haptics.tap()
-                    Commands.control(store.app, command: .togglePause)
+                    Commands.control(app, command: .next)
                 } label: {
-                    Image(systemName: np.paused ? "play.fill" : "pause.fill")
-                        .font(.title3)
-                        .frame(width: 44, height: 44)
+                    Image(systemName: "forward.fill")
+                        .font(.body)
+                        .frame(width: 36, height: 44)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(np.paused ? "Play" : "Pause")
+                .accessibilityLabel("Next")
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(.ultraThinMaterial, in: .rect(cornerRadius: 16, style: .continuous))
-            .overlay(alignment: .bottom) {
-                if np.durationMs > 0 {
-                    ProgressStrip(value: Double(np.positionMs) / Double(np.durationMs), height: 2)
-                        .clipShape(.capsule)
-                        .padding(.horizontal, 14)
-                }
-            }
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.hairline))
-            .padding(.horizontal, sizeClass == .regular ? 20 : 10)
-            .padding(.bottom, 6)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial, in: .rect(cornerRadius: 16, style: .continuous))
+        .overlay(alignment: .bottom) {
+            if np.durationMs > 0 {
+                ProgressStrip(value: Double(np.positionMs) / Double(np.durationMs), height: 2)
+                    .clipShape(.capsule)
+                    .padding(.horizontal, 14)
+            }
+        }
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.hairline))
+        .contentShape(.rect(cornerRadius: 16))
+        .onTapGesture { store.playerOpen = true }
+        .gesture(DragGesture(minimumDistance: 16).onEnded { g in
+            if g.translation.height < -24 { store.playerOpen = true }
+        })
+        .contextMenu {
+            Button("Open Player", systemImage: "arrow.up.left.and.arrow.down.right") { store.playerOpen = true }
+            Button("Stop Playback", systemImage: "stop.fill", role: .destructive) {
+                Commands.control(app, command: .stop)
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityAction(named: "Open Player") { store.playerOpen = true }
+    }
+
+    private func failed(_ failure: PlaybackFailure) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(Theme.danger)
+                .frame(width: 44, height: 44)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Couldn't play \(Metadata.title(failure.item))").font(.subheadline.weight(.semibold)).lineLimit(1)
+                Text(failure.reason).font(.caption).foregroundStyle(Theme.secondaryText).lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if failure.canRetry {
+                Button("Retry") {
+                    store.perform { try Commands.recoverPlayback(store.app, action: .retry) }
+                }
+                .font(.subheadline.weight(.semibold))
+            }
+            Button {
+                Commands.dismissFailure(store.app)
+            } label: {
+                Image(systemName: "xmark").frame(width: 32, height: 44)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial, in: .rect(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.hairline))
+        .contentShape(.rect(cornerRadius: 16))
+        // The full player lists the other ways to play it.
+        .onTapGesture { store.playerOpen = true }
     }
 }
 

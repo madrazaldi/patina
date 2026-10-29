@@ -100,3 +100,15 @@ enum EngineMapping {
         cues.filter { $0.startTime <= time && time < $0.endTime }
     }
 }
+
+extension AetherPlaybackEngine {
+    /// The id in `subtitleTracks` of a subtitle choice, for a screen's picker.
+    public static func trackID(of subtitle: EngineSubtitle) -> Int {
+        EngineMapping.subtitleTrackID(subtitle)
+    }
+
+    /// The subtitle choice of an id in `subtitleTracks`; nil is off.
+    public static func subtitle(trackID: Int?) -> EngineSubtitle? {
+        EngineMapping.subtitle(trackID: trackID)
+    }
+}

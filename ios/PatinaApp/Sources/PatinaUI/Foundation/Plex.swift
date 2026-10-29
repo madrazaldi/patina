@@ -77,6 +77,11 @@ public enum PlexUI {
         }
     }
 
+    /// Music (and other sound-only items): the player shows the "now playing" layout.
+    public static func isAudio(_ m: Metadata) -> Bool {
+        Metadata.kind(m) == "track"
+    }
+
     /// Title and subtitle for "now playing"-style rows.
     public static func playingLines(_ m: Metadata) -> (String, String) {
         switch Metadata.kind(m) {

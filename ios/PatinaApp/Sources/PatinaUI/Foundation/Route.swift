@@ -3,11 +3,9 @@
 // import another. History and scroll restoration are NavigationStack's.
 
 import Foundation
+import SeerrKit
 
-public enum SeerrMediaType: String, Hashable, Sendable, Codable {
-    case movie
-    case tv
-}
+public typealias SeerrMediaType = SeerrKit.SeerrMediaType
 
 public enum Route: Hashable, Sendable {
     case home

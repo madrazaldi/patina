@@ -27,7 +27,7 @@ public struct PatinaCommands: SwiftUI.Commands {
             Button("Search") { store?.focusSearch() }
                 .keyboardShortcut("f", modifiers: .command)
                 .disabled(store?.stage != .ready)
-            // The hook of the command palette (a later task): it sets `store.palette`.
+            // Opens the command palette (`store.palette`).
             Button("Command Palette") { store?.palette = true }
                 .keyboardShortcut("k", modifiers: .command)
                 .disabled(store?.stage != .ready)

@@ -1,6 +1,6 @@
 // Where artwork comes from (the iOS counterpart of web/src/lib/images.ts and the desktop
-// shell's image server). Everything goes through `ArtworkLoader.load`, so offline artwork
-// and the shared disk cache can replace the transcoder fetch in one place.
+// shell's image server): the core's `Images` (its disk cache, other servers of the account,
+// and the artwork downloads saved), decoded and kept in memory here.
 
 import PatinaCore
 import PlexKit
@@ -14,17 +14,6 @@ public enum ArtworkLoader {
         let c = NSCache<NSString, UIImage>()
         c.totalCostLimit = 96 * 1024 * 1024
         return c
-    }()
-
-    /// Transcoded images on disk, under the cache directory (the system may purge it).
-    private nonisolated static let session: URLSession = {
-        let config = URLSessionConfiguration.default
-        let dir = Paths.standard().cache.appendingPathComponent("artwork", isDirectory: true)
-        config.urlCache = URLCache(memoryCapacity: 0, diskCapacity: 400 * 1024 * 1024, directory: dir)
-        // Resized artwork never changes under the same URL (it carries the image's version).
-        config.requestCachePolicy = .returnCacheDataElseLoad
-        config.httpMaximumConnectionsPerHost = 6
-        return URLSession(configuration: config)
     }()
 
     /// The desktop asks for sizes meant for a 2x screen; scale them for this one.
@@ -43,36 +32,31 @@ public enum ArtworkLoader {
     }
 
     /// `source` (a server path or an absolute URL) resized to about `width`×`height` (the
-    /// desktop's sizes). `server` is the machine id of another server of the account the
-    /// image lives on. TODO(merge): `Images.data(...)` (downloads agent: offline artwork and
-    /// the shared disk cache) replaces the fetch below.
+    /// desktop's sizes), through the core's disk cache. `server` is the machine id of another
+    /// server of the account the image lives on.
     public static func load(source: String, width: Int, height: Int, server: String? = nil) async throws -> UIImage {
         let cacheKey = key(source, width, height, server)
         if let hit = memory.object(forKey: cacheKey) { return hit }
-        let w = scaled(width)
-        let h = scaled(height)
-        let data: Data
-        if let server, let app, !Servers.isCurrent(app, server) {
-            guard let (bytes, _) = await Servers.image(app, server, source, w, h) else {
-                throw CoreError("No artwork")
-            }
-            data = bytes
-        } else {
-            guard let current = Images.currentServer() else { throw CoreError("Not connected to a server.") }
-            data = try await fetch(try current.imageUrl(source, width: w, height: h))
-        }
-        let image = try await decode(data)
-        memory.setObject(image, forKey: cacheKey, cost: Int(image.size.width * image.size.height * image.scale * 4))
-        return image
+        guard let app else { throw CoreError("Not connected to a server.") }
+        let data = try await Images.data(app, source: source, width: scaled(width), height: scaled(height), server: server)
+        return remember(try await decode(data), cacheKey)
     }
 
-    @concurrent
-    private nonisolated static func fetch(_ url: URL) async throws -> Data {
-        let (data, response) = try await session.data(from: url)
-        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-            throw CoreError("HTTP \(http.statusCode)")
-        }
-        return data
+    /// The artwork a download saved, which works offline (the desktop's `/d?id=`).
+    public static func load(download id: String) async throws -> UIImage {
+        let cacheKey = "download|\(id)" as NSString
+        if let hit = memory.object(forKey: cacheKey) { return hit }
+        guard let app else { throw CoreError("No artwork") }
+        return remember(try await decode(Images.downloadData(app, id: id)), cacheKey)
+    }
+
+    public static func cached(download id: String) -> UIImage? {
+        memory.object(forKey: "download|\(id)" as NSString)
+    }
+
+    private static func remember(_ image: UIImage, _ key: NSString) -> UIImage {
+        memory.setObject(image, forKey: key, cost: Int(image.size.width * image.size.height * image.scale * 4))
+        return image
     }
 
     @concurrent

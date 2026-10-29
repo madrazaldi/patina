@@ -82,6 +82,40 @@ public struct Artwork: View {
     }
 }
 
+/// The artwork a download saved (works offline), falling back to the server's.
+public struct DownloadArtwork: View {
+    let id: String
+    let source: String?
+    var server: String?
+
+    @State private var image: UIImage?
+
+    public init(id: String, source: String?, server: String? = nil) {
+        self.id = id
+        self.source = source
+        self.server = server
+        _image = State(initialValue: ArtworkLoader.cached(download: id))
+    }
+
+    public var body: some View {
+        Group {
+            if let image {
+                Rectangle().fill(Theme.raised)
+                    .overlay { Image(uiImage: image).resizable().scaledToFill() }
+                    .clipped()
+            } else {
+                Artwork(source, width: 300, height: 300, server: server)
+            }
+        }
+        .task(id: id) {
+            if image == nil, let loaded = try? await ArtworkLoader.load(download: id) {
+                withAnimation(.easeOut(duration: 0.25)) { image = loaded }
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
 #Preview {
     Artwork(nil, width: 300, height: 450, fallback: "The Long Voyage")
         .aspectRatio(2 / 3, contentMode: .fit)

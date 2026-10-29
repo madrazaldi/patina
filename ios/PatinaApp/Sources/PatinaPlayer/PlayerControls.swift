@@ -245,16 +245,22 @@ public struct PlayerPressStyle: ButtonStyle {
     }
 }
 
-/// The system's AirPlay picker.
-struct AirPlayButton: UIViewRepresentable {
-    func makeUIView(context: Context) -> AVRoutePickerView {
+/// The system's AirPlay picker. `video` false lists the audio routes first (music).
+public struct AirPlayButton: UIViewRepresentable {
+    private let video: Bool
+
+    public init(video: Bool = true) {
+        self.video = video
+    }
+
+    public func makeUIView(context: Context) -> AVRoutePickerView {
         let view = AVRoutePickerView()
         view.tintColor = .white
-        view.prioritizesVideoDevices = true
+        view.prioritizesVideoDevices = video
         return view
     }
 
-    func updateUIView(_ view: AVRoutePickerView, context: Context) {}
+    public func updateUIView(_ view: AVRoutePickerView, context: Context) {}
 }
 
 // MARK: - Prompts

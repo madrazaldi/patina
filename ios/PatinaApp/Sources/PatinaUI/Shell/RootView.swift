@@ -3,6 +3,7 @@
 // web/src/App.svelte.
 
 import PatinaCore
+import PlexKit
 import SwiftUI
 
 public struct RootView: View {
@@ -12,7 +13,7 @@ public struct RootView: View {
         _store = State(initialValue: AppStore())
     }
 
-    init(store: AppStore) {
+    public init(store: AppStore) {
         _store = State(initialValue: store)
     }
 
@@ -36,8 +37,15 @@ public struct RootView: View {
                 .tint(store.accent)
                 .preferredColorScheme(.dark)
         }
+        .fullScreenCover(isPresented: $store.playerOpen) {
+            PlayerScreen()
+                .environment(store)
+                .tint(store.accent)
+                .preferredColorScheme(.dark)
+                .presentationBackground(.clear)
+        }
         .sheet(isPresented: $store.palette) {
-            CommandPalettePlaceholder()
+            CommandPalette()
                 .environment(store)
                 .presentationDetents([.medium])
                 .preferredColorScheme(.dark)
@@ -73,6 +81,8 @@ struct SheetHost: View {
         case .subtitle(let item): SubtitleSheet(item: item)
         case .switchUser: SwitchUserSheet()
         case .customizeHome: CustomizeHomeSheet()
+        case .keepDownloaded(let m):
+            SmartPolicySheet(mode: .create(ratingKey: Metadata.ratingKey(m), title: Metadata.title(m)))
         }
     }
 }

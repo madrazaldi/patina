@@ -31,7 +31,7 @@ extension AppStore {
     public func download(_ item: Metadata) {
         Task {
             do {
-                let n = try await PendingCommands.download(app, ratingKey: Metadata.ratingKey(item))
+                let n = try await Commands.download(app, ratingKey: Metadata.ratingKey(item))
                 toast(n == 0 ? "Already downloaded" : n == 1 ? "Downloading…" : "Downloading \(n) items…")
                 Haptics.success()
             } catch {

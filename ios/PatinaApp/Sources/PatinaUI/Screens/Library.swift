@@ -538,7 +538,7 @@ struct BulkBar: View {
             for item in items {
                 guard scope == store.scope else { break }
                 do {
-                    _ = try await PendingCommands.download(store.app, ratingKey: Metadata.ratingKey(item))
+                    _ = try await Commands.download(store.app, ratingKey: Metadata.ratingKey(item))
                 } catch {
                     failures.append("\(Metadata.title(item)): \(errorText(error))")
                     if failures.count == 1 && failures.count == items.count { break }

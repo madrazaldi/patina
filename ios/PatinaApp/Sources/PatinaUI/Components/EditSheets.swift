@@ -198,7 +198,7 @@ struct EditSheet: View {
         busy = true
         Task {
             let ok = await store.act("Saved", refresh: true) {
-                try await PendingCommands.editMetadata(
+                try await Commands.editMetadata(
                     store.app, ratingKey: Metadata.ratingKey(full), fields: c.fields, tags: c.tags)
             }
             busy = false

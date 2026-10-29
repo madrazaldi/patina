@@ -107,6 +107,9 @@ struct ItemMenu: View {
                 if ["movie", "episode", "track", "show", "season", "album", "artist"].contains(kind) {
                     downloadButton
                 }
+                if ["show", "season", "playlist"].contains(kind) {
+                    Button("Keep Downloaded…", systemImage: "arrow.down.circle.dotted") { store.sheet = .keepDownloaded(item) }
+                }
             }
 
             if store.owned && kind != "playlist" {
@@ -161,7 +164,7 @@ struct ItemMenu: View {
                 Button("Downloaded", systemImage: "arrow.down.circle.fill") {}.disabled(true)
             case .paused, .failed:
                 Button("Resume Download", systemImage: "arrow.down.circle") {
-                    store.perform { try await PendingCommands.retryDownload(store.app, id: saved.id) }
+                    Commands.retryDownload(store.app, id: saved.id)
                 }
             case .queued, .downloading:
                 Button("Downloading…", systemImage: "arrow.down.circle.dotted") {}.disabled(true)
