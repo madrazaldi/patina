@@ -482,7 +482,7 @@ impl Server {
 
     // Overview -------------------------------------------------------------------
 
-    fn overview_view(&self, o: &Overview, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+    fn overview_view(&self, o: &Overview, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
         let tint = store(cx).read(cx).tint();
         let muted = theme.muted_foreground;
@@ -526,7 +526,7 @@ impl Server {
                         .text_sm()
                         .child(format!("Version {} is available.", r.version.clone().unwrap_or_default()))
                         .when_some(r.added.clone().filter(|s| !s.is_empty()), |d, added| {
-                            d.child(div().id("release-notes").mt_2p5().max_h(px(160.)).overflow_y_scroll().text_xs().text_color(muted).child(added))
+                            d.child(widgets::inner_v_scroll("release-notes", window, cx).mt_2p5().max_h(px(160.)).text_xs().text_color(muted).child(added))
                         })
                         .child(
                             h_flex()
@@ -592,7 +592,7 @@ impl Server {
                                 .child(div().text_xs().font_medium().text_color(muted).child(label))
                                 .child(div().mt_1().text_2xl().font_semibold().child(value))
                         })))
-                        .when(!s.bandwidth.is_empty(), |d| d.child(self.bandwidth(&s.bandwidth, sv.since, sv.step, cx)))
+                        .when(!s.bandwidth.is_empty(), |d| d.child(self.bandwidth(&s.bandwidth, sv.since, sv.step, window, cx)))
                         .into_any_element()
                 };
                 div().when(self.stats.loading, |d| d.opacity(0.5)).child(body).into_any_element()
@@ -629,7 +629,7 @@ impl Server {
     /// Data sent per time bucket as stacked columns: remote (accent) on the baseline,
     /// local network (neutral) above it. Hover a column for its values; the same
     /// numbers are available as a table.
-    fn bandwidth(&self, buckets: &[Bucket], since: i64, step: i64, cx: &mut Context<Self>) -> AnyElement {
+    fn bandwidth(&self, buckets: &[Bucket], since: i64, step: i64, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
         let tint = store(cx).read(cx).tint();
         let muted = theme.muted_foreground;
@@ -677,7 +677,7 @@ impl Server {
             });
             return v_flex()
                 .child(legend)
-                .child(v_flex().rounded(px(8.)).border_1().border_color(theme.border).overflow_hidden().child(head).child(v_flex().id("chart-rows").max_h(px(260.)).overflow_y_scroll().children(rows)))
+                .child(v_flex().rounded(px(8.)).border_1().border_color(theme.border).overflow_hidden().child(head).child(widgets::inner_v_scroll("chart-rows", window, cx).flex().flex_col().max_h(px(260.)).children(rows)))
                 .into_any_element();
         }
 
@@ -1141,7 +1141,7 @@ impl Server {
 
     // Users & devices --------------------------------------------------------------
 
-    fn users_view(&self, d: &UsersDevices, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+    fn users_view(&self, d: &UsersDevices, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
         let muted = theme.muted_foreground;
         let wide = window.viewport_size().width >= px(1024.);
@@ -1210,7 +1210,7 @@ impl Server {
                             }),
                     )
             }));
-        let devices = titled_card("Devices that have connected", cx).child(v_flex().id("devices").max_h(px(480.)).overflow_y_scroll().children(d.devices.iter().rev().enumerate().map(|(i, dev)| {
+        let devices = titled_card("Devices that have connected", cx).child(widgets::inner_v_scroll("devices", window, cx).flex().flex_col().max_h(px(480.)).children(d.devices.iter().rev().enumerate().map(|(i, dev)| {
             widgets::setting(
                 i == 0,
                 dev.name.clone().unwrap_or_default(),

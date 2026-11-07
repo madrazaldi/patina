@@ -10,9 +10,9 @@ use gpui_kit::component::kbd::Kbd;
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::progress::Progress;
-use gpui_kit::component::sidebar::{Sidebar, SidebarCollapsible, SidebarFooter, SidebarGroup, SidebarHeader, SidebarItem, SidebarMenu, SidebarMenuItem, SidebarToggleButton};
+use gpui_kit::component::sidebar::{Sidebar, SidebarCollapsible, SidebarItem, SidebarMenu, SidebarMenuItem, SidebarToggleButton};
 use gpui_kit::component::spinner::Spinner;
-use gpui_kit::component::{Icon, h_flex, v_flex};
+use gpui_kit::component::{Collapsible, Icon, h_flex, v_flex};
 use patina_core::session;
 use patina_core::state::Stage;
 
@@ -220,9 +220,9 @@ impl Main {
         let theme = cx.theme().clone();
         let mac = cfg!(target_os = "macos");
 
-        let mut groups = vec![SidebarGroup::new("").child(main)];
+        let mut groups = vec![Section::new(None, main)];
         if !s.sections.is_empty() {
-            groups.push(SidebarGroup::new("Libraries").child(libraries));
+            groups.push(Section::new(Some("Libraries".into()), libraries));
         }
 
         let servers = session.as_ref().map(|x| (x.servers.clone(), x.server_id.clone())).unwrap_or_default();
@@ -230,7 +230,8 @@ impl Main {
             .id("user")
             .w_full()
             .gap_2()
-            .p_2()
+            // Collapsed, the sidebar leaves just the avatar's width.
+            .when(!collapsed, |d| d.p_2())
             .rounded(px(8.))
             .cursor_pointer()
             .hover(|st| st.bg(theme.sidebar_accent))
@@ -308,7 +309,7 @@ impl Main {
                         .child(Progress::new("task-progress").value(task.progress as f32)),
                 )
             })
-            .child(SidebarItem::render(tools.collapsed(collapsed), "tools", window, cx))
+            .child(SidebarItem::render(tools.gap_1().collapsed(collapsed), "tools", window, cx))
             .child(div().h_px().bg(theme.sidebar_border))
             .child(user_menu);
 
@@ -316,8 +317,12 @@ impl Main {
             .collapsible(SidebarCollapsible::Icon)
             .collapsed(collapsed)
             .w(px(240.))
+            // Plain elements, not `SidebarHeader`/`SidebarFooter`: those highlight as a whole on hover.
             .header(
-                SidebarHeader::new()
+                h_flex()
+                    .w_full()
+                    .gap_2()
+                    .when(!collapsed, |d| d.px_2())
                     .pt(if mac { px(36.) } else { px(12.) })
                     .child(
                         div()
@@ -344,7 +349,7 @@ impl Main {
                     }),
             )
             .children(groups)
-            .footer(SidebarFooter::new().child(footer))
+            .footer(footer)
     }
 
     fn topbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -416,6 +421,41 @@ impl Main {
         let view = pages::build(&route, window, cx);
         nav.update(cx, |n: &mut Nav, _| n.current().view = Some(view.clone()));
         view
+    }
+}
+
+/// A sidebar group: an optional heading over a menu. gpui-kit's `SidebarGroup` draws its
+/// 32px heading row even without a label, and its menus space items 8px apart.
+#[derive(Clone)]
+struct Section {
+    label: Option<SharedString>,
+    menu: SidebarMenu,
+    collapsed: bool,
+}
+
+impl Section {
+    fn new(label: Option<SharedString>, menu: SidebarMenu) -> Self {
+        Self { label, menu, collapsed: false }
+    }
+}
+
+impl Collapsible for Section {
+    fn is_collapsed(&self) -> bool {
+        self.collapsed
+    }
+
+    fn collapsed(mut self, collapsed: bool) -> Self {
+        self.collapsed = collapsed;
+        self
+    }
+}
+
+impl SidebarItem for Section {
+    fn render(self, id: impl Into<ElementId>, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let muted = cx.theme().sidebar_foreground.opacity(0.7);
+        v_flex()
+            .when_some(self.label.filter(|_| !self.collapsed), |d, label| d.pt_2().child(h_flex().h_8().flex_none().px_2().text_xs().text_color(muted).child(label)))
+            .child(self.menu.gap_1().collapsed(self.collapsed).render(id, window, cx))
     }
 }
 

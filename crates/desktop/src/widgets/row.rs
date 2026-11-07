@@ -81,14 +81,12 @@ impl RenderOnce for CardRow {
             .id(self.id)
             .child(section_head(self.title, Some(controls.into_any_element())))
             .child(
-                h_flex()
-                    .id("cards")
+                super::h_scroll("cards")
                     .mx(-GUTTER)
                     .px(GUTTER)
                     .pb_1()
                     .gap_5()
                     .items_start()
-                    .overflow_x_scroll()
                     .track_scroll(&scroll)
                     .children(self.items.into_iter().enumerate().map(|(i, item)| {
                         let key = format!("{}:{}:{i}", item.rating_key(), item.key.as_deref().unwrap_or(""));

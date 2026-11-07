@@ -749,14 +749,12 @@ impl Item {
         v_flex()
             .child(widgets::section_head(title, None))
             .child(
-                h_flex()
-                    .id("cast")
+                widgets::h_scroll("cast")
                     .mx(-GUTTER)
                     .px(GUTTER)
                     .pb_1()
                     .gap_4()
                     .items_start()
-                    .overflow_x_scroll()
                     .children(item.roles.iter().take(40).enumerate().map(|(i, role)| {
                         let name = role.tag.clone().unwrap_or_default();
                         let route = section.zip(role.filter.clone()).map(|(s, f)| Route::browse(format!("/library/sections/{s}/all?{f}"), name.clone()));
@@ -825,8 +823,10 @@ impl Render for Item {
             .right_0()
             .h(px(520.))
             .overflow_hidden()
-            .opacity(0.5)
-            .children(art_of(item.backdrop(), 1920., 1080., item.server_id()).map(|i| i.size_full().object_fit(ObjectFit::Cover)))
+            // The image alone at half opacity: GPUI applies a parent's opacity to each child on its
+            // own (not to the group, as CSS does), which would leave the fade to the background
+            // half-transparent and a hard edge where the backdrop ends.
+            .children(art_of(item.backdrop(), 1920., 1080., item.server_id()).map(|i| i.size_full().object_fit(ObjectFit::Cover).opacity(0.5)))
             // background/10 → background/60 → background downwards, in two halves (GPUI gradients
             // have two stops; angle 0 runs from the bottom up).
             .child(div().absolute().top_0().left_0().right_0().h(px(260.)).bg(linear_gradient(0., linear_color_stop(bg.opacity(0.6), 0.), linear_color_stop(bg.opacity(0.1), 1.))))
@@ -863,7 +863,7 @@ impl Render for Item {
         for (i, hub) in extra_hubs(&item, &self.extra).into_iter().enumerate() {
             body = body.child(HubRow::new(ElementId::Name(format!("extra:{}:{i}", hub.hub_identifier.as_deref().unwrap_or("")).into()), hub));
         }
-        div().id("item").size_full().overflow_y_scroll().child(div().relative().child(backdrop).child(body)).into_any_element()
+        widgets::v_scroll("item").size_full().child(div().relative().child(backdrop).child(body)).into_any_element()
     }
 }
 

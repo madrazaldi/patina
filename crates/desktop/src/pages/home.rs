@@ -246,7 +246,7 @@ impl Render for Home {
         let theme = cx.theme().clone();
         let layout = Self::layout(cx);
         let list = self.hubs.ready().cloned().or_else(|| self.stale.clone());
-        let mut body = v_flex().id("home").size_full().overflow_y_scroll().pb(px(64.));
+        let mut body = widgets::v_scroll("home").flex().flex_col().size_full().pb(px(64.));
         body = body.child(
             h_flex()
                 .justify_end()

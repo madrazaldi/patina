@@ -1217,12 +1217,9 @@ impl Render for PlayerPanel {
         let separator = || div().flex_none().h_px().bg(theme.border);
         let chapters = (!ps.chapters.is_empty()).then(|| {
             v_flex().gap_2().child(heading("Chapters", cx)).child(
-                v_flex()
-                    .id("chapters")
+                crate::widgets::keep_wheel(v_flex().id("chapters").overflow_y_scroll().track_scroll(&self.chapters), self.chapters.clone())
                     .mx(px(-4.))
                     .max_h(px(144.))
-                    .overflow_y_scroll()
-                    .track_scroll(&self.chapters)
                     .children(ps.chapters.iter().enumerate().map(|(i, c)| {
                         let current = ps.chapter == Some(i);
                         h_flex()
