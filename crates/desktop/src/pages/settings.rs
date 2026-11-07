@@ -526,6 +526,7 @@ impl Settings {
                         s.connecting = false;
                         match result {
                             Ok(st) => {
+                                crate::pages::requests::seerr::forget_status(cx);
                                 s.seerr_key.update(cx, |i, cx| i.set_value("", window, cx));
                                 store::toast(cx, format!("Connected to Seerr as {}", st.user.name));
                                 reload_settings(cx);
@@ -547,6 +548,7 @@ impl Settings {
         let app = core(cx);
         let (weak, handle) = (cx.entity().downgrade(), window.window_handle());
         store::act_then(cx, blocking(move || seerr::disconnect(&app).map_err(|e| anyhow::anyhow!(e.to_string()))), move |_, cx| {
+            crate::pages::requests::seerr::forget_status(cx);
             store::toast(cx, "Seerr disconnected");
             reload_settings(cx);
             handle

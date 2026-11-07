@@ -51,6 +51,14 @@ fn main() {
         nav::init(cx);
         shell::bind_keys(cx);
 
+        // Close mpv and let the last playback reports reach Plex. GPUI gives quit futures
+        // only a moment, so this blocks here, as the TUI does on exit.
+        cx.on_app_quit(|_| {
+            patina_core::player::shutdown();
+            async {}
+        })
+        .detach();
+
         cx.on_window_closed(|cx, _| {
             if cx.windows().is_empty() {
                 cx.quit();

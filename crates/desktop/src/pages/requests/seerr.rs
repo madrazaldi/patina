@@ -130,9 +130,15 @@ struct StatusCache(Option<(String, StatusFuture)>);
 
 impl Global for StatusCache {}
 
+/// Which Seerr instance and sign-in the status is for: the URL, the API key (if any) and the
+/// Plex account (a Plex Home switch signs in to Seerr as someone else).
+pub fn seerr_key(s: &crate::store::Store) -> String {
+    format!("{}|{}|{}", s.settings.seerr.url.trim(), s.settings.seerr.api_key, s.scope())
+}
+
 fn status_key(cx: &App) -> Option<String> {
     let s = store(cx).read(cx);
-    s.seerr.then(|| format!("{}|{}", s.settings.seerr.url.trim(), s.scope()))
+    s.seerr.then(|| seerr_key(s))
 }
 
 /// The Seerr status, from the cache when it was asked for this instance and account before.

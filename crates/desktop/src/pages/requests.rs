@@ -51,6 +51,8 @@ pub struct Requests {
     titles: Vec<SeerrTitle>,
     shown: (Option<usize>, u32, u32),
     loading: bool,
+    /// The Discover list being loaded.
+    loading_list: usize,
     discover_error: Option<String>,
     generation: u64,
     filter: RequestFilter,
@@ -80,6 +82,7 @@ impl Requests {
             titles: Vec::new(),
             shown: (None, 0, 0),
             loading: false,
+            loading_list: 0,
             discover_error: None,
             generation: 0,
             filter: RequestFilter::All,
@@ -97,7 +100,7 @@ impl Requests {
 
     fn key(&self, cx: &App) -> String {
         let s = store(cx).read(cx);
-        if s.seerr { format!("{}|{}", s.settings.seerr.url.trim(), s.scope()) } else { String::new() }
+        if s.seerr { seerr::seerr_key(s) } else { String::new() }
     }
 
     /// Seerr was set up, changed or removed: start over.
@@ -141,7 +144,7 @@ impl Requests {
             return;
         }
         match self.tab {
-            Tab::Discover if self.shown.0 != Some(self.list) && !self.loading => {
+            Tab::Discover if self.shown.0 != Some(self.list) && !(self.loading && self.loading_list == self.list) => {
                 self.titles.clear();
                 self.load(self.list, 1, cx);
             }
@@ -154,6 +157,7 @@ impl Requests {
         self.generation += 1;
         let mine = self.generation;
         self.loading = true;
+        self.loading_list = list;
         self.discover_error = None;
         let app = core(cx);
         let which = LISTS[list].0;

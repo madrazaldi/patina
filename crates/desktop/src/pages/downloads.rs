@@ -135,8 +135,9 @@ fn budget_text(budget: Option<u64>) -> String {
 pub struct Downloads {
     offline: bool,
     smart: Option<Overview>,
-    /// What the smart overview was loaded for, to reload when downloads change.
-    seen: Vec<(String, State, i64)>,
+    /// The downloads event the smart overview was loaded for: it reloads on each one, as policy
+    /// and budget changes come with them.
+    seen: u64,
     busy: bool,
     keep: HashMap<String, Entity<InputState>>,
     budget: Option<Entity<InputState>>,
@@ -148,23 +149,18 @@ pub struct Downloads {
 impl Downloads {
     pub fn new(offline: bool, _window: &mut Window, cx: &mut Context<Self>) -> Self {
         let subs = vec![cx.observe(&store(cx), |this: &mut Self, store, cx| {
-            let seen = Self::fingerprint(&store.read(cx).downloads);
-            if seen != this.seen {
+            if store.read(cx).downloads_tick != this.seen {
                 this.load_smart(cx);
             }
             cx.notify();
         })];
-        let mut this = Self { offline, smart: None, seen: Vec::new(), busy: false, keep: HashMap::new(), budget: None, sync_inputs: false, _subs: subs };
+        let mut this = Self { offline, smart: None, seen: 0, busy: false, keep: HashMap::new(), budget: None, sync_inputs: false, _subs: subs };
         this.load_smart(cx);
         this
     }
 
-    fn fingerprint(list: &[Download]) -> Vec<(String, State, i64)> {
-        list.iter().map(|d| (d.id.clone(), d.state, d.size)).collect()
-    }
-
     fn load_smart(&mut self, cx: &mut Context<Self>) {
-        self.seen = Self::fingerprint(&store(cx).read(cx).downloads);
+        self.seen = store(cx).read(cx).downloads_tick;
         let app = core(cx);
         cx.spawn(async move |this, cx| {
             let overview = blocking(move || smart::overview(&app)).await;

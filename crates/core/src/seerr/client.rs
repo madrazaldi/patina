@@ -12,7 +12,7 @@ use futures::future::{BoxFuture, Shared};
 use reqwest::Method;
 use reqwest::header::{ACCEPT, CONTENT_TYPE, COOKIE, SET_COOKIE};
 use serde::Serialize;
-use serde::de::DeserializeOwned;
+use serde::de::{DeserializeOwned, IgnoredAny};
 
 use super::models::*;
 use super::{SeerrError, SeerrMediaType};
@@ -241,16 +241,17 @@ impl SeerrClient {
     }
 
     /// `approve` or `decline` a pending request.
+    /// Seerr answers with the updated request, which is not needed.
     pub async fn set_request_status(&self, id: i64, verdict: RequestVerdict) -> Result<(), SeerrError> {
-        self.request(Method::POST, &format!("/request/{id}/{}", verdict.name()), &[], None, true).await
+        self.request::<IgnoredAny>(Method::POST, &format!("/request/{id}/{}", verdict.name()), &[], None, true).await.map(drop)
     }
 
     pub async fn retry_request(&self, id: i64) -> Result<(), SeerrError> {
-        self.request(Method::POST, &format!("/request/{id}/retry"), &[], None, true).await
+        self.request::<IgnoredAny>(Method::POST, &format!("/request/{id}/retry"), &[], None, true).await.map(drop)
     }
 
     pub async fn delete_request(&self, id: i64) -> Result<(), SeerrError> {
-        self.request(Method::DELETE, &format!("/request/{id}"), &[], None, true).await
+        self.request::<IgnoredAny>(Method::DELETE, &format!("/request/{id}"), &[], None, true).await.map(drop)
     }
 
     /// Radarr or Sonarr servers set up in Seerr.
@@ -584,6 +585,20 @@ mod tests {
         assert_eq!(moved.status(), Some(302));
         let html = client.get::<serde_json::Value>("/html", &[]).await.unwrap_err();
         assert_eq!(html.to_string(), format!("{url} did not answer like a Seerr server."));
+    }
+
+    #[tokio::test]
+    async fn request_changes_accept_the_updated_request_in_the_answer() {
+        let url = serve(|req| match req.method.as_str() {
+            "DELETE" => Resp(204, vec![], String::new()),
+            _ => Resp::json(200, serde_json::json!({ "id": 7, "status": 2, "media": { "id": 1 } })),
+        })
+        .await;
+        let client = SeerrClient::new(&url, SeerrAuth::ApiKey("k".into())).unwrap();
+        client.set_request_status(7, RequestVerdict::Approve).await.unwrap();
+        client.set_request_status(7, RequestVerdict::Decline).await.unwrap();
+        client.retry_request(7).await.unwrap();
+        client.delete_request(7).await.unwrap();
     }
 
     #[tokio::test]

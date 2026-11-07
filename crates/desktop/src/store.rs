@@ -61,6 +61,8 @@ pub struct Store {
     pub revision: u64,
     /// Bumped when playback sessions on the server change (Activity page refetches).
     pub sessions_tick: u64,
+    /// Bumped on every downloads event (smart-download policies and the budget come with them).
+    pub downloads_tick: u64,
     pub settings: Settings,
     pub info: Info,
     /// The top bar's search text.
@@ -104,6 +106,7 @@ pub fn init(mut events: UnboundedReceiver<CoreEvent>, cx: &mut App) {
         seerr: false,
         revision: snap.revision,
         sessions_tick: 0,
+        downloads_tick: 0,
         settings: app.settings(),
         info: ops::setup::info(),
         search: SharedString::default(),
@@ -204,7 +207,10 @@ impl Store {
                 }
             }
             CoreEvent::Toast(t) => cx.emit(StoreEvent::Toast { text: t.text, error: t.error, undo: t.undo }),
-            CoreEvent::Downloads(list) => self.downloads = list,
+            CoreEvent::Downloads(list) => {
+                self.downloads = list;
+                self.downloads_tick += 1;
+            }
             CoreEvent::SessionsChanged => self.sessions_tick += 1,
             CoreEvent::PlaybackState(s) => self.playback = s.map(|b| *b),
             CoreEvent::PlaybackFailure(f) => self.failure = f.map(|b| *b),
