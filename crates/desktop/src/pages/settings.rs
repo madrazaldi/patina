@@ -163,6 +163,8 @@ fn card(title: &str, desc: Option<&str>, action: Option<AnyElement>, cx: &App) -
             .border_color(theme.border)
             .child(
                 v_flex()
+                    .flex_1()
+                    .min_w_0()
                     .gap_1p5()
                     .child(div().text_base().font_semibold().child(title.to_string()))
                     .when_some(desc, |d, t| d.child(div().text_sm().text_color(theme.muted_foreground).child(t.to_string()))),
@@ -223,7 +225,7 @@ impl Settings {
         let seerr_url = input("http://seerr.local:5055", "", window, cx);
         let seerr_key = cx.new(|cx| InputState::new(window, cx).placeholder("Optional").masked(true));
         let pin = cx.new(|cx| InputState::new(window, cx).masked(true));
-        let poster = cx.new(|_| SliderState::new().min(120.).max(240.).step(4.).default_value(poster_size as f32));
+        let poster = cx.new(|_| SliderState::new().max(240.).min(120.).step(4.).default_value(poster_size as f32));
 
         // Each text setting is saved as it is typed.
         let mut subs = Vec::new();

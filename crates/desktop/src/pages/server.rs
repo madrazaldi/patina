@@ -551,7 +551,7 @@ impl Server {
                 }),
             )
             .child(
-                div().px_6().py_4().border_t_1().border_color(theme.border).child(Button::new("check-updates").outline().small().label("Check now").on_click(cx.listener(|_, _, _, cx| {
+                h_flex().px_6().py_4().border_t_1().border_color(theme.border).child(Button::new("check-updates").outline().small().label("Check now").on_click(cx.listener(|_, _, _, cx| {
                     let (app, weak) = (core(cx), cx.entity().downgrade());
                     store::act_then(cx, async move { Ok::<_, anyhow::Error>(app.server()?.check_for_updates(true).await?) }, move |_, cx| {
                         store::toast(cx, "Checked for updates");
@@ -976,6 +976,8 @@ impl Server {
             .border_color(theme.border)
             .child(
                 v_flex()
+                    .flex_1()
+                    .min_w_0()
                     .gap_1p5()
                     .child(div().text_base().font_semibold().child("Scheduled tasks"))
                     .child(div().text_sm().text_color(muted).child("Plex's butler runs these during the maintenance window. Switch off any you don't want, or run one now.")),
@@ -1117,9 +1119,7 @@ impl Server {
                 .when(active, |b| b.with_variant(gpui_kit::component::button::ButtonVariant::Secondary))
                 .when(!active, |b| b.ghost())
                 .w_full()
-                .justify_between()
-                .child(div().child(g.label.clone()))
-                .child(div().text_size(px(11.)).text_color(muted).child(g.prefs.len().to_string()))
+                .child(h_flex().w_full().justify_between().child(div().child(g.label.clone())).child(div().text_size(px(11.)).text_color(muted).child(g.prefs.len().to_string())))
                 .on_click(cx.listener(move |this, _, window, cx| {
                     this.group = Some(id.clone());
                     this.filter.update(cx, |s, cx| s.set_value("", window, cx));
