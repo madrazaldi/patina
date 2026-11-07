@@ -146,6 +146,7 @@ impl Requests {
         match self.tab {
             Tab::Discover if self.shown.0 != Some(self.list) && !(self.loading && self.loading_list == self.list) => {
                 self.titles.clear();
+                self.shown = (None, 0, 0);
                 self.load(self.list, 1, cx);
             }
             Tab::Requests if self.requests.is_none() && !self.requests_loading => self.load_requests(cx),
