@@ -1,12 +1,11 @@
 //! Saved library views: named queries (type, sort, filters) of one library,
 //! kept per account and server in the shared `config.toml` under
-//! `ui.saved_views`. The desktop app reads and writes the same entries, so a
-//! view saved in either front end is there in both.
+//! `ui.saved_views`. The desktop app and the TUI share the entries, so a view
+//! saved in either front end is there in both.
 //!
-//! The entries are stored as the JSON the desktop app writes
-//! (`web/src/lib/types.ts`, `SavedView`). Fields this code doesn't know are
-//! kept as they are when an entry is rewritten, and entries that don't parse
-//! are left alone.
+//! The entries are JSON objects (the desktop app's `SavedView`). Fields this
+//! code doesn't know are kept as they are when an entry is rewritten, and
+//! entries that don't parse are left alone.
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};

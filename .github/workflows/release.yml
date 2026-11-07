@@ -1,7 +1,7 @@
 name: Release
 
 # Push a tag matching the workspace version (e.g. `v0.2.0` for version = "0.2.0") to build
-# the Electrobun desktop app, the native desktop app (crates/desktop) and patina-tui for every platform into a draft GitHub release.
+# the desktop app (crates/desktop) and patina-tui for every platform into a draft GitHub release.
 # `tools/release.sh 0.2.0` bumps the version, commits and tags. Review the draft, then publish
 # it by hand. Tags with a pre-release suffix (`v0.2.0-rc.1`) are marked as pre-releases.
 
@@ -47,42 +47,6 @@ jobs:
             -f tag_name="$GITHUB_REF_NAME" -f name="Patina $GITHUB_REF_NAME" \
             -F draft=true -F prerelease=$prerelease -F generate_release_notes=true --jq .id)
           echo "id=$id" >> "$GITHUB_OUTPUT"
-
-  # The Electrobun desktop app (the Bun backend is bundled in; no Rust involved).
-  desktop:
-    name: Desktop (${{ matrix.target }})
-    needs: draft
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { os: ubuntu-22.04, target: linux-x64 }
-          - { os: ubuntu-22.04-arm, target: linux-arm64 }
-          - { os: windows-latest, target: windows-x64 }
-          - { os: macos-latest, target: macos-arm64 }
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: oven-sh/setup-bun@v2
-
-      - run: bun install --frozen-lockfile
-
-      - name: Build
-        run: bun run build:app
-
-      - name: Upload the artifacts
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # Electrobun writes the installers and update archives to artifacts/.
-          for f in artifacts/*; do
-            [ -f "$f" ] || continue
-            name="Patina-$GITHUB_REF_NAME-${{ matrix.target }}-$(basename "$f")"
-            cp "$f" "$name"
-            gh release upload "$GITHUB_REF_NAME" "$name" --clobber
-          done
 
   tui:
     name: patina-tui (${{ matrix.target }})
@@ -131,7 +95,7 @@ jobs:
           fi
           gh release upload "$GITHUB_REF_NAME" "$archive" --clobber
 
-  # The native desktop app (crates/desktop, GPUI), as a plain binary archive.
+  # The desktop app (crates/desktop, GPUI), as a plain binary archive.
   native:
     name: patina (${{ matrix.target }})
     needs: draft
@@ -186,7 +150,7 @@ jobs:
 
   checksums:
     name: Checksums
-    needs: [desktop, native, tui]
+    needs: [native, tui]
     runs-on: ubuntu-24.04
     steps:
       - name: Upload SHA256SUMS

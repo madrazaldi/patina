@@ -259,7 +259,7 @@ pub enum CoreEvent {
 }
 
 impl CoreEvent {
-    /// The event name the GUI's webview listens for.
+    /// The event's name, for a JSON consumer.
     pub fn name(&self) -> &'static str {
         match self {
             Self::Connection(_) => "connection",
@@ -279,7 +279,7 @@ impl CoreEvent {
         }
     }
 
-    /// The event payload as the webview receives it.
+    /// The event's payload as JSON.
     pub fn payload(&self) -> Value {
         let v = match self {
             Self::Connection(online) => Ok(json!(online)),
