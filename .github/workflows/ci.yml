@@ -19,7 +19,7 @@ env:
   RUSTFLAGS: -D warnings
 
 jobs:
-  # The Rust crates behind patina-tui (plex, mpv, core, tui).
+  # The Rust crates: patina-tui (plex, mpv, core, tui) and the native desktop app (desktop, on GPUI).
   rust:
     name: Rust (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -39,7 +39,9 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libssl-dev mpv ffmpeg
+          # mpv and ffmpeg for the playback tests, the rest for GPUI (crates/desktop).
+          sudo apt-get install -y libssl-dev mpv ffmpeg \
+            libfontconfig-dev libwayland-dev libxkbcommon-x11-dev libx11-xcb-dev libzstd-dev libvulkan1
 
       # Self-hosted runners keep target/ between runs.
       - uses: Swatinem/rust-cache@v2

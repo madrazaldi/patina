@@ -1,0 +1,26 @@
+[package]
+name = "patina-desktop"
+description = "Patina's desktop app: a native GPUI front end on patina-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "patina"
+path = "src/main.rs"
+
+[dependencies]
+patina-core.workspace = true
+patina-plex.workspace = true
+anyhow.workspace = true
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+gpui-kit = "0.9"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
+smallvec = "1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

@@ -1,7 +1,7 @@
 name: Release
 
 # Push a tag matching the workspace version (e.g. `v0.2.0` for version = "0.2.0") to build
-# the Electrobun desktop app and patina-tui for every platform into a draft GitHub release.
+# the Electrobun desktop app, the native desktop app (crates/desktop) and patina-tui for every platform into a draft GitHub release.
 # `tools/release.sh 0.2.0` bumps the version, commits and tags. Review the draft, then publish
 # it by hand. Tags with a pre-release suffix (`v0.2.0-rc.1`) are marked as pre-releases.
 
@@ -131,9 +131,62 @@ jobs:
           fi
           gh release upload "$GITHUB_REF_NAME" "$archive" --clobber
 
+  # The native desktop app (crates/desktop, GPUI), as a plain binary archive.
+  native:
+    name: patina (${{ matrix.target }})
+    needs: draft
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: "macos-latest", target: aarch64-apple-darwin }
+          - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu }
+          - { os: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc }
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev libfontconfig-dev libwayland-dev libxkbcommon-x11-dev libx11-xcb-dev libzstd-dev libvulkan1
+
+      - uses: Swatinem/rust-cache@v2
+        if: runner.environment == 'github-hosted'
+        with:
+          key: native-${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --locked -p patina-desktop --target ${{ matrix.target }}
+
+      - name: Package and upload
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          name="patina-$GITHUB_REF_NAME-${{ matrix.target }}"
+          mkdir "$name"
+          cp README.md LICENSE-MIT LICENSE-APACHE "$name/"
+          if [ "$RUNNER_OS" = Windows ]; then
+            cp "target/${{ matrix.target }}/release/patina.exe" "$name/"
+            7z a "$name.zip" "$name" >/dev/null
+            archive="$name.zip"
+          else
+            cp "target/${{ matrix.target }}/release/patina" "$name/"
+            tar czf "$name.tar.gz" "$name"
+            archive="$name.tar.gz"
+          fi
+          gh release upload "$GITHUB_REF_NAME" "$archive" --clobber
+
   checksums:
     name: Checksums
-    needs: [desktop, tui]
+    needs: [desktop, native, tui]
     runs-on: ubuntu-24.04
     steps:
       - name: Upload SHA256SUMS

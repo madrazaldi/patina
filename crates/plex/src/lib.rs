@@ -15,7 +15,7 @@
 
 mod client;
 mod connect;
-mod de;
+pub mod de;
 mod error;
 pub mod models;
 mod server;

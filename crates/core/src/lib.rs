@@ -21,6 +21,7 @@ pub mod presence;
 pub mod servers;
 pub mod recovery;
 pub mod report;
+pub mod seerr;
 pub mod session;
 pub mod smart;
 pub mod state;
