@@ -24,3 +24,8 @@ gpui-kit = "0.9"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
 smallvec = "1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+# Turns on GPUI's test harness, re-exported by gpui-kit (gpui-kit's own `test-support`
+# pulls in gpui-fast, whose version pins conflict with gpui-pre's).
+gpui-pre = { version = "=0.3.11", features = ["test-support"] }

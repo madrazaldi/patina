@@ -78,6 +78,7 @@ To release, run `tools/release.sh 0.2.0` on a clean `main` (it bumps `version` i
 - `shell.rs` is the window: sidebar, top bar, banners, now-playing bar, key bindings (use the `cmd!` macro; GPUI rejects `secondary-`). `gate.rs` is sign-in and server choice. `widgets/` has the shared pieces (`page`, `rows`, `Card`, `CardRow`, `HubRow`, `confirm`), `menu.rs` the item menu, `dialogs/` the dialogs, `player.rs` the player bar and panels, `art.rs` artwork through `images::fetch` decoded with `image`, `theme.rs` the colours of `web/src/app.css`.
 - Debug builds read `PATINA_ROUTE` (start page), `PATINA_BACKGROUND=1` (open without taking focus) and `PATINA_AUTOMATION=<dir>` (`automation.rs`: clicks, scrolls and keys written to `<dir>/cmd` are dispatched into the window, for end-to-end tests without moving the real pointer; GPUI stops drawing a fully covered window, so keep it partly visible). Capture the window with `screencapture -l <window id>`.
 - Inside a scrolling flex column children shrink; give fixed-height children `.flex_none()`. Use `uniform_list` or gpui-kit's virtual lists for long lists.
+- Scroll containers come from `widgets`: `page`/`v_scroll` for a page, `h_scroll` for a sideways row, `inner_v_scroll` (or `keep_wheel`) for a scrolling box inside a page. Plain `overflow_*_scroll` turns a wheel on one axis into a scroll on the other and moves every scroller under the pointer at once.
 
 ### TUI (`crates/tui/src`)
 

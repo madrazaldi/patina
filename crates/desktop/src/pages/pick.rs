@@ -205,7 +205,7 @@ impl Pick {
         self.changed(cx);
     }
 
-    fn form_view(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn form_view(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
         let empty = PickOptions::default();
         let choices = self.options.ready().unwrap_or(&empty);
@@ -246,14 +246,14 @@ impl Pick {
             let on = *on;
             m.update(cx, |p, cx| p.edit(cx, |f| f.unwatched = on)).ok();
         });
-        let chips = |id: &'static str, label: &'static str, all: &[String], on: &[String], genres: bool| {
+        let mut chips = |id: &'static str, label: &'static str, all: &[String], on: &[String], genres: bool| {
             let me = me.clone();
             (!all.is_empty()).then(|| {
                 v_flex()
                     .min_w_0()
                     .gap_1()
                     .child(h_flex().mb_1p5().gap_1().text_sm().font_medium().child(label).child(div().font_normal().text_color(theme.muted_foreground).child("any of")))
-                    .child(div().id(id).max_h(px(208.)).overflow_y_scroll().child(h_flex().flex_wrap().gap_1p5().children(all.iter().enumerate().map(|(i, v)| {
+                    .child(widgets::inner_v_scroll(id, window, cx).max_h(px(208.)).child(h_flex().flex_wrap().gap_1p5().children(all.iter().enumerate().map(|(i, v)| {
                         let selected = on.contains(v);
                         let value = v.clone();
                         let me = me.clone();
@@ -348,8 +348,8 @@ fn fits(want: PickKind, kind: &str) -> bool {
 }
 
 impl Render for Pick {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let form = self.form_view(cx);
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let form = self.form_view(window, cx);
         let results = self.results_view(cx);
         widgets::page("pick")
             .track_focus(&self.focus)

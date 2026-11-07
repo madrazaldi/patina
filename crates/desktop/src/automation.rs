@@ -5,7 +5,7 @@
 //! writes `<dir>/ack`. This drives the app without focusing it or moving the real pointer.
 //! One command per line, positions in window points from the top left:
 //!
-//! - `click X Y [right|double]`, `move X Y`, `scroll X Y DY` (negative scrolls down)
+//! - `click X Y [right|double]`, `move X Y`, `scroll X Y DY [DX]` (negative scrolls down / right)
 //! - `type TEXT` types the text; `key KEYSTROKE` presses one key in GPUI syntax (`enter`, `escape`, `cmd-k`, `shift-tab`)
 //!
 //! GPUI stops drawing a window that is fully covered, so keep it at least partly on screen.
@@ -66,11 +66,12 @@ fn step(line: &str, window: &mut Window, cx: &mut App) -> Result<(), String> {
             }
         }
         "scroll" => {
-            let dy: f32 = args.get(2).and_then(|s| s.parse().ok()).ok_or("scroll: expected X Y DY")?;
+            let dy: f32 = args.get(2).and_then(|s| s.parse().ok()).ok_or("scroll: expected X Y DY [DX]")?;
+            let dx: f32 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(0.);
             window.dispatch_event(
                 PlatformInput::Scroll(ScrollEvent {
                     position: at(0)?,
-                    delta: ScrollDelta::Pixels(point(px(0.), px(dy))),
+                    delta: ScrollDelta::Pixels(point(px(dx), px(dy))),
                     modifiers,
                     touch_phase: TouchPhase::Moved,
                     source: ScrollSource::default(),

@@ -266,10 +266,8 @@ impl LiveTv {
                             .child(Icon::new(if expanded { IconName::ChevronUp } else { IconName::ChevronDown }).size(px(14.)).text_color(muted)),
                     );
                 let listings = expanded.then(|| {
-                    h_flex()
-                        .id(("later", n))
+                    widgets::h_scroll(("later", n))
                         .gap_px()
-                        .overflow_x_scroll()
                         .pr_4()
                         .pb_3p5()
                         .pl(px(224.))
