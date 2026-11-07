@@ -6,6 +6,8 @@
 
 mod actions;
 mod art;
+#[cfg(debug_assertions)]
+mod automation;
 mod core;
 mod dialogs;
 mod format;
@@ -50,6 +52,8 @@ fn main() {
         store::init(events, cx);
         nav::init(cx);
         shell::bind_keys(cx);
+        #[cfg(debug_assertions)]
+        automation::init(cx);
 
         // Close mpv and let the last playback reports reach Plex. GPUI gives quit futures
         // only a moment, so this blocks here, as the TUI does on exit.
