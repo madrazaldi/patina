@@ -16,7 +16,7 @@ use patina_core::ops::setup::Info;
 use patina_core::recovery::SavedQueueView;
 use patina_core::state::{Changes, NowPlaying, QueueView, ServerActivity, SessionView, Stage};
 use patina_core::{CoreEvent, ops};
-use patina_plex::{Directory, Metadata};
+use patina_plex::Directory;
 
 use crate::core::{bg, blocking, core, message};
 
@@ -342,16 +342,6 @@ impl Store {
         .detach();
     }
 
-    /// The finished download of an item on the current server, if any.
-    pub fn downloaded(&self, item: &Metadata) -> Option<&Download> {
-        let session = self.session.as_ref()?;
-        self.downloads.iter().find(|d| {
-            d.server_id == session.server_id
-                && (d.account.is_empty() || d.account == session.account_id)
-                && d.item.rating_key == item.rating_key
-                && matches!(d.state, patina_core::downloads::State::Done)
-        })
-    }
 }
 
 /// Toast an error from anywhere.

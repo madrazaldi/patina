@@ -6,10 +6,10 @@ pub mod hub;
 pub mod row;
 
 use crate::prelude::*;
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::button::Button;
 use gpui_kit::component::dialog::AlertDialog;
 use gpui_kit::component::spinner::Spinner;
-use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _, WindowExt as _, h_flex, v_flex};
+use gpui_kit::component::{Icon, h_flex, v_flex};
 
 pub use card::Card;
 pub use row::CardRow;
@@ -86,16 +86,6 @@ pub fn empty(title: impl Into<SharedString>, text: Option<SharedString>, cx: &Ap
 /// An error in place of a page's content.
 pub fn failed(message: impl Into<SharedString>, cx: &App) -> Div {
     empty("Something went wrong", Some(message.into()), cx)
-}
-
-/// Muted text.
-pub fn muted(text: impl Into<SharedString>, cx: &App) -> Div {
-    div().text_color(cx.theme().muted_foreground).child(text.into())
-}
-
-/// An uppercase label, as above form fields.
-pub fn eyebrow(text: impl Into<SharedString>, cx: &App) -> Div {
-    div().text_xs().font_medium().text_color(cx.theme().muted_foreground).child(text.into().to_uppercase())
 }
 
 /// A ghost icon button.

@@ -2,7 +2,7 @@
 
 use crate::prelude::*;
 use gpui_kit::assets::IconName;
-use gpui_kit::component::{ActiveTheme as _, Icon, h_flex};
+use gpui_kit::component::{Icon, h_flex};
 use patina_plex::Hub;
 
 use super::{CardRow, rows, section_head};

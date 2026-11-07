@@ -4,10 +4,10 @@ use crate::prelude::*;
 use std::rc::Rc;
 
 use gpui_kit::assets::IconName;
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::button::Button;
 use gpui_kit::component::menu::ContextMenuExt as _;
 use gpui_kit::component::menu::DropdownMenu as _;
-use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _};
+use gpui_kit::component::Icon;
 use patina_plex::Metadata;
 
 use crate::actions;
@@ -249,7 +249,3 @@ impl RenderOnce for Card {
     }
 }
 
-/// Bits of metadata separated by dots, leaving out empty ones.
-pub fn dots(bits: impl IntoIterator<Item = String>) -> String {
-    bits.into_iter().filter(|b| !b.is_empty()).collect::<Vec<_>>().join(" · ")
-}

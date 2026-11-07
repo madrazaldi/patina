@@ -1,6 +1,5 @@
 //! Item actions shared by cards, menus and detail pages.
 
-use crate::prelude::*;
 use gpui_kit::App;
 use patina_core::player::{self, PlayRequest, QueueCommand};
 use patina_core::{downloads, undo};
@@ -44,26 +43,12 @@ pub fn play_with(item: &Metadata, opts: PlayOptions, cx: &mut App) {
     player::play(app, req);
 }
 
-/// Play several items as one queue, in order.
-pub fn play_selection(items: Vec<Metadata>, shuffle: bool, cx: &mut App) {
-    let Some(first) = items.first().cloned() else { return };
-    let app = core(cx);
-    let _guard = patina_core::runtime().enter();
-    player::play(app, PlayRequest { item: first, selection: items, shuffle, resume: false, ..Default::default() });
-}
-
 /// Mark watched or unwatched. Core announces the change with a toast that offers Undo, and refreshes the views.
 pub fn set_watched(item: &Metadata, watched: bool, cx: &mut App) {
     let app = core(cx);
     let server = item.server_id().map(str::to_string);
     let keys = vec![item.rating_key().to_string()];
     act(cx, async move { undo::set_watched(&app, server.as_deref(), &keys, watched).await }, None, false);
-}
-
-/// Mark many items (of the current server) watched or unwatched at once.
-pub fn set_watched_many(keys: Vec<String>, watched: bool, cx: &mut App) {
-    let app = core(cx);
-    act(cx, async move { undo::set_watched(&app, None, &keys, watched).await }, None, false);
 }
 
 /// Queue an item (or everything in a container) next, or at the end. Starts playback if idle.

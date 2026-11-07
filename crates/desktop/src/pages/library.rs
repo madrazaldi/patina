@@ -274,7 +274,7 @@ impl Library {
             if !self.pages.key.is_empty() {
                 self.selection.clear();
             }
-            self.pages.reset(key, self.revision);
+            self.pages.reset(key);
             self.scroll.scroll_to_item(0, ScrollStrategy::Top);
             let first = self.pages.ensure(0, PAGE);
             self.fetch(first, cx);

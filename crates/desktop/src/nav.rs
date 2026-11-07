@@ -2,7 +2,6 @@
 //! page view alive (up to [`KEEP_VIEWS`] of them), so going back lands on the
 //! page as it was left: same scroll position, filters and loaded data.
 
-use crate::prelude::*;
 use gpui_kit::*;
 use patina_plex::Metadata;
 
@@ -175,13 +174,6 @@ impl Nav {
         self.stack = vec![Entry { route: Route::Home, view: None }];
         self.index = 0;
         cx.notify();
-    }
-
-    /// Drop every page view (they are rebuilt when shown), e.g. when settings change how pages look.
-    pub fn forget_views(&mut self) {
-        for e in &mut self.stack {
-            e.view = None;
-        }
     }
 
     fn trim(&mut self) {

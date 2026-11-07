@@ -35,11 +35,6 @@ pub fn faint() -> Hsla {
     grey(0.556)
 }
 
-/// Raised surfaces between the background and cards (`--bg-2`).
-pub fn bg2() -> Hsla {
-    grey(0.165)
-}
-
 pub fn init(cx: &mut App) {
     Theme::change(ThemeMode::Dark, None, cx);
     Theme::update(cx, |t| {

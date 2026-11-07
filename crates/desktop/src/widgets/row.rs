@@ -2,8 +2,8 @@
 
 use crate::prelude::*;
 use gpui_kit::assets::IconName;
-use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::{ActiveTheme as _, Disableable as _, Sizable as _, h_flex};
+use gpui_kit::component::button::Button;
+use gpui_kit::component::h_flex;
 use patina_plex::Metadata;
 
 use super::{Card, section_head};

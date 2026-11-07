@@ -75,10 +75,10 @@ pub fn ago(ts: i64) -> String {
     let d = now() - ts;
     match d {
         ..60 => "just now".into(),
-        ..3600 => format!("{} min ago", d / 60),
-        ..86_400 => format!("{} h ago", d / 3600),
-        ..172_800 => "yesterday".into(),
-        ..604_800 => format!("{} days ago", d / 86_400),
+        60..3600 => format!("{} min ago", d / 60),
+        3600..86_400 => format!("{} h ago", d / 3600),
+        86_400..172_800 => "yesterday".into(),
+        172_800..604_800 => format!("{} days ago", d / 86_400),
         _ => date(ts),
     }
 }
@@ -159,14 +159,6 @@ pub enum Shape {
 }
 
 impl Shape {
-    /// Height for a card of this shape at width `w`.
-    pub fn height(self, w: f32) -> f32 {
-        match self {
-            Self::Poster => w * 1.5,
-            Self::Landscape => w * 9. / 16.,
-            Self::Square => w,
-        }
-    }
 }
 
 pub fn shape_for(m: &Metadata) -> Shape {

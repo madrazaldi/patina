@@ -3,7 +3,6 @@
 //! thread, and are cached in memory by GPUI's asset system, which redraws the
 //! view that asked once an image is ready.
 
-use crate::prelude::*;
 use std::sync::Arc;
 
 use gpui_kit::*;
@@ -70,7 +69,7 @@ fn decode(bytes: &[u8]) -> Option<Arc<RenderImage>> {
     let image = image::load_from_memory(bytes).ok()?;
     let mut buffer = image.into_rgba8();
     // GPUI wants BGRA.
-    for px in buffer.chunks_exact_mut(4) {
+    for px in buffer.as_chunks_mut::<4>().0 {
         px.swap(0, 2);
     }
     Some(Arc::new(RenderImage::new(smallvec![image::Frame::new(buffer)])))

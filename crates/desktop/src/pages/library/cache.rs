@@ -16,7 +16,6 @@ const KEEP: usize = 12;
 pub struct Pages {
     /// What the pages list (the query); a different key starts over.
     pub key: String,
-    pub revision: u64,
     pub total: Option<usize>,
     pub error: Option<String>,
     generation: u64,
@@ -36,8 +35,8 @@ pub struct Fetch {
 
 impl Pages {
     /// Start over for another query.
-    pub fn reset(&mut self, key: String, revision: u64) {
-        *self = Pages { key, revision, generation: self.generation + 1, ..Default::default() };
+    pub fn reset(&mut self, key: String) {
+        *self = Pages { key, generation: self.generation + 1, ..Default::default() };
     }
 
     pub fn loading(&self) -> bool {
@@ -115,7 +114,7 @@ mod tests {
     #[test]
     fn fetches_only_the_pages_in_view() {
         let mut p = Pages::default();
-        p.reset("q".into(), 0);
+        p.reset("q".into());
         let f = p.ensure(1000, 1100);
         assert_eq!(f.iter().map(|f| f.offset).collect::<Vec<_>>(), vec![960, 1080]);
         // Already pending: nothing new.
@@ -129,9 +128,9 @@ mod tests {
     #[test]
     fn stale_answers_are_dropped() {
         let mut p = Pages::default();
-        p.reset("a".into(), 0);
+        p.reset("a".into());
         let f = p.ensure(0, 10);
-        p.reset("b".into(), 0);
+        p.reset("b".into());
         p.loaded(f[0], items(3), None);
         assert_eq!(p.total, None);
     }
@@ -139,7 +138,7 @@ mod tests {
     #[test]
     fn refresh_keeps_old_pages_on_screen() {
         let mut p = Pages::default();
-        p.reset("q".into(), 0);
+        p.reset("q".into());
         let f = p.ensure(0, 10);
         p.loaded(f[0], items(5), None);
         assert_eq!(p.total, Some(5));
@@ -156,7 +155,7 @@ mod tests {
     #[test]
     fn memory_is_bounded() {
         let mut p = Pages::default();
-        p.reset("q".into(), 0);
+        p.reset("q".into());
         for i in 0..20 {
             let f = p.ensure(i * PAGE, i * PAGE + 1);
             p.loaded(f[0], items(PAGE), Some(20 * PAGE));

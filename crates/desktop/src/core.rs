@@ -1,7 +1,6 @@
 //! The bridge to `patina-core`: the shared [`AppState`], its event sink, and
 //! running core futures (which need tokio) from GPUI tasks.
 
-use crate::prelude::*;
 use std::future::Future;
 
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
@@ -82,9 +81,6 @@ impl<T> Load<T> {
         }
     }
 
-    pub fn is_loading(&self) -> bool {
-        matches!(self, Self::Loading)
-    }
 }
 
 /// An error as one line for a toast or an error state.

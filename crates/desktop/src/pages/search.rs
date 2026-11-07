@@ -266,9 +266,9 @@ fn needs_choice(g: &Group) -> bool {
 fn group_row(i: usize, g: &Group, cx: &App) -> AnyElement {
     let theme = cx.theme().clone();
     let Some(first) = g.copies.first() else { return div().into_any_element() };
-    // Several copies (or files) to choose from: the copy dialog isn't ported yet, so open
-    // the connected server's copy, else the first.
-    let target = if needs_choice(g) { g.copies.iter().find(|c| c.current).unwrap_or(first) } else { first }.item.clone();
+    // Several copies (or files) to choose from: ask which, else open the only one.
+    let choose = needs_choice(g).then(|| g.clone());
+    let target = first.item.clone();
     div()
         .id(("search-group", i))
         .child(
@@ -305,7 +305,10 @@ fn group_row(i: usize, g: &Group, cx: &App) -> AnyElement {
                     ui::badge(label, if c.current { Tone::Tint } else { Tone::Plain }, cx)
                 }))),
         )
-        .on_click(move |_, _, cx| nav::push(Route::for_item(&target), cx))
+        .on_click(move |_, window, cx| match &choose {
+            Some(g) => crate::dialogs::copy::open(g.clone(), window, cx),
+            None => nav::push(Route::for_item(&target), cx),
+        })
         .into_any_element()
 }
 
