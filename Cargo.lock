@@ -5144,6 +5144,7 @@ name = "patina-desktop"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "futures",
  "gpui-kit",
  "image",
