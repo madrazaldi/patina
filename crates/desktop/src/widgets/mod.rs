@@ -130,3 +130,65 @@ pub fn confirm(
             })
     });
 }
+
+/// An outlined badge (`<Badge variant="outline">`).
+pub fn badge(text: impl Into<SharedString>, cx: &App) -> Div {
+    div()
+        .flex_none()
+        .px_2()
+        .py_0p5()
+        .rounded(px(6.))
+        .border_1()
+        .border_color(cx.theme().border)
+        .text_xs()
+        .font_medium()
+        .text_color(cx.theme().foreground)
+        .child(text.into())
+}
+
+/// A bordered empty state with an icon, an optional title and an optional explanation.
+pub fn empty_box(icon: IconName, title: Option<SharedString>, text: Option<SharedString>, cx: &App) -> Div {
+    let theme = cx.theme();
+    v_flex()
+        .w_full()
+        .flex_none()
+        .items_center()
+        .gap_2()
+        .p(px(48.))
+        .rounded(px(12.))
+        .border_1()
+        .border_color(theme.border)
+        .child(
+            div()
+                .mb_2()
+                .size_10()
+                .rounded(px(8.))
+                .bg(theme.muted)
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(Icon::new(icon).size_5()),
+        )
+        .when_some(title, |d, t| d.child(div().text_lg().font_medium().child(t)))
+        .when_some(text, |d, t| d.child(div().text_sm().max_w(px(380.)).text_center().text_color(theme.muted_foreground).child(t)))
+}
+
+/// A settings-style row: a title and an optional description on the left, a control on the right.
+pub fn setting(first: bool, title: impl Into<SharedString>, sub: Option<SharedString>, control: Option<AnyElement>, cx: &App) -> Div {
+    let theme = cx.theme();
+    h_flex()
+        .flex_none()
+        .items_center()
+        .justify_between()
+        .gap(px(28.))
+        .px_4()
+        .py_3p5()
+        .when(!first, |d| d.border_t_1().border_color(theme.border))
+        .child(
+            v_flex()
+                .min_w_0()
+                .child(div().font_medium().child(title.into()))
+                .when_some(sub, |d, s| d.child(div().mt_0p5().text_size(px(13.)).text_color(theme.muted_foreground).child(s))),
+        )
+        .when_some(control, |d, c| d.child(h_flex().flex_none().items_center().gap_2().child(c)))
+}
