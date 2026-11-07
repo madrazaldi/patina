@@ -1,11 +1,2 @@
 /target
 .DS_Store
-/node_modules
-/dist
-
-/test-results
-/playwright-report
-/.hutch
-/build
-/artifacts
-/.cottontail-tmp

@@ -39,6 +39,7 @@ Debug builds read these launch environment variables (`SIMCTL_CHILD_<name>` with
 
 ## Porting rules
 
+- **The TypeScript sources were removed** (the Electrobun app's `desktop/` and `web/`; see git history before its removal). The Rust crates (`crates/plex`, `crates/core`, `crates/core/src/seerr`, `crates/desktop` for the screens) behave the same, so check them when the Swift and Rust disagree.
 - **Keep the TypeScript names and behaviour.** Every Swift file starts with `// Port of desktop/<path>.ts.` (`web/src/<path>` for the screens), or says what it is when it has no twin. Modules, types and functions keep their names in Swift casing (`downloads.enqueue(app, ratingKey)` becomes `Downloads.enqueue(app, ratingKey:)`). Comments explain why, as in the TypeScript, and stay as sparse.
 - **Plex JSON round-trips.** Models are `Codable`. They decode leniently through the `de` helpers (`optString`, `optI64`, `optF64`, `boolean`, `oneOrMany`, the TypeScript names) and encode with Plex's own field names, so a stored model (in `downloads.json`, the saved queue) reads back as it was received.
 - **Tests are ports of the TypeScript tests**, written with Swift Testing (`import Testing`). HTTP is stubbed with a `URLProtocol`. No test talks to a real server.

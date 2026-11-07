@@ -8,8 +8,7 @@
 
 A Plex client with desktop and terminal front ends that share one config, sign-in and downloads:
 
-- **Patina desktop**, a desktop app built with [Electrobun](https://blackboard.sh/electrobun/docs): a Svelte webview (`web/`) over a TypeScript backend running on Bun (`desktop/`).
-- **Patina native** (`crates/desktop`, binary `patina`), a native Rust rewrite of the desktop app on [GPUI](https://www.gpui.rs) and [gpui-kit](https://github.com/longbridge/gpui-kit), with the same layout and pages, built directly on the Rust backend (`patina-core`).
+- **Patina desktop** (`crates/desktop`, binary `patina`), a native desktop app on [GPUI](https://www.gpui.rs) and [gpui-kit](https://github.com/longbridge/gpui-kit), built directly on the Rust backend (`patina-core`).
 - **patina-tui**, a keyboard-driven terminal client with Miller columns, plus a scriptable CLI with `--json` output. See [Terminal client](#terminal-client-patina-tui).
 
 All of them play everything in **mpv**. mpv starts normally, so it reads your own `mpv.conf`, `input.conf`, scripts and shaders from mpv's default config directory (`~/.config/mpv` on macOS/Linux, `%APPDATA%\mpv` on Windows). They share one config file, sign-in and downloads, and can run at the same time.
@@ -35,14 +34,14 @@ Download the latest build from [Releases](https://github.com/madrazaldi/patina/r
 
 | Platform | Desktop app | Terminal client |
 |---|---|---|
-| macOS (Apple silicon and Intel) | `Patina_<version>_universal.dmg` | `patina-tui-v<version>-aarch64-apple-darwin.tar.gz` (Intel: `x86_64-apple-darwin`) |
-| Linux x86_64 | `Patina_<version>_amd64.AppImage`, `.deb`, `.rpm` | `patina-tui-v<version>-x86_64-unknown-linux-gnu.tar.gz` |
-| Linux arm64 | `Patina_<version>_aarch64.AppImage`, `.deb`, `.rpm` | `patina-tui-v<version>-aarch64-unknown-linux-gnu.tar.gz` |
-| Windows x64 | `Patina_<version>_x64-setup.exe` or `_x64_en-US.msi` | `patina-tui-v<version>-x86_64-pc-windows-msvc.zip` |
+| macOS (Apple silicon; Intel: terminal client only) | `patina-v<version>-aarch64-apple-darwin.tar.gz` | `patina-tui-v<version>-aarch64-apple-darwin.tar.gz` (Intel: `x86_64-apple-darwin`) |
+| Linux x86_64 | `patina-v<version>-x86_64-unknown-linux-gnu.tar.gz` | `patina-tui-v<version>-x86_64-unknown-linux-gnu.tar.gz` |
+| Linux arm64 | `patina-v<version>-aarch64-unknown-linux-gnu.tar.gz` | `patina-tui-v<version>-aarch64-unknown-linux-gnu.tar.gz` |
+| Windows x64 | `patina-v<version>-x86_64-pc-windows-msvc.zip` | `patina-tui-v<version>-x86_64-pc-windows-msvc.zip` |
 
 Install [mpv](https://mpv.io/installation/) too (0.38 or later): Patina plays everything in it.
 
-The macOS builds are not notarized, so Gatekeeper blocks them the first time. After moving Patina to Applications, run `xattr -dr com.apple.quarantine /Applications/Patina.app` (or `xattr -d com.apple.quarantine patina-tui` for the terminal client), or open it from Finder with right-click → Open.
+The macOS builds are not notarized, so Gatekeeper blocks them the first time. Run `xattr -d com.apple.quarantine patina` (or `patina-tui`) on the binary, or open it from Finder with right-click → Open.
 
 To build from source instead, see [Build & run](#build--run).
 
@@ -97,25 +96,12 @@ The desktop app and the terminal client have the same features; the terminal cli
 
 ## Requirements
 
-- Desktop app: Bun 1.4+ (the desktop backend is TypeScript; no Rust is needed)
-- Native desktop app and terminal client: Rust 1.85+ (edition 2024). On Linux the native app also needs the GPUI system libraries (Debian/Ubuntu: `libfontconfig-dev libwayland-dev libxkbcommon-x11-dev libx11-xcb-dev libzstd-dev libvulkan1`)
+- Rust 1.85+ (edition 2024). On Linux the desktop app also needs the GPUI system libraries (Debian/Ubuntu: `libfontconfig-dev libwayland-dev libxkbcommon-x11-dev libx11-xcb-dev libzstd-dev libvulkan1`)
 - mpv 0.38+ on `PATH` (or installed with Homebrew or as `/Applications/mpv.app`), or set its path in **Settings → Player**
 
 ## Build & run
 
 Desktop app:
-
-```sh
-bun install
-bun run dev         # build the webview and run the app (an Electrobun dev build)
-bun run build:app   # release app bundle in build/ and installers in artifacts/
-
-# Hot reload for the webview: run the Vite server and point the app at it
-bun run dev:web &
-PATINA_DEV_URL=http://localhost:1420 bun run dev
-```
-
-Native desktop app:
 
 ```sh
 cargo run -p patina-desktop              # the GPUI app (binary `patina`)
@@ -132,7 +118,7 @@ cargo install --path crates/tui          # installs `patina-tui` into ~/.cargo/b
 
 Settings are stored in `~/.config/patina/config.toml` (or `$XDG_CONFIG_HOME/patina`; Windows: the platform config dir). Both front ends use this file, so signing in once signs in both, and settings changed in one show up in the other. Cross-process locks and atomic replacement protect settings, download state and offline progress; one process owns the download worker at a time. The file holds your auth token, so it is written with mode 0600. Downloads are listed in `downloads.json` next to it and show up in both front ends. Artwork is cached in the platform cache directory.
 
-Logging: `PATINA_LOG=debug bun run dev` (the desktop backend logs to stderr; the native app does the same with `PATINA_LOG=debug cargo run -p patina-desktop`). The terminal client logs to `patina-tui.log` in the platform data directory, never to the terminal, and reads the same `PATINA_LOG`.
+Logging: `PATINA_LOG=debug cargo run -p patina-desktop` (the desktop app logs to stderr). The terminal client logs to `patina-tui.log` in the platform data directory, never to the terminal, and reads the same `PATINA_LOG`.
 
 ## Terminal client (patina-tui)
 
@@ -308,18 +294,12 @@ The listing commands (`libraries`, `ls`, `search`, `pick`, `continue`, `recent`,
 cargo build --workspace
 cargo test --workspace                 # includes an isolated Python mock-server download/reconnect test
 cargo clippy --workspace --all-targets -- -D warnings
-bun run check                          # svelte-check for web/, tsc for desktop/
-bun run test:desktop                   # the TypeScript backend: ports of the Rust unit and integration tests
-bun run build
-bun x playwright install chromium     # first time only
-bun run test                          # browser journeys using a development-only mock IPC fixture
 # Optional: real mpv checks (also require ffmpeg and python3): resume/completion, slow or failing
 # progress reports, failure recovery, controls and the saved queue
 cargo test -p patina-core --test reliability -- --ignored --test-threads=1 mpv_
-PATINA_MPV_TESTS=1 bun test desktop    # the same for the TypeScript backend
 ```
 
-`crates/core/tests/servers.rs` starts three mock servers and checks that a search across them groups titles with each server's quality and keeps going when one is slow, that watch state, playlist and resume-point changes land on (and are undone on) the right server, and that undo history is dropped on a server change. The Rust integration tests (and their ports in `desktop/test/`) start `tools/mock_pms.py` on an ephemeral localhost port and uses a temporary config and download directory. It interrupts a transfer, pauses/resumes it, restarts the client process, and checks account-scoped offline progress replay. No real Plex server or user sign-in is used. The browser fixture at `/test/` is served by Vite during development and is not included in the production build.
+`crates/core/tests/servers.rs` starts three mock servers and checks that a search across them groups titles with each server's quality and keeps going when one is slow, that watch state, playlist and resume-point changes land on (and are undone on) the right server, and that undo history is dropped on a server change. The Rust integration tests start `tools/mock_pms.py` on an ephemeral localhost port and uses a temporary config and download directory. It interrupts a transfer, pauses/resumes it, restarts the client process, and checks account-scoped offline progress replay. No real Plex server or user sign-in is used.
 
 ## Workspace
 
@@ -327,11 +307,9 @@ PATINA_MPV_TESTS=1 bun test desktop    # the same for the TypeScript backend
 |---|---|
 | `crates/plex` (`patina-plex`) | Async client for the Plex Media Server and plex.tv APIs. It covers auth and PINs, resources, Plex Home, watchlist and discover, libraries, metadata editing and matching, artwork, hubs, search, playlists, collections, play queues, timeline, scrobbling and rating, stream selection, subtitles, transcoding, sessions, history, activities, butler, preferences, statistics, updates, logs and live notifications (SSE). `raw()` escape hatches cover anything else. |
 | `crates/mpv` (`patina-mpv`) | Starts mpv and controls it over JSON IPC (commands, property observation, events, key bindings). |
-| `crates/core` (`patina-core`) | The backend of the terminal client (the desktop app has its own TypeScript port), with no UI code: settings, sign-in and sessions, mpv playback and play queues, downloads, live server updates, Live TV, lyrics, and the heavier server queries. Front ends receive its events through an `EventSink`. |
-| `desktop/` | The desktop backend, a TypeScript port of the three crates above that runs on Bun in the Electrobun main process: Plex client (`desktop/plex`), mpv control (`desktop/mpv`), the shared backend (`desktop/core`), the webview commands (`desktop/commands`) and the shell (`desktop/main.ts`, `desktop/shell`). It reads and writes the same files as the Rust core. Tokens never reach the webview; artwork is served from a loopback server with a random path prefix. |
-| `web/` | The Svelte 5 + TypeScript frontend, styled with Tailwind CSS and [shadcn-svelte](https://shadcn-svelte.com) components. `bun run check` type-checks it. |
+| `crates/core` (`patina-core`) | The backend of the desktop app and the terminal client, with no UI code: settings, sign-in and sessions, mpv playback and play queues, downloads, live server updates, Live TV, lyrics, and the heavier server queries. Front ends receive its events through an `EventSink`. |
 | `crates/tui` (`patina-tui`) | The terminal client (ratatui) and its CLI. |
-| `crates/desktop` (`patina-desktop`) | The native desktop app (binary `patina`): the desktop app's pages rebuilt on GPUI and gpui-kit, calling `patina-core` directly (no webview, no IPC). |
+| `crates/desktop` (`patina-desktop`) | The desktop app (binary `patina`) on GPUI and gpui-kit, calling `patina-core` directly. |
 
 ## Developing without a Plex server
 
@@ -344,7 +322,7 @@ python3 tools/mock_pms.py --media /path/to/media --port 32499
 python3 tools/mock_pms.py --media /path/to/media --port 32499 --large 5000
 
 # Desktop app: the same
-XDG_CONFIG_HOME=/tmp/patina-dev bun run dev
+XDG_CONFIG_HOME=/tmp/patina-dev cargo run -p patina-desktop
 
 # Terminal client
 export XDG_CONFIG_HOME=/tmp/patina-dev
@@ -373,11 +351,11 @@ cargo run -p patina-tui -- search --all-servers ember
 python3 tools/mock_seerr.py --media /path/to/media --port 5055 --pending
 ```
 
-Debug builds (`bun run dev` for the desktop app, `cargo run -p patina-desktop` for the native one) also accept `PATINA_ROUTE=/item/100` (also `/pick`, `/search`, `/library/1` and so on; opens a page) and `PATINA_PLAY=<ratingKey>` (starts playback).
+Debug builds of the desktop app (`cargo run -p patina-desktop`) also accept `PATINA_ROUTE=/item/100` (also `/pick`, `/search`, `/library/1` and so on; opens a page) and `PATINA_PLAY=<ratingKey>` (starts playback).
 
 ## Releasing
 
-CI (`.github/workflows/ci.yml`) runs clippy and the tests of the Rust crates (the native desktop app included) on Linux, macOS and Windows, the mpv playback tests on Linux, the desktop type-check, backend tests, build and Playwright tests, and an Electrobun app build on all three platforms, for every push to `main` and every pull request.
+CI (`.github/workflows/ci.yml`) runs clippy and the tests of the Rust crates (the desktop app included) on Linux, macOS and Windows, and the mpv playback tests on Linux, for every push to `main` and every pull request.
 
 To cut a release from a clean `main`:
 
@@ -386,7 +364,7 @@ tools/release.sh 0.2.0          # bumps [workspace.package] version, commits "Re
 git push origin main v0.2.0
 ```
 
-The tag starts `.github/workflows/release.yml`, which builds the desktop app (macOS arm64, Linux x86_64 and arm64, Windows), the native desktop app `patina` as a plain binary archive (the same four targets) and `patina-tui` (five targets) into a draft GitHub release with generated notes and `SHA256SUMS`. A tag with a suffix such as `v0.2.0-rc.1` becomes a pre-release. Review the draft and publish it.
+The tag starts `.github/workflows/release.yml`, which builds the desktop app `patina` as a plain binary archive (macOS arm64, Linux x86_64 and arm64, Windows) and `patina-tui` (five targets) into a draft GitHub release with generated notes and `SHA256SUMS`. A tag with a suffix such as `v0.2.0-rc.1` becomes a pre-release. Review the draft and publish it.
 
 ## License
 
