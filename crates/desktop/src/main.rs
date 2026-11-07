@@ -59,6 +59,9 @@ fn main() {
         .detach();
 
         let bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);
+        // `PATINA_BACKGROUND=1` (debug builds) opens the window without taking focus, for
+        // scripted runs and screenshots while you work in another app.
+        let background = cfg!(debug_assertions) && std::env::var_os("PATINA_BACKGROUND").is_some_and(|v| v == "1");
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             titlebar: Some(TitlebarOptions {
@@ -68,9 +71,12 @@ fn main() {
             }),
             window_min_size: Some(size(px(900.), px(560.))),
             app_id: Some("patina".into()),
+            focus: !background,
             ..Default::default()
         };
         gpui_kit::open_window(options, cx, |window, cx| cx.new(|cx| shell::Main::new(window, cx))).expect("open the window");
-        cx.activate(true);
+        if !background {
+            cx.activate(true);
+        }
     });
 }
