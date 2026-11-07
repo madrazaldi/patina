@@ -4,6 +4,7 @@
 use crate::prelude::*;
 use std::rc::Rc;
 
+use gpui_kit::component::dialog::Confirm;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use patina_core::player::{self, Control};
 use patina_core::{session, undo};
@@ -256,6 +257,16 @@ impl Palette {
         window.defer(cx, move |window, cx| run(window, cx));
     }
 
+    /// Run the highlighted command (Enter). The dialog binds Enter to `Confirm`, which would
+    /// otherwise only close it.
+    fn confirm(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        cx.stop_propagation();
+        let (options, _) = self.options(cx);
+        if let Some(c) = options.get(self.active) {
+            self.run(c, window, cx);
+        }
+    }
+
     fn key(&mut self, e: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let k = &e.keystroke;
         let (options, _) = self.options(cx);
@@ -267,11 +278,7 @@ impl Palette {
             "up" => self.active = (self.active + n - 1) % n,
             "pagedown" => self.active = (self.active + 8).min(n - 1),
             "pageup" => self.active = self.active.saturating_sub(8),
-            "enter" => {
-                if let Some(c) = options.get(self.active) {
-                    self.run(c, window, cx);
-                }
-            }
+            "enter" => return self.confirm(window, cx),
             _ => return,
         }
         cx.stop_propagation();
@@ -357,6 +364,7 @@ impl Render for Palette {
         v_flex()
             .w_full()
             .capture_key_down(cx.listener(|p, e: &KeyDownEvent, window, cx| p.key(e, window, cx)))
+            .on_action(cx.listener(|p, _: &Confirm, window, cx| p.confirm(window, cx)))
             .child(
                 h_flex()
                     .h_12()

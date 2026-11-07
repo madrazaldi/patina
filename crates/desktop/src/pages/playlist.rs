@@ -215,15 +215,32 @@ impl Playlist {
                 let title: SharedString = m.full_title().into();
                 let entry_id = m.playlist_item_id.filter(|_| !smart);
                 let id = self.id.clone();
+                // The grip replaces the number on hover. Fade rather than hide: a hover style that
+                // changes layout makes GPUI paint an element it never laid out, and panic.
                 let number = div()
+                    .relative()
                     .w(px(28.))
                     .flex_none()
                     .flex()
                     .justify_end()
                     .text_sm()
                     .text_color(theme.muted_foreground)
-                    .child(div().when(reorderable, |d| d.group_hover(group.clone(), |s| s.hidden())).child((i + 1).to_string()))
-                    .when(reorderable, |d| d.child(div().hidden().cursor_grab().group_hover(group.clone(), |s| s.block()).child(Icon::new(IconName::GripVertical).size_3p5())));
+                    .child(div().when(reorderable, |d| d.group_hover(group.clone(), |s| s.opacity(0.))).child((i + 1).to_string()))
+                    .when(reorderable, |d| {
+                        d.child(
+                            div()
+                                .absolute()
+                                .top_0()
+                                .right_0()
+                                .h_full()
+                                .flex()
+                                .items_center()
+                                .opacity(0.)
+                                .cursor_grab()
+                                .group_hover(group.clone(), |s| s.opacity(1.))
+                                .child(Icon::new(IconName::GripVertical).size_3p5()),
+                        )
+                    });
                 widgets::list_row(i == 0, cx)
                     .id(("entry", i))
                     .group(group.clone())

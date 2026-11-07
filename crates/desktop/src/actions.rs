@@ -6,7 +6,7 @@ use patina_core::{downloads, undo};
 use patina_plex::Metadata;
 
 use crate::core::core;
-use crate::store::{act, act_then, toast};
+use crate::store::{StoreEvent, act, act_then, store, toast};
 
 /// Options for [`play_with`].
 #[derive(Clone, Debug)]
@@ -78,6 +78,9 @@ pub fn download(item: &Metadata, cx: &mut App) {
 /// Reverse a reversible action: a toast's Undo button passes its entry, Cmd/Ctrl+Z the latest.
 /// Core announces the result.
 pub fn undo(entry: Option<u64>, cx: &mut App) {
+    if let Some(id) = entry {
+        store(cx).update(cx, |_, cx| cx.emit(StoreEvent::Undone(id)));
+    }
     let app = core(cx);
     act(cx, async move { undo::undo(&app, entry).await }, None, false);
 }

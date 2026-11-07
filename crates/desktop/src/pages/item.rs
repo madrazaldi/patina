@@ -655,14 +655,19 @@ impl Item {
                 .bg(theme.colors.group_box.opacity(0.6))
                 .text_sm()
                 .children(tags.into_iter().map(|(label, list)| {
-                    let links = h_flex().flex_wrap().children(list.into_iter().enumerate().map(|(i, t)| {
+                    let shown = list.len().min(8);
+                    let links = h_flex().flex_wrap().children(list.into_iter().take(8).enumerate().map(|(i, t)| {
                         let name = t.tag.clone().unwrap_or_default();
                         let route = section.zip(t.filter.clone()).map(|(s, f)| Route::browse(format!("/library/sections/{s}/all?{f}"), name.clone()));
-                        div()
-                            .id(SharedString::from(format!("{label}-{i}")))
-                            .when(i > 0, |d| d.child(", "))
-                            .child(name.clone())
-                            .when_some(route, |d, r| d.cursor_pointer().hover(|s| s.underline()).on_click(move |_, _, cx| nav::push(r.clone(), cx)))
+                        // A row, so the comma stays inline after its name (a plain div stacks its children).
+                        h_flex()
+                            .child(
+                                div()
+                                    .id(SharedString::from(format!("{label}-{i}")))
+                                    .child(name.clone())
+                                    .when_some(route, |d, r| d.cursor_pointer().hover(|s| s.underline()).on_click(move |_, _, cx| nav::push(r.clone(), cx))),
+                            )
+                            .when(i + 1 < shown, |d| d.child(div().pr_1().child(",")))
                     }));
                     row(label, links.into_any_element())
                 }))

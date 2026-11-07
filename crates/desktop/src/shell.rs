@@ -54,6 +54,13 @@ pub fn bind_keys(cx: &mut App) {
     ]);
 }
 
+/// Identifies the toast of an undo entry.
+struct UndoToast;
+
+fn undo_key(id: u64) -> ElementId {
+    ElementId::Name(format!("undo-{id}").into())
+}
+
 pub struct Main {
     gate: Option<Entity<Gate>>,
     search: Entity<InputState>,
@@ -85,12 +92,17 @@ impl Main {
                 StoreEvent::Toast { text, error, undo } => {
                     let mut note = if *error { Notification::error(text.clone()) } else { Notification::new().message(text.clone()) };
                     if let Some(id) = *undo {
-                        note = note.action(move |_, _, _| {
-                            Button::new("undo").outline().small().label("Undo").on_click(move |_, _, cx| actions::undo(Some(id), cx))
-                        });
+                        // Still hides on its own (an action turns that off), and goes once used.
+                        note = note
+                            .id1::<UndoToast>(undo_key(id))
+                            .action(move |_, _, _| {
+                                Button::new("undo").outline().small().label("Undo").on_click(move |_, _, cx| actions::undo(Some(id), cx))
+                            })
+                            .autohide(true);
                     }
                     window.push_notification(note, cx);
                 }
+                StoreEvent::Undone(id) => window.remove_notification1::<UndoToast>(undo_key(*id), cx),
                 StoreEvent::ScopeChanged => {
                     window.close_all_dialogs(cx);
                     nav(cx).update(cx, |n, cx| n.reset(cx));

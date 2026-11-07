@@ -944,11 +944,13 @@ impl Library {
             .h_full()
             .child(
                 canvas(
-                    move |bounds, _, cx| {
+                    move |bounds, window, cx| {
                         let w: f32 = bounds.size.width.into();
                         if (measured.get() - w).abs() > 0.5 {
                             measured.set(w);
-                            cx.notify(view);
+                            // Rows need the width: render again once this frame is done (a notify
+                            // in the middle of drawing can be dropped, leaving the grid empty).
+                            window.defer(cx, move |_, cx| cx.notify(view));
                         }
                     },
                     |_, _, _, _| {},

@@ -35,6 +35,8 @@ pub enum StoreEvent {
     Toast { text: String, error: bool, undo: Option<u64> },
     /// The account or server changed: history, editors and pages of the old one go.
     ScopeChanged,
+    /// An undo entry was used: its toast goes.
+    Undone(u64),
 }
 
 pub struct Store {
